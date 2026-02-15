@@ -1,7 +1,8 @@
-// Same Firebase project as defendu-app (web) - Realtime Database
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
-import { getDatabase } from 'firebase/database';
+// getReactNativePersistence exists in React Native bundle but is not in firebase/auth type definitions
+// @ts-expect-error - RN persistence
+import { initializeAuth, getReactNativePersistence, getAuth, Auth } from 'firebase/auth';
+import { getDatabase, Database } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -17,16 +18,15 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-let auth;
+let auth: Auth;
 try {
   auth = initializeAuth(app, {
     persistence: getReactNativePersistence(AsyncStorage),
   });
-} catch (e) {
-  // Fallback so app always loads: use default auth (memory persistence)
+} catch {
   auth = getAuth(app);
 }
 
 export { auth };
-export const db = getDatabase(app);
+export const db: Database = getDatabase(app);
 export default app;

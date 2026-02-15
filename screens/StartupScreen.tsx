@@ -7,14 +7,24 @@ const TILE_COLS = 8;
 const TILE_WIDTH = SCREEN_WIDTH / TILE_COLS;
 const TILE_HEIGHT = SCREEN_HEIGHT / TILE_ROWS;
 
-export default function StartupScreen({ onFinish }) {
-  const [tiles, setTiles] = useState([]);
+interface TileData {
+  anim: Animated.Value;
+  rotation: number;
+  translateX: number;
+  translateY: number;
+}
+
+interface StartupScreenProps {
+  onFinish?: () => void;
+}
+
+export default function StartupScreen({ onFinish }: StartupScreenProps) {
+  const [tiles, setTiles] = useState<TileData[][]>([]);
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
-  // Matches web (tabs)/index: black tiles cover screen → 2s → tile animation reveals logo → logo stays 5s → go to login
   useEffect(() => {
-    const tileData = [];
+    const tileData: TileData[][] = [];
     for (let row = 0; row < TILE_ROWS; row++) {
       tileData[row] = [];
       for (let col = 0; col < TILE_COLS; col++) {
@@ -28,8 +38,8 @@ export default function StartupScreen({ onFinish }) {
     }
     setTiles(tileData);
 
-    const startTilesTransition = (data) => {
-      const animations = [];
+    const startTilesTransition = (data: TileData[][]) => {
+      const animations: Animated.CompositeAnimation[] = [];
       for (let row = 0; row < TILE_ROWS; row++) {
         for (let col = 0; col < TILE_COLS; col++) {
           const delay = (row * TILE_COLS + col) * 15;
@@ -44,7 +54,6 @@ export default function StartupScreen({ onFinish }) {
         }
       }
       Animated.parallel(animations).start(() => {
-        // Logo stays for 5 seconds (same as web), then go to login
         setTimeout(() => {
           onFinishRef.current?.();
         }, 5000);
@@ -53,7 +62,7 @@ export default function StartupScreen({ onFinish }) {
 
     const timer = setTimeout(() => startTilesTransition(tileData), 2000);
     return () => clearTimeout(timer);
-  }, []); // Run once on mount so startup animation always plays
+  }, []);
 
   return (
     <View style={styles.container}>

@@ -15,7 +15,7 @@ import { AuthController } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
-function validateEmail(email) {
+function validateEmail(email: string): string {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email) return 'Email is required';
   if (email.length > 254) return 'Email is too long (max 254 characters)';
@@ -24,7 +24,11 @@ function validateEmail(email) {
   return '';
 }
 
-export default function ForgotPasswordScreen({ onBackToLogin }) {
+interface ForgotPasswordScreenProps {
+  onBackToLogin?: () => void;
+}
+
+export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProps) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -56,10 +60,10 @@ export default function ForgotPasswordScreen({ onBackToLogin }) {
       setSubmitError('');
       showToast('Password reset email sent successfully! Please check your inbox.');
       setTimeout(() => {
-        if (onBackToLogin) onBackToLogin();
+        onBackToLogin?.();
       }, 2000);
     } catch (err) {
-      const msg = err?.message || 'Failed to send reset email. Please try again.';
+      const msg = (err as Error)?.message ?? 'Failed to send reset email. Please try again.';
       setSubmitError(msg);
       showToast(msg);
       console.error('[ForgotPassword]', err);

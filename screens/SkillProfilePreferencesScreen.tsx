@@ -5,6 +5,11 @@ import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+interface SkillProfilePreferencesScreenProps {
+  onNext: () => void;
+  onBack: () => void;
+}
+
 const PREFERRED_TECHNIQUES = [
   { key: 'Punching', icon: 'flash' },
   { key: 'Kicking', icon: 'human-handsup' },
@@ -19,7 +24,7 @@ const TRAINING_GOALS = [
   { key: 'Confidence Building', icon: 'trophy' },
 ];
 
-export default function SkillProfilePreferencesScreen({ onNext, onBack }) {
+export default function SkillProfilePreferencesScreen({ onNext, onBack }: SkillProfilePreferencesScreenProps) {
   const { setPreferences, preferences } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [selectedTechniques, setSelectedTechniques] = useState(

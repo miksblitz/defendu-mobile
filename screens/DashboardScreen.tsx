@@ -9,15 +9,19 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { AuthController } from '../lib/controllers/AuthController';
+import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_MARGIN = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - CARD_MARGIN * 2 - 24) / 2 - CARD_MARGIN / 2;
 
-export default function DashboardScreen({ onLogout }) {
+interface DashboardScreenProps {
+  onLogout: () => void;
+}
+
+export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
   const [userName, setUserName] = useState('User');
-  const [modules, setModules] = useState([]);
+  const [modules, setModules] = useState<ModuleItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -81,7 +85,7 @@ export default function DashboardScreen({ onLogout }) {
               return (
                 <TouchableOpacity key={mod.moduleId} style={styles.moduleCard} activeOpacity={0.8}>
                   <View style={styles.moduleHeader}>
-                    <Text style={styles.moduleCategory} numberOfLines={1}>{mod.category || 'Other'}</Text>
+                    <Text style={styles.moduleCategory} numberOfLines={1}>{mod.category ?? 'Other'}</Text>
                   </View>
                   <View style={styles.moduleBody}>
                     {mod.thumbnailUrl ? (

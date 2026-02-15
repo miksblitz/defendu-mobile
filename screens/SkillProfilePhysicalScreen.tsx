@@ -4,6 +4,10 @@ import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-ico
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+interface SkillProfilePhysicalScreenProps {
+  onNext: () => void;
+  onBack: () => void;
+}
 
 const PHYSICAL_LIMITATION_OPTIONS = [
   'No left arm', 'No right arm', 'No use of left arm', 'No use of right arm',
@@ -13,7 +17,7 @@ const PHYSICAL_LIMITATION_OPTIONS = [
   'Chronic knee injury', 'Other joint or mobility limitation', 'Heart condition', 'Asthma', 'Other',
 ];
 
-function parseLimitationsString(s) {
+function parseLimitationsString(s: string | undefined): { selected: string[]; otherText: string } {
   if (!s || !s.trim()) return { selected: [], otherText: '' };
   const parts = s.split(',').map((p) => p.trim()).filter(Boolean);
   const otherText = parts.filter((p) => !PHYSICAL_LIMITATION_OPTIONS.includes(p)).join(', ');
@@ -22,27 +26,27 @@ function parseLimitationsString(s) {
   return { selected, otherText };
 }
 
-function buildLimitationsString(selected, otherText) {
+function buildLimitationsString(selected: string[], otherText: string): string {
   const list = selected.filter((x) => x !== 'Other');
   if (selected.includes('Other') && otherText.trim()) list.push(otherText.trim());
   return list.join(', ');
 }
 
-function validateHeight(value) {
+function validateHeight(value: string): string {
   if (!value) return 'Height is required';
   const num = Number(value);
   if (isNaN(num) || !/^\d*\.?\d*$/.test(value)) return 'Height must be a valid number';
   if (num < 80 || num > 250) return 'Height must be between 80-250 cm';
   return '';
 }
-function validateWeight(value) {
+function validateWeight(value: string): string {
   if (!value) return 'Weight is required';
   const num = Number(value);
   if (isNaN(num) || !/^\d*\.?\d*$/.test(value)) return 'Weight must be a valid number';
   if (num < 15 || num > 300) return 'Weight must be between 15-300 kg';
   return '';
 }
-function validateAge(value) {
+function validateAge(value: string): string {
   if (!value) return 'Age is required';
   const num = Number(value);
   if (isNaN(num) || !/^\d+$/.test(value)) return 'Age must be a valid number';
@@ -50,15 +54,15 @@ function validateAge(value) {
   return '';
 }
 
-export default function SkillProfilePhysicalScreen({ onNext, onBack }) {
+export default function SkillProfilePhysicalScreen({ onNext, onBack }: SkillProfilePhysicalScreenProps) {
   const { setPhysicalAttributes, physicalAttributes } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
 
   const parsed = parseLimitationsString(physicalAttributes?.limitations);
-  const [height, setHeight] = useState(physicalAttributes?.height?.toString() || '');
-  const [weight, setWeight] = useState(physicalAttributes?.weight?.toString() || '');
-  const [age, setAge] = useState(physicalAttributes?.age?.toString() || '');
-  const [gender, setGender] = useState(physicalAttributes?.gender || null);
+  const [height, setHeight] = useState(physicalAttributes?.height?.toString() ?? '');
+  const [weight, setWeight] = useState(physicalAttributes?.weight?.toString() ?? '');
+  const [age, setAge] = useState(physicalAttributes?.age?.toString() ?? '');
+  const [gender, setGender] = useState<'Male' | 'Female' | 'Other' | null>(physicalAttributes?.gender ?? null);
   const [selectedLimitations, setSelectedLimitations] = useState(parsed.selected);
   const [otherLimitationText, setOtherLimitationText] = useState(parsed.otherText);
   const [limitationsDropdownOpen, setLimitationsDropdownOpen] = useState(false);
@@ -92,7 +96,7 @@ export default function SkillProfilePhysicalScreen({ onNext, onBack }) {
       height: Number(height),
       weight: Number(weight),
       age: Number(age),
-      gender,
+      gender: gender as 'Male' | 'Female' | 'Other',
       limitations: limitationsStr,
     });
     onNext();
@@ -110,7 +114,7 @@ export default function SkillProfilePhysicalScreen({ onNext, onBack }) {
     onBack();
   };
 
-  const toggleLimitation = (option) => {
+  const toggleLimitation = (option: string) => {
     if (selectedLimitations.includes(option)) {
       setSelectedLimitations(selectedLimitations.filter((x) => x !== option));
     } else {
@@ -154,7 +158,7 @@ export default function SkillProfilePhysicalScreen({ onNext, onBack }) {
 
         <Text style={styles.genderLabel}>Gender</Text>
         <View style={styles.genderOptions}>
-          {['Male', 'Female', 'Other'].map((option) => {
+          {(['Male', 'Female', 'Other'] as const).map((option) => {
             const selected = gender === option;
             return (
               <TouchableOpacity key={option} style={styles.genderOption} onPress={() => { setGender(option); if (errors.gender) setErrors((e) => ({ ...e, gender: '' })); }} activeOpacity={0.7}>

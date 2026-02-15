@@ -5,7 +5,7 @@ export function useToast() {
   const [toastMessage, setToastMessage] = useState('');
   const [isShowing, setIsShowing] = useState(false);
 
-  const showToast = useCallback((message) => {
+  const showToast = useCallback((message: string) => {
     if (isShowing) return;
     setIsShowing(true);
     setToastMessage(message);

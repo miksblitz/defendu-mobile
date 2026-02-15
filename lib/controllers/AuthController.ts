@@ -1,20 +1,21 @@
-// Same Realtime Database as defendu-app (web). Register writes to users/{uid}.
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, set, get, update } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../config/firebaseConfig';
+import type { User, RegisterData, LoginData } from '../models/User';
+import type { SkillProfile } from '../models/SkillProfile';
 
-function normalizeArray(value) {
+function normalizeArray(value: unknown): string[] | undefined {
   if (!value) return undefined;
   if (Array.isArray(value)) return value;
   if (typeof value === 'object') {
     const keys = Object.keys(value).sort((a, b) => Number(a) - Number(b));
-    if (keys.every((k) => !isNaN(Number(k)))) return keys.map((k) => value[k]);
+    if (keys.every((k) => !isNaN(Number(k)))) return keys.map((k) => (value as Record<string, string>)[k]);
   }
   return undefined;
 }
 
-function getErrorMessage(errorCode) {
+function getErrorMessage(errorCode: string | undefined): string {
   if (!errorCode) return 'Login failed. Please try again.';
   const code = String(errorCode);
   switch (code) {
@@ -45,12 +46,7 @@ function getErrorMessage(errorCode) {
   return 'Invalid email or password. Please check your details and try again.';
 }
 
-/**
- * Register a new user: Firebase Auth + Realtime Database users/{uid} (same as web).
- * @param {import('../models/User').RegisterData} data
- * @returns {Promise<{ uid: string, email: string, username: string, firstName: string, lastName: string, role: string, hasCompletedSkillProfile: boolean, trainerApproved: boolean }>}
- */
-export async function register(data) {
+export async function register(data: RegisterData): Promise<User> {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
     const firebaseUser = userCredential.user;
@@ -75,22 +71,19 @@ export async function register(data) {
       username: data.username,
       firstName: data.firstName,
       lastName: data.lastName,
+      createdAt: new Date(),
       role: 'individual',
       hasCompletedSkillProfile: false,
       trainerApproved: false,
     };
-  } catch (error) {
-    const code = error?.code || error?.message || '';
-    throw new Error(getErrorMessage(code), { cause: error });
+  } catch (error: unknown) {
+    const err = error as { code?: string; message?: string };
+    const code = err?.code ?? err?.message ?? '';
+    throw new Error(getErrorMessage(String(code)), { cause: error });
   }
 }
 
-/**
- * Login: Firebase Auth + fetch user from Realtime Database, save to AsyncStorage.
- * @param {{ email: string, password: string }} data
- * @returns {Promise<{ uid: string, email: string, hasCompletedSkillProfile: boolean, role: string, ... }>}
- */
-export async function login(data) {
+export async function login(data: LoginData): Promise<User> {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
     const firebaseUser = userCredential.user;
@@ -100,7 +93,7 @@ export async function login(data) {
       throw new Error('User data not found');
     }
 
-    const userDataRaw = userSnapshot.val();
+    const userDataRaw = userSnapshot.val() as Record<string, unknown>;
     if (userDataRaw.blocked === true) {
       await signOut(auth);
       throw new Error('This account has been blocked. Please contact support for details.');
@@ -109,60 +102,62 @@ export async function login(data) {
     const now = Date.now();
     await update(ref(db, `users/${firebaseUser.uid}`), { lastActive: now });
 
-    const userRole = userDataRaw.role === 'admin' ? 'admin' : (userDataRaw.role || 'individual');
-    const userData = {
+    const userRole = userDataRaw.role === 'admin' ? 'admin' : (userDataRaw.role as string) || 'individual';
+    const userData: User = {
       ...userDataRaw,
       uid: firebaseUser.uid,
-      createdAt: userDataRaw.createdAt ? new Date(userDataRaw.createdAt) : new Date(),
+      email: String(userDataRaw.email),
+      username: String(userDataRaw.username),
+      firstName: String(userDataRaw.firstName),
+      lastName: String(userDataRaw.lastName),
+      createdAt: userDataRaw.createdAt ? new Date(userDataRaw.createdAt as number) : new Date(),
       lastActive: new Date(now),
-      role: userRole,
-      hasCompletedSkillProfile: userDataRaw.hasCompletedSkillProfile ?? false,
-      trainerApproved: userDataRaw.trainerApproved ?? false,
-      blocked: userDataRaw.blocked ?? false,
+      role: userRole as User['role'],
+      hasCompletedSkillProfile: Boolean(userDataRaw.hasCompletedSkillProfile ?? false),
+      trainerApproved: Boolean(userDataRaw.trainerApproved ?? false),
+      blocked: Boolean(userDataRaw.blocked ?? false),
       preferredTechnique: normalizeArray(userDataRaw.preferredTechnique),
       trainingGoal: normalizeArray(userDataRaw.trainingGoal),
       martialArtsBackground: normalizeArray(userDataRaw.martialArtsBackground),
-    };
+    } as User;
 
     await AsyncStorage.setItem('user', JSON.stringify(userData));
     return userData;
-  } catch (error) {
-    const code = error?.code || error?.message || '';
-    throw new Error(getErrorMessage(code), { cause: error });
+  } catch (error: unknown) {
+    const err = error as { code?: string; message?: string };
+    const code = err?.code ?? err?.message ?? '';
+    throw new Error(getErrorMessage(String(code)), { cause: error });
   }
 }
 
-/**
- * Get current user from AsyncStorage (set after login/register).
- * @returns {Promise<{ uid: string, email: string, hasCompletedSkillProfile: boolean, firstName?: string, lastName?: string, ... } | null>}
- */
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<User | null> {
   try {
     const userJson = await AsyncStorage.getItem('user');
     if (!userJson) return null;
-    const raw = JSON.parse(userJson);
+    const raw = JSON.parse(userJson) as Record<string, unknown>;
     return {
       ...raw,
-      createdAt: raw.createdAt ? (typeof raw.createdAt === 'string' ? new Date(raw.createdAt) : new Date(raw.createdAt)) : new Date(),
-      lastActive: raw.lastActive ? (typeof raw.lastActive === 'string' ? new Date(raw.lastActive) : new Date(raw.lastActive)) : undefined,
-      role: raw.role || 'individual',
-      hasCompletedSkillProfile: raw.hasCompletedSkillProfile ?? false,
-      trainerApproved: raw.trainerApproved ?? false,
-      blocked: raw.blocked ?? false,
+      uid: String(raw.uid),
+      email: String(raw.email),
+      username: String(raw.username),
+      firstName: String(raw.firstName),
+      lastName: String(raw.lastName),
+      createdAt: raw.createdAt ? (typeof raw.createdAt === 'string' ? new Date(raw.createdAt) : new Date(raw.createdAt as number)) : new Date(),
+      lastActive: raw.lastActive ? (typeof raw.lastActive === 'string' ? new Date(raw.lastActive) : new Date(raw.lastActive as number)) : undefined,
+      role: (raw.role as User['role']) || 'individual',
+      hasCompletedSkillProfile: Boolean(raw.hasCompletedSkillProfile ?? false),
+      trainerApproved: Boolean(raw.trainerApproved ?? false),
+      blocked: Boolean(raw.blocked ?? false),
       preferredTechnique: normalizeArray(raw.preferredTechnique),
       trainingGoal: normalizeArray(raw.trainingGoal),
       martialArtsBackground: normalizeArray(raw.martialArtsBackground),
-    };
-  } catch (e) {
+    } as User;
+  } catch {
     return null;
   }
 }
 
-/**
- * Save skill profile to DB and update user.hasCompletedSkillProfile. Same shape as web.
- * @param {Object} profile - { uid, physicalAttributes, preferences, pastExperience, fitnessCapabilities, completedAt }
- */
-export async function saveSkillProfile(profile) {
+export async function saveSkillProfile(profile: SkillProfile): Promise<void> {
   const currentUser = await getCurrentUser();
   if (!currentUser) throw new Error('User not authenticated');
 
@@ -173,21 +168,21 @@ export async function saveSkillProfile(profile) {
       weight: profile.physicalAttributes.weight,
       age: profile.physicalAttributes.age,
       gender: profile.physicalAttributes.gender,
-      limitations: profile.physicalAttributes.limitations || null,
+      limitations: profile.physicalAttributes.limitations ?? null,
     },
     preferences: {
-      preferredTechnique: profile.preferences.preferredTechnique || [],
-      trainingGoal: profile.preferences.trainingGoal || [],
+      preferredTechnique: profile.preferences.preferredTechnique ?? [],
+      trainingGoal: profile.preferences.trainingGoal ?? [],
     },
     pastExperience: {
       experienceLevel: profile.pastExperience.experienceLevel,
-      martialArtsBackground: profile.pastExperience.martialArtsBackground || [],
-      previousTrainingDetails: profile.pastExperience.previousTrainingDetails || null,
+      martialArtsBackground: profile.pastExperience.martialArtsBackground ?? [],
+      previousTrainingDetails: profile.pastExperience.previousTrainingDetails ?? null,
     },
     fitnessCapabilities: {
       currentFitnessLevel: profile.fitnessCapabilities.currentFitnessLevel,
       trainingFrequency: profile.fitnessCapabilities.trainingFrequency,
-      injuries: profile.fitnessCapabilities.injuries || null,
+      injuries: profile.fitnessCapabilities.injuries ?? null,
     },
     completedAt: profile.completedAt.getTime(),
     updatedAt: Date.now(),
@@ -201,15 +196,15 @@ export async function saveSkillProfile(profile) {
     weight: profile.physicalAttributes.weight,
     age: profile.physicalAttributes.age,
     gender: profile.physicalAttributes.gender,
-    physicalLimitations: profile.physicalAttributes.limitations || null,
-    preferredTechnique: profile.preferences.preferredTechnique || [],
-    trainingGoal: profile.preferences.trainingGoal || [],
+    physicalLimitations: profile.physicalAttributes.limitations ?? null,
+    preferredTechnique: profile.preferences.preferredTechnique ?? [],
+    trainingGoal: profile.preferences.trainingGoal ?? [],
     experienceLevel: profile.pastExperience.experienceLevel,
-    martialArtsBackground: profile.pastExperience.martialArtsBackground || [],
-    previousTrainingDetails: profile.pastExperience.previousTrainingDetails || null,
+    martialArtsBackground: profile.pastExperience.martialArtsBackground ?? [],
+    previousTrainingDetails: profile.pastExperience.previousTrainingDetails ?? null,
     currentFitnessLevel: profile.fitnessCapabilities.currentFitnessLevel,
     trainingFrequency: profile.fitnessCapabilities.trainingFrequency,
-    currentInjuries: profile.fitnessCapabilities.injuries || null,
+    currentInjuries: profile.fitnessCapabilities.injuries ?? null,
   };
 
   await update(ref(db, `users/${currentUser.uid}`), userUpdates);
@@ -218,11 +213,19 @@ export async function saveSkillProfile(profile) {
   await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
 }
 
-/**
- * Fetch approved modules for dashboard (any authenticated user).
- * @returns {Promise<Array<{ moduleId: string, moduleTitle: string, description?: string, category?: string, thumbnailUrl?: string, videoDuration?: number }>>}
- */
-export async function getApprovedModules() {
+export interface ModuleItem {
+  moduleId: string;
+  moduleTitle?: string;
+  description?: string;
+  category?: string;
+  thumbnailUrl?: string;
+  videoDuration?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+  status?: string;
+}
+
+export async function getApprovedModules(): Promise<ModuleItem[]> {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) return [];
@@ -231,16 +234,17 @@ export async function getApprovedModules() {
     const snapshot = await get(modulesRef);
     if (!snapshot.exists()) return [];
 
-    const data = snapshot.val();
-    const modules = [];
+    const data = snapshot.val() as Record<string, Record<string, unknown>>;
+    const modules: ModuleItem[] = [];
     for (const id in data) {
-      if (!data[id] || data[id].status !== 'approved') continue;
+      const item = data[id];
+      if (!item || item.status !== 'approved') continue;
       modules.push({
         moduleId: id,
-        ...data[id],
-        createdAt: data[id].createdAt ? new Date(data[id].createdAt) : new Date(),
-        updatedAt: data[id].updatedAt ? new Date(data[id].updatedAt) : new Date(),
-      });
+        ...item,
+        createdAt: item.createdAt ? new Date(item.createdAt as number) : new Date(),
+        updatedAt: item.updatedAt ? new Date(item.updatedAt as number) : new Date(),
+      } as ModuleItem);
     }
     modules.sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0));
     return modules;
@@ -250,18 +254,12 @@ export async function getApprovedModules() {
   }
 }
 
-/**
- * Forgot password - calls backend API (same as web) to send reset email via Mailjet.
- * Throws errors with detailed messages for debugging (API URL, status, response preview).
- * @param {{ email: string }} data
- * @returns {Promise<string>}
- */
-export async function forgotPassword(data) {
+export async function forgotPassword(data: { email: string }): Promise<string> {
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || 'https://defendu-app.vercel.app';
   const url = `${apiBaseUrl}/api/password-reset`;
 
-  let response;
-  let text;
+  let response: Response;
+  let text: string;
   try {
     response = await fetch(url, {
       method: 'POST',
@@ -269,16 +267,17 @@ export async function forgotPassword(data) {
       body: JSON.stringify({ email: data.email }),
     });
     text = await response.text();
-  } catch (fetchErr) {
-    const msg = `Network/request failed. URL: ${url} | Error: ${fetchErr?.message || String(fetchErr)}`;
+  } catch (fetchErr: unknown) {
+    const err = fetchErr as Error;
+    const msg = `Network/request failed. URL: ${url} | Error: ${err?.message ?? String(fetchErr)}`;
     console.error('[forgotPassword]', msg);
     throw new Error(msg);
   }
 
-  let result;
+  let result: { code?: string; message?: string; error?: string };
   try {
     result = text ? JSON.parse(text) : {};
-  } catch (parseErr) {
+  } catch {
     const preview = text ? text.substring(0, 80).replace(/\n/g, ' ') : '(empty)';
     const msg = `Server did not return JSON. Status: ${response.status} | URL: ${url} | Response preview: ${preview}`;
     console.error('[forgotPassword]', msg);
@@ -289,19 +288,16 @@ export async function forgotPassword(data) {
     if (response.status === 404 && result.code === 'USER_NOT_FOUND') {
       throw new Error('No account found with this email address. Please check your email or create an account.');
     }
-    const errorMsg = result.error || 'Failed to send password reset email';
+    const errorMsg = result.error ?? 'Failed to send password reset email';
     const fullMsg = result.message ? `${errorMsg}: ${result.message}` : errorMsg;
     console.error('[forgotPassword]', response.status, url, result);
     throw new Error(fullMsg);
   }
 
-  return result.message || 'Password reset email sent successfully';
+  return result.message ?? 'Password reset email sent successfully';
 }
 
-/**
- * Logout: sign out from Firebase and clear AsyncStorage.
- */
-export async function logout() {
+export async function logout(): Promise<void> {
   try {
     await signOut(auth);
     await AsyncStorage.removeItem('user');

@@ -5,6 +5,11 @@ import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+interface SkillProfilePastExperienceScreenProps {
+  onNext: () => void;
+  onBack: () => void;
+}
+
 const EXPERIENCE_LEVELS = [
   { title: 'Complete Beginner', subtitle: 'New to Self Defense' },
   { title: 'Some Experience', subtitle: 'Basic Knowledge' },
@@ -14,15 +19,15 @@ const EXPERIENCE_LEVELS = [
 const MARTIAL_ARTS_OPTIONS = ['Boxing', 'Brazilian Jiu-Jitsu (BJJ)', 'MMA (Mixed Martial Arts)', 'Taekwondo (TKD)', 'Muay Thai', 'Wushu', 'Karate', 'Judo', 'Wrestling', 'Kickboxing', 'Krav Maga', 'Aikido', 'Capoeira', 'Kung Fu', 'Jiu-Jitsu', 'Sambo', 'Savate', 'Other'];
 const EXPERIENCE_DURATIONS = ['None', '1-6 months', '7-12 months', '1-2 years', '3-5 years', '5-10 years', 'Over 10 years'];
 
-export default function SkillProfilePastExperienceScreen({ onNext, onBack }) {
+export default function SkillProfilePastExperienceScreen({ onNext, onBack }: SkillProfilePastExperienceScreenProps) {
   const { setPastExperience, pastExperience } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
-  const [selectedExperience, setSelectedExperience] = useState(pastExperience?.experienceLevel || null);
-  const [selectedMartialArts, setSelectedMartialArts] = useState(
+  const [selectedExperience, setSelectedExperience] = useState<string | null>(pastExperience?.experienceLevel ?? null);
+  const [selectedMartialArts, setSelectedMartialArts] = useState<string[]>(
     Array.isArray(pastExperience?.martialArtsBackground) ? pastExperience.martialArtsBackground : (pastExperience?.martialArtsBackground ? [pastExperience.martialArtsBackground] : [])
   );
   const [hasNoMartialArts, setHasNoMartialArts] = useState(!pastExperience?.martialArtsBackground?.length);
-  const [selectedDuration, setSelectedDuration] = useState(pastExperience?.previousTrainingDetails || null);
+  const [selectedDuration, setSelectedDuration] = useState<string | null>(pastExperience?.previousTrainingDetails ?? null);
   const [errors, setErrors] = useState({ experience: '', martialArt: '', duration: '' });
 
   const handleBack = () => {
@@ -44,7 +49,7 @@ export default function SkillProfilePastExperienceScreen({ onNext, onBack }) {
       return;
     }
     setPastExperience({
-      experienceLevel: selectedExperience,
+      experienceLevel: selectedExperience as string,
       martialArtsBackground: hasNoMartialArts ? [] : selectedMartialArts,
       previousTrainingDetails: selectedDuration || undefined,
     });

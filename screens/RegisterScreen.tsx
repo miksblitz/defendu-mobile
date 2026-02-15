@@ -14,8 +14,9 @@ import {
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
+import type { User } from '../lib/models/User';
 
-function validateName(name, fieldName) {
+function validateName(name: string, fieldName: string): string {
   if (!name) return `${fieldName} is required`;
   if (name.length < 2) return `${fieldName} must be at least 2 characters long`;
   if (name.length > 50) return `${fieldName} is too long (max 50 characters)`;
@@ -24,7 +25,7 @@ function validateName(name, fieldName) {
   return '';
 }
 
-function validateEmail(email) {
+function validateEmail(email: string): string {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email) return 'Email is required';
   if (email.length > 254) return 'Email is too long (max 254 characters)';
@@ -33,7 +34,7 @@ function validateEmail(email) {
   return '';
 }
 
-function validatePassword(password) {
+function validatePassword(password: string): string {
   if (!password) return 'Password is required';
   if (password.length < 8) return 'Password must be at least 8 characters long';
   if (password.length > 128) return 'Password is too long (max 128 characters)';
@@ -44,14 +45,36 @@ function validatePassword(password) {
   return '';
 }
 
-function validateConfirmPassword(confirmPassword, password) {
+function validateConfirmPassword(confirmPassword: string, password: string): string {
   if (!confirmPassword) return 'Please confirm your password';
   if (confirmPassword !== password) return 'Passwords do not match';
   return '';
 }
 
-export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
-  const [form, setForm] = useState({
+interface FormState {
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+interface ErrorsState {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+interface RegisterScreenProps {
+  onLogin?: () => void;
+  onRegisterSuccess?: (user: User) => void;
+}
+
+export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterScreenProps) {
+  const [form, setForm] = useState<FormState>({
     username: '',
     firstName: '',
     lastName: '',
@@ -59,7 +82,7 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
     password: '',
     confirmPassword: '',
   });
-  const [errors, setErrors] = useState({
+  const [errors, setErrors] = useState<ErrorsState>({
     firstName: '',
     lastName: '',
     email: '',
@@ -128,15 +151,14 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
       showToast('Account created successfully! Please complete your skill profile.');
       setTimeout(() => {
         setLoading(false);
-        if (onRegisterSuccess) onRegisterSuccess(user);
+        onRegisterSuccess?.(user);
       }, 2000);
     } catch (error) {
-      showToast(error?.message || 'Registration failed. Please try again.');
+      showToast((error as Error)?.message ?? 'Registration failed. Please try again.');
       setLoading(false);
     }
   };
 
-  // Use same icons as LoginScreen (profileicon optional: copy from defendu-app/assets/images if desired)
   const nameFieldIcon = require('../assets/images/emailicon.png');
   const emailIcon = require('../assets/images/emailicon.png');
   const passwordIcon = require('../assets/images/passwordicon.png');
@@ -163,7 +185,6 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
             Create your account and start building lifesaving skills today.
           </Text>
 
-          {/* Username */}
           <View style={styles.inputWrapper}>
             <Image source={nameFieldIcon} style={styles.iconImage} resizeMode="contain" />
             <TextInput
@@ -178,7 +199,6 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
             />
           </View>
 
-          {/* First Name */}
           <View style={styles.inputWrapper}>
             <Image source={nameFieldIcon} style={styles.iconImage} resizeMode="contain" />
             <TextInput
@@ -197,7 +217,6 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
           </View>
           {errors.firstName ? <Text style={styles.errorText}>{errors.firstName}</Text> : null}
 
-          {/* Last Name */}
           <View style={styles.inputWrapper}>
             <Image source={nameFieldIcon} style={styles.iconImage} resizeMode="contain" />
             <TextInput
@@ -216,7 +235,6 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
           </View>
           {errors.lastName ? <Text style={styles.errorText}>{errors.lastName}</Text> : null}
 
-          {/* Email */}
           <View style={styles.inputWrapper}>
             <Image source={emailIcon} style={styles.iconImage} resizeMode="contain" />
             <TextInput
@@ -237,7 +255,6 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
           </View>
           {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
 
-          {/* Password */}
           <View style={styles.inputWrapper}>
             <Image source={passwordIcon} style={styles.iconImage} resizeMode="contain" />
             <TextInput
@@ -265,7 +282,6 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
           </View>
           {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
 
-          {/* Confirm Password */}
           <View style={styles.inputWrapper}>
             <Image source={passwordIcon} style={styles.iconImage} resizeMode="contain" />
             <TextInput
@@ -326,40 +342,12 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }) {
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-    backgroundColor: '#041527',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  container: {
-    width: '100%',
-    maxWidth: 400,
-    alignItems: 'center',
-  },
-  logoImage: {
-    width: 160,
-    height: 180,
-    marginBottom: 16,
-    resizeMode: 'contain',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFF',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#FFF',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
+  wrapper: { flex: 1, backgroundColor: '#041527' },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },
+  container: { width: '100%', maxWidth: 400, alignItems: 'center' },
+  logoImage: { width: 160, height: 180, marginBottom: 16, resizeMode: 'contain' },
+  title: { fontSize: 24, fontWeight: '700', color: '#FFF', textAlign: 'center', marginBottom: 4 },
+  subtitle: { fontSize: 14, color: '#FFF', textAlign: 'center', marginBottom: 24 },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -370,37 +358,11 @@ const styles = StyleSheet.create({
     height: 56,
     width: '100%',
   },
-  iconImage: {
-    width: 20,
-    height: 20,
-    marginRight: 10,
-    tintColor: '#FFF',
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    height: 56,
-    color: '#FFF',
-    paddingVertical: 0,
-    paddingHorizontal: 4,
-  },
-  eyeButton: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  eyeIcon: {
-    width: 20,
-    height: 20,
-    tintColor: '#FFF',
-  },
-  errorText: {
-    color: '#FF6B6B',
-    fontSize: 12,
-    marginBottom: 8,
-    marginTop: -4,
-    width: '100%',
-    paddingLeft: 15,
-  },
+  iconImage: { width: 20, height: 20, marginRight: 10, tintColor: '#FFF' },
+  input: { flex: 1, fontSize: 16, height: 56, color: '#FFF', paddingVertical: 0, paddingHorizontal: 4 },
+  eyeButton: { marginLeft: 8, padding: 4 },
+  eyeIcon: { width: 20, height: 20, tintColor: '#FFF' },
+  errorText: { color: '#FF6B6B', fontSize: 12, marginBottom: 8, marginTop: -4, width: '100%', paddingLeft: 15 },
   button: {
     backgroundColor: '#00AABB',
     borderRadius: 30,
@@ -411,26 +373,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 300,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#FFF',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-  },
-  bottomText: {
-    color: '#FFF',
-    fontSize: 14,
-  },
-  linkText: {
-    color: '#00AABB',
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  buttonDisabled: { opacity: 0.6 },
+  buttonText: { color: '#FFF', fontWeight: '700', fontSize: 16 },
+  bottomRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' },
+  bottomText: { color: '#FFF', fontSize: 14 },
+  linkText: { color: '#00AABB', fontWeight: '700', fontSize: 14 },
 });

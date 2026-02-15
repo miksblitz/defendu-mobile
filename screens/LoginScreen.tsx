@@ -14,8 +14,9 @@ import {
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
+import type { User } from '../lib/models/User';
 
-function getLoginToastMessage(rawMessage) {
+function getLoginToastMessage(rawMessage: string): string {
   if (!rawMessage || typeof rawMessage !== 'string') return 'Login failed. Please try again.';
   const msg = rawMessage.toLowerCase();
   if (msg.includes('user not found') || msg.includes('no account found')) return 'No account found with this email. Please check your email or create an account.';
@@ -29,7 +30,13 @@ function getLoginToastMessage(rawMessage) {
   return 'Invalid email or password. Please check your details and try again.';
 }
 
-export default function LoginScreen({ onForgotPassword, onRegister, onLoginSuccess }) {
+interface LoginScreenProps {
+  onForgotPassword?: () => void;
+  onRegister?: () => void;
+  onLoginSuccess?: (user: User) => void;
+}
+
+export default function LoginScreen({ onForgotPassword, onRegister, onLoginSuccess }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -51,7 +58,7 @@ export default function LoginScreen({ onForgotPassword, onRegister, onLoginSucce
         showToast('Login successful');
       }
     } catch (error) {
-      const raw = error?.message || '';
+      const raw = (error as Error)?.message ?? '';
       const msg = getLoginToastMessage(raw);
       showToast(msg);
     } finally {

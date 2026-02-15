@@ -10,13 +10,25 @@ import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperien
 import SkillProfileFitnessScreen from './screens/SkillProfileFitnessScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
+import type { User } from './lib/models/User';
+
+type Screen =
+  | 'startup'
+  | 'login'
+  | 'register'
+  | 'forgot-password'
+  | 'dashboard'
+  | 'skill-profile-step1'
+  | 'skill-profile-step2'
+  | 'skill-profile-step3'
+  | 'skill-profile-step4';
 
 export default function App() {
-  const [screen, setScreen] = useState('startup');
+  const [screen, setScreen] = useState<Screen>('startup');
 
-  const handleLoginSuccess = (user) => {
+  const handleLoginSuccess = (user: User) => {
     if (user.role === 'admin') {
-      setScreen('dashboard'); // mobile: no separate admin dashboard yet
+      setScreen('dashboard');
     } else if (!user.hasCompletedSkillProfile) {
       setScreen('skill-profile-step1');
     } else {
@@ -46,7 +58,7 @@ export default function App() {
       {screen === 'register' && (
         <RegisterScreen
           onLogin={() => setScreen('login')}
-          onRegisterSuccess={(user) => {
+          onRegisterSuccess={(user: User | undefined) => {
             if (user && !user.hasCompletedSkillProfile) setScreen('skill-profile-step1');
             else setScreen('login');
           }}

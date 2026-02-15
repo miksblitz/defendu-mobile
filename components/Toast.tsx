@@ -1,7 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Image } from 'react-native';
 
-export default function Toast({ message, visible, onHide, duration = 3000 }) {
+interface ToastProps {
+  message: string;
+  visible: boolean;
+  onHide: () => void;
+  duration?: number;
+}
+
+export default function Toast({ message, visible, onHide, duration = 3000 }: ToastProps) {
   const progressAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
@@ -28,7 +35,7 @@ export default function Toast({ message, visible, onHide, duration = 3000 }) {
         }
       });
     }
-  }, [visible, duration]);
+  }, [visible, duration, opacityAnim, progressAnim, onHide]);
 
   if (!visible) return null;
 

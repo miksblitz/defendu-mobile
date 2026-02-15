@@ -6,6 +6,11 @@ import { AuthController } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+interface SkillProfileFitnessScreenProps {
+  onComplete: () => void;
+  onBack: () => void;
+}
+
 const CURRENT_FITNESS_LEVELS = [
   { key: 'Low', subtitle: 'Sedentary Lifestyle' },
   { key: 'Moderate', subtitle: 'Some regular activity' },
@@ -14,11 +19,11 @@ const CURRENT_FITNESS_LEVELS = [
 ];
 const TRAINING_FREQUENCIES = ['Never', '1-2 times per week', '3-4 times per week', 'Daily'];
 
-export default function SkillProfileFitnessScreen({ onComplete, onBack }) {
+export default function SkillProfileFitnessScreen({ onComplete, onBack }: SkillProfileFitnessScreenProps) {
   const { setFitnessCapabilities, fitnessCapabilities, physicalAttributes, preferences, pastExperience, clearProfile } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
-  const [selectedCurrentLevel, setSelectedCurrentLevel] = useState(fitnessCapabilities?.currentFitnessLevel || null);
-  const [selectedTrainingFrequency, setSelectedTrainingFrequency] = useState(fitnessCapabilities?.trainingFrequency || null);
+  const [selectedCurrentLevel, setSelectedCurrentLevel] = useState<string | null>(fitnessCapabilities?.currentFitnessLevel ?? null);
+  const [selectedTrainingFrequency, setSelectedTrainingFrequency] = useState<string | null>(fitnessCapabilities?.trainingFrequency ?? null);
   const [injuries, setInjuries] = useState(fitnessCapabilities?.injuries || '');
   const [hasNoInjuries, setHasNoInjuries] = useState(!fitnessCapabilities?.injuries);
   const [loading, setLoading] = useState(false);
@@ -46,8 +51,8 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack }) {
       return;
     }
     const fitnessCapabilitiesData = {
-      currentFitnessLevel: selectedCurrentLevel,
-      trainingFrequency: selectedTrainingFrequency,
+      currentFitnessLevel: selectedCurrentLevel as string,
+      trainingFrequency: selectedTrainingFrequency as string,
       injuries: hasNoInjuries ? undefined : (injuries || undefined),
     };
     setFitnessCapabilities(fitnessCapabilitiesData);
@@ -72,7 +77,7 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack }) {
       onComplete();
     } catch (error) {
       console.error('Error saving skill profile:', error);
-      showToast(error?.message || 'Failed to save skill profile. Please try again.');
+      showToast((error as Error)?.message ?? 'Failed to save skill profile. Please try again.');
     } finally {
       setLoading(false);
     }

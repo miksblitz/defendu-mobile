@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --tunnel",
     "start:lan": "set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.254.108 && expo start",
     "dev": "expo start --tunnel",
     "start:tunnel": "expo start --tunnel",
@@ -13,12 +13,19 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.33",
     "expo-build-properties": "~1.0.10",
     "expo-linking": "~8.0.11",
     "expo-status-bar": "~3.0.9",
+    "firebase": "^12.9.0",
     "react": "19.1.0",
     "react-native": "0.81.5"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.0",
+    "globals": "^17.3.0"
+  }
 }

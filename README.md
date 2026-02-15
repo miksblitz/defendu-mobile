@@ -2,6 +2,37 @@
 
 Minimal mobile app to **test the connection from your phone to your server** (e.g. defendu-app running on your PC). No UI or backend work yet—just connectivity.
 
+---
+
+## How to see errors from your phone on your PC
+
+When the app runs on your phone (Expo Go), errors and logs are sent to the **same terminal where you started the app** on your PC.
+
+1. **Start the app on the PC** (and keep this terminal open):
+   ```bash
+   cd defendu-mobile
+   npm start
+   ```
+   Or: `npx expo start` / `npm run start:lan` if you prefer.
+
+2. **Connect your phone** (scan QR code with Expo Go). Once the app loads on the phone, it talks to this Metro bundler on your PC.
+
+3. **Watch the Metro terminal on the PC**  
+   - Red-screen errors and stack traces from the phone usually appear here.  
+   - `console.log`, `console.error`, and `console.warn` from your code also show here.
+
+4. **If nothing appears in the terminal**  
+   - Shake your phone (or press `Ctrl+M` on Android emulator / `Cmd+D` on iOS simulator) to open the **developer menu**.  
+   - Tap **"Open React Devtools"** or **"Debug Remote JS"** (depending on Expo/React Native version) to open a browser tab; the **Console** tab there will show logs and errors.
+
+5. **From the Expo terminal (PC)** you can also press:
+   - **`j`** – open debugger (browser with console)
+   - **`m`** – open more options
+
+So: **keep the `npm start` terminal visible on your PC**; that’s where phone errors and logs show up.
+
+---
+
 ## Run on your phone
 
 1. **Install Expo Go** on your phone ( [Android](https://play.google.com/store/apps/details?id=host.exp.exponent) | [iOS](https://apps.apple.com/app/expo-go/id982107779) ).
@@ -22,7 +53,26 @@ Minimal mobile app to **test the connection from your phone to your server** (e.
    - Android: scan the QR code from the terminal with Expo Go.
    - iOS: scan the QR code with the Camera app, then open in Expo Go.
 
-4. **Test connection to your server**
+### Phone not connecting? (app won’t load / “Failed to download”)
+
+1. **Use tunnel mode** so the phone doesn’t need to reach your PC on the local network:
+   ```bash
+   cd defendu-mobile
+   npm run start:tunnel
+   ```
+   Scan the **new** QR code shown (tunnel URL). The first time may install `@expo/ngrok`.
+
+2. **Start from the app folder** so Metro uses the right `node_modules`:
+   ```bash
+   cd d:\DEFENDU-MOB\defendu-mobile
+   npx expo start --clear
+   ```
+
+3. **Same Wi‑Fi** – If not using tunnel, phone and PC must be on the same Wi‑Fi. Mobile data won’t reach your PC.
+
+4. **Firewall** – If using LAN (no tunnel), allow Node/Expo through Windows Firewall (see “Test connection” section below for firewall steps).
+
+5. **Test connection to your server**
    - In the app, set **Server URL** to your PC’s address, e.g. `http://192.168.1.5:8081`.
    - To get your PC’s IP:
      - **Windows:** `ipconfig` → look for “IPv4 Address” under your Wi‑Fi adapter.

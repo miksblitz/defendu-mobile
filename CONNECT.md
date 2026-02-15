@@ -1,14 +1,28 @@
 # Connect your phone to the dev server
 
-## Option 1: Use tunnel (recommended – works when LAN doesn’t)
+## Why LAN sometimes doesn’t connect
+
+Two things have to be right:
+
+1. **What the phone uses** – The URL/QR code must point to your PC’s IP (e.g. `192.168.254.108`).  
+   `REACT_NATIVE_PACKAGER_HOSTNAME=192.168.254.108` does that.
+
+2. **What the PC accepts** – The dev server must listen on the network, not only on `localhost`.  
+   `metro.config.js` is set so the server uses `host: '0.0.0.0'` and accepts connections from your phone.
+
+If it still doesn’t connect, the router may be blocking device-to-device traffic (AP/client isolation). Use tunnel (Option 1) in that case.
+
+---
+
+## Option 1: Use tunnel (default – works on your network)
 
 From the project folder:
 
 ```bash
-npm run dev
+npm start
 ```
 
-Scan the QR code with Expo Go. Your phone connects over the internet, so it works even if Wi‑Fi/LAN is blocked.
+Scan the QR code with Expo Go. Your phone connects over the internet, so it works even when Wi‑Fi/LAN is blocked. (Same as `npm run dev`.)
 
 ---
 

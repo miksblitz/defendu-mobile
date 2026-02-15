@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,21 @@ import {
 } from 'react-native';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { AuthController } from '../lib/controllers/AuthController';
+
+function getLoginToastMessage(rawMessage) {
+  if (!rawMessage || typeof rawMessage !== 'string') return 'Login failed. Please try again.';
+  const msg = rawMessage.toLowerCase();
+  if (msg.includes('user not found') || msg.includes('no account found')) return 'No account found with this email. Please check your email or create an account.';
+  if (msg.includes('wrong password') || msg.includes('incorrect password')) return 'Incorrect password. Please try again.';
+  if (msg.includes('invalid') && (msg.includes('credential') || msg.includes('email'))) return 'Please enter a valid email address.';
+  if (msg.includes('invalid email or password') || msg.includes('invalid credentials')) return 'Invalid email or password. Please check your details and try again.';
+  if (msg.includes('network') || msg.includes('connection') || msg.includes('fetch')) return 'Connection error. Please check your internet and try again.';
+  if (msg.includes('too many')) return 'Too many attempts. Please wait a moment and try again.';
+  if (msg.includes('blocked')) return 'This account has been blocked. Please contact support.';
+  if (msg.includes('permission') || msg.includes('auth/')) return 'Something went wrong. Please try again later.';
+  return 'Invalid email or password. Please check your details and try again.';
+}
 
 export default function LoginScreen({ onForgotPassword, onRegister, onLoginSuccess }) {
   const [email, setEmail] = useState('');
@@ -29,16 +44,15 @@ export default function LoginScreen({ onForgotPassword, onRegister, onLoginSucce
 
     setLoading(true);
     try {
-      // TODO: Wire to AuthController / Firebase when backend is added
-      // For now simulate success so you see the flow
-      await new Promise((r) => setTimeout(r, 800));
+      const user = await AuthController.login({ email, password });
       if (onLoginSuccess) {
-        onLoginSuccess();
+        onLoginSuccess(user);
       } else {
         showToast('Login successful');
       }
     } catch (error) {
-      const msg = error?.message || 'Login failed. Please try again.';
+      const raw = error?.message || '';
+      const msg = getLoginToastMessage(raw);
       showToast(msg);
     } finally {
       setLoading(false);

@@ -46,7 +46,6 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
         ]);
         if (cancelled) return;
         setModules(list);
-        setCompletedModuleIds(progress.completedModuleIds);
         if (recs?.recommendedModuleIds?.length) {
           const recommended = await AuthController.getModulesByIds(recs.recommendedModuleIds);
           const notCompleted = recommended.filter((m) => !progress.completedModuleIds.includes(m.moduleId));

@@ -10,19 +10,32 @@ import {
   Dimensions,
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
+import type { Module } from '../lib/models/Module';
+import { useUnreadMessages } from '../lib/contexts/UnreadMessagesContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_MARGIN = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - CARD_MARGIN * 2 - 24) / 2 - CARD_MARGIN / 2;
 
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const progressValues = [1, 0.8, 0.6, 0.3, 0, 0, 0];
+
 interface DashboardScreenProps {
   onLogout: () => void;
+  onOpenMessages: () => void;
+  onOpenProfile: () => void;
+  onOpenTrainers: () => void;
+  onOpenModule: (moduleId: string) => void;
 }
 
-export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
+export default function DashboardScreen({ onLogout, onOpenMessages, onOpenProfile, onOpenTrainers, onOpenModule }: DashboardScreenProps) {
   const [userName, setUserName] = useState('User');
   const [modules, setModules] = useState<ModuleItem[]>([]);
+  const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
+  const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showMenu, setShowMenu] = useState(false);
+  const { unreadCount, unreadDisplay, clearUnread } = useUnreadMessages();
 
   useEffect(() => {
     let cancelled = false;
@@ -33,30 +46,80 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
         const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username || user.email?.split('@')[0] || 'User';
         setUserName(name);
       }
-      const list = await AuthController.getApprovedModules();
-      if (!cancelled) setModules(list);
-      setLoading(false);
+      try {
+        const [list, recs, progress] = await Promise.all([
+          AuthController.getApprovedModules(),
+          AuthController.getRecommendations(),
+          AuthController.getUserProgress(),
+        ]);
+        if (cancelled) return;
+        setModules(list);
+        setCompletedModuleIds(progress.completedModuleIds);
+        if (recs?.recommendedModuleIds?.length) {
+          const recommended = await AuthController.getModulesByIds(recs.recommendedModuleIds);
+          const notCompleted = recommended.filter((m) => !progress.completedModuleIds.includes(m.moduleId));
+          setRecommendedModules(notCompleted);
+        } else {
+          setRecommendedModules([]);
+        }
+      } catch (e) {
+        if (!cancelled) setModules([]);
+      }
+      if (!cancelled) setLoading(false);
     }
     load();
     return () => { cancelled = true; };
   }, []);
 
   const handleLogout = async () => {
+    setShowMenu(false);
     await AuthController.logout();
     onLogout();
   };
 
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const handleMessages = () => {
+    clearUnread();
+    setShowMenu(false);
+    onOpenMessages();
+  };
+
   const todayIndex = (new Date().getDay() + 6) % 7;
-  const todayName = days[todayIndex];
+  const todayName = DAYS[todayIndex];
+  const weeklyProgress = progressValues.reduce((a, b) => a + b, 0) / DAYS.length;
+
+  const renderModuleCard = (mod: ModuleItem | Module, onPress: () => void): React.ReactNode => {
+    const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
+    return (
+      <TouchableOpacity key={mod.moduleId} style={styles.moduleCard} activeOpacity={0.8} onPress={onPress}>
+        <View style={styles.moduleHeader}>
+          <Text style={styles.moduleCategory} numberOfLines={1}>{mod.category ?? 'Other'}</Text>
+        </View>
+        <View style={styles.moduleBody}>
+          {mod.thumbnailUrl ? (
+            <Image source={{ uri: mod.thumbnailUrl }} style={styles.thumbnail} />
+          ) : (
+            <View style={styles.thumbnailPlaceholder}><Text style={styles.thumbnailIcon}>🥋</Text></View>
+          )}
+          <Text style={styles.moduleTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
+          {mod.description ? <Text style={styles.moduleDesc} numberOfLines={2}>{mod.description}</Text> : null}
+          {durationMin ? <Text style={styles.duration}>{durationMin}</Text> : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Dashboard</Text>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Logout</Text>
+          <TouchableOpacity onPress={() => { clearUnread(); setShowMenu(true); }} style={styles.menuButton}>
+            <Text style={styles.menuButtonText}>⋮</Text>
+            {unreadCount > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>{unreadDisplay}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
         <View style={styles.welcomeSection}>
@@ -64,6 +127,32 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
           <Text style={styles.welcomeText}>Welcome back, {userName}!</Text>
           <Text style={styles.welcomeSubtext}>Today is {todayName} – Let's keep training</Text>
         </View>
+
+        {recommendedModules.length > 0 && (
+          <View style={styles.recommendationsSection}>
+            <Text style={styles.recommendationsTitle}>Recommended for you</Text>
+            <Text style={styles.recommendationsSubtext}>Best suited to your profile.</Text>
+            <View style={styles.moduleGrid}>
+              {recommendedModules.slice(0, 4).map((mod: Module) => renderModuleCard(mod, () => onOpenModule(mod.moduleId)))}
+            </View>
+          </View>
+        )}
+
+        <View style={styles.weeklyGoalContainer}>
+          <View style={styles.weeklyGoalHeader}>
+            <Text style={styles.weeklyGoalTitle}>Weekly Goal</Text>
+            <Text style={styles.weeklyGoalPercentage}>{Math.round(weeklyProgress * 100)}%</Text>
+          </View>
+          <View style={styles.progressBarBackground}>
+            <View style={[styles.progressBarFill, { width: `${weeklyProgress * 100}%` }]} />
+          </View>
+          <View style={styles.weekDaysRow}>
+            {DAYS.map((day, i) => (
+              <Text key={day} style={[styles.dayLabel, i === todayIndex && styles.dayLabelActive]}>{day}</Text>
+            ))}
+          </View>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>TRAINING MODULES</Text>
           <Text style={styles.sectionSubtitle}>Browse by category. Tap a module to start.</Text>
@@ -80,29 +169,30 @@ export default function DashboardScreen({ onLogout }: DashboardScreenProps) {
           </View>
         ) : (
           <View style={styles.moduleGrid}>
-            {modules.map((mod) => {
-              const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
-              return (
-                <TouchableOpacity key={mod.moduleId} style={styles.moduleCard} activeOpacity={0.8}>
-                  <View style={styles.moduleHeader}>
-                    <Text style={styles.moduleCategory} numberOfLines={1}>{mod.category ?? 'Other'}</Text>
-                  </View>
-                  <View style={styles.moduleBody}>
-                    {mod.thumbnailUrl ? (
-                      <Image source={{ uri: mod.thumbnailUrl }} style={styles.thumbnail} />
-                    ) : (
-                      <View style={styles.thumbnailPlaceholder}><Text style={styles.thumbnailIcon}>🥋</Text></View>
-                    )}
-                    <Text style={styles.moduleTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
-                    {mod.description ? <Text style={styles.moduleDesc} numberOfLines={2}>{mod.description}</Text> : null}
-                    {durationMin ? <Text style={styles.duration}>{durationMin}</Text> : null}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {modules.map((mod: ModuleItem) => renderModuleCard(mod, () => onOpenModule(mod.moduleId)))}
           </View>
         )}
       </ScrollView>
+
+      {showMenu && (
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
+          <View style={styles.menuContainer}>
+            <TouchableOpacity style={styles.menuItem} onPress={handleMessages}>
+              <Text style={styles.menuText}>Messages</Text>
+              {unreadCount > 0 && <Text style={styles.menuUnreadText}> {unreadDisplay}</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); onOpenProfile(); }}>
+              <Text style={styles.menuText}>Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); onOpenTrainers(); }}>
+              <Text style={styles.menuText}>Trainers</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+              <Text style={styles.menuText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -113,12 +203,26 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 24, paddingBottom: 40 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, paddingBottom: 8 },
   title: { fontSize: 22, fontWeight: '700', color: '#FFF' },
-  logoutButton: { paddingVertical: 8, paddingHorizontal: 16 },
-  logoutText: { color: '#00AABB', fontWeight: '600', fontSize: 16 },
+  menuButton: { paddingVertical: 8, paddingHorizontal: 16, position: 'relative' },
+  menuButtonText: { color: '#FFF', fontSize: 24, fontWeight: '700' },
+  unreadBadge: { position: 'absolute', top: 0, right: 0, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#e53935', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+  unreadBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
   welcomeSection: { marginBottom: 24 },
   logo: { width: 140, height: 100, alignSelf: 'center', marginBottom: 12 },
   welcomeText: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 4 },
   welcomeSubtext: { fontSize: 14, color: '#6b8693' },
+  recommendationsSection: { marginBottom: 24 },
+  recommendationsTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', marginBottom: 4 },
+  recommendationsSubtext: { fontSize: 13, color: '#6b8693', marginBottom: 12 },
+  weeklyGoalContainer: { backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#062731' },
+  weeklyGoalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  weeklyGoalTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  weeklyGoalPercentage: { fontSize: 24, fontWeight: '700', color: '#07bbc0' },
+  progressBarBackground: { height: 8, backgroundColor: '#0a3645', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
+  progressBarFill: { height: 8, backgroundColor: '#07bbc0', borderRadius: 8 },
+  weekDaysRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  dayLabel: { color: '#6b8693', fontSize: 12 },
+  dayLabelActive: { color: '#07bbc0', fontWeight: '600' },
   section: { marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', letterSpacing: 2, marginBottom: 4 },
   sectionSubtitle: { fontSize: 14, color: '#6b8693' },
@@ -147,4 +251,9 @@ const styles = StyleSheet.create({
   moduleTitle: { color: '#FFF', fontSize: 14, fontWeight: '700', marginBottom: 4 },
   moduleDesc: { color: '#6b8693', fontSize: 12, marginBottom: 4 },
   duration: { color: '#07bbc0', fontSize: 11, fontWeight: '600' },
+  menuOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,14,28,0.8)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: 56, paddingRight: 24 },
+  menuContainer: { backgroundColor: '#011f36', borderRadius: 12, borderWidth: 1, borderColor: '#062731', minWidth: 160 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20 },
+  menuText: { color: '#FFF', fontSize: 16, fontWeight: '500' },
+  menuUnreadText: { color: '#e53935', fontSize: 14, fontWeight: '700' },
 });

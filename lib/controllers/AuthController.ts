@@ -4,6 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../config/firebaseConfig';
 import type { User, RegisterData, LoginData } from '../models/User';
 import type { SkillProfile } from '../models/SkillProfile';
+import type { Module } from '../models/Module';
+import type { ModuleReview } from '../models/ModuleReview';
+import type { TrainerApplication } from '../models/TrainerApplication';
 
 function normalizeArray(value: unknown): string[] | undefined {
   if (!value) return undefined;
@@ -306,4 +309,219 @@ export async function logout(): Promise<void> {
   }
 }
 
-export const AuthController = { register, login, getCurrentUser, saveSkillProfile, getApprovedModules, forgotPassword, logout };
+// --- Recommendations & progress (from web) ---
+export async function getRecommendations(): Promise<{ similarUserIds: string[]; recommendedModuleIds: string[] } | null> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return null;
+    const snap = await get(ref(db, `recommendations/${currentUser.uid}`));
+    if (!snap.exists()) return { similarUserIds: [], recommendedModuleIds: [] };
+    const data = snap.val();
+    const similarUserIds = Array.isArray(data?.similarUserIds) ? data.similarUserIds : [];
+    const recommendedModuleIds = Array.isArray(data?.recommendedModuleIds) ? data.recommendedModuleIds : [];
+    return { similarUserIds, recommendedModuleIds };
+  } catch (e) {
+    console.error('getRecommendations:', e);
+    return null;
+  }
+}
+
+export async function getUserProgress(): Promise<{ completedModuleIds: string[]; completedCount: number }> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return { completedModuleIds: [], completedCount: 0 };
+    const snap = await get(ref(db, `userProgress/${currentUser.uid}`));
+    if (!snap.exists()) return { completedModuleIds: [], completedCount: 0 };
+    const data = snap.val();
+    const completedModuleIds = Array.isArray(data?.completedModuleIds) ? data.completedModuleIds : [];
+    const completedCount = typeof data?.completedCount === 'number' ? data.completedCount : completedModuleIds.length;
+    return { completedModuleIds, completedCount };
+  } catch (e) {
+    console.error('getUserProgress:', e);
+    return { completedModuleIds: [], completedCount: 0 };
+  }
+}
+
+export async function recordModuleCompletion(moduleId: string): Promise<number> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  const existing = await getUserProgress();
+  if (existing.completedModuleIds.includes(moduleId)) return existing.completedCount;
+  const completedModuleIds = [...existing.completedModuleIds, moduleId];
+  const completedCount = completedModuleIds.length;
+  await set(ref(db, `userProgress/${currentUser.uid}`), {
+    completedModuleIds,
+    completedCount,
+    updatedAt: Date.now(),
+  });
+  return completedCount;
+}
+
+export async function getModulesByIds(moduleIds: string[]): Promise<Module[]> {
+  if (!moduleIds.length) return [];
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return [];
+    const modules: Module[] = [];
+    for (const moduleId of moduleIds) {
+      const m = await getModuleByIdForUser(moduleId);
+      if (m) modules.push(m);
+    }
+    return modules;
+  } catch (e) {
+    console.error('getModulesByIds:', e);
+    return [];
+  }
+}
+
+export async function getModuleByIdForUser(moduleId: string): Promise<Module | null> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return null;
+    const moduleRef = ref(db, `modules/${moduleId}`);
+    const snap = await get(moduleRef);
+    if (!snap.exists()) return null;
+    const raw = snap.val() as Record<string, unknown>;
+    if (raw.status !== 'approved') return null;
+    const module: Module = {
+      ...raw,
+      moduleId,
+      moduleTitle: String(raw.moduleTitle ?? ''),
+      description: String(raw.description ?? ''),
+      category: String(raw.category ?? ''),
+      status: (raw.status as Module['status']) || 'draft',
+      createdAt: raw.createdAt ? new Date(raw.createdAt as number) : new Date(),
+      updatedAt: raw.updatedAt ? new Date(raw.updatedAt as number) : new Date(),
+      submittedAt: raw.submittedAt ? new Date(raw.submittedAt as number) : undefined,
+      reviewedAt: raw.reviewedAt ? new Date(raw.reviewedAt as number) : undefined,
+      spaceRequirements: normalizeArray(raw.spaceRequirements) ?? [],
+      physicalDemandTags: normalizeArray(raw.physicalDemandTags) ?? [],
+    } as Module;
+    return module;
+  } catch (e) {
+    console.error('getModuleByIdForUser:', e);
+    return null;
+  }
+}
+
+export async function getModuleReviews(moduleId: string): Promise<ModuleReview[]> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return [];
+    const reviewsRef = ref(db, `moduleReviews/${moduleId}`);
+    const snapshot = await get(reviewsRef);
+    if (!snapshot.exists()) return [];
+    const data = snapshot.val() as Record<string, { userName?: string; rating?: number; comment?: string; createdAt?: number }>;
+    const list: ModuleReview[] = [];
+    for (const uid of Object.keys(data)) {
+      const r = data[uid];
+      list.push({
+        moduleId,
+        userId: uid,
+        userName: r.userName ?? 'User',
+        rating: typeof r.rating === 'number' ? r.rating : 0,
+        comment: r.comment ?? undefined,
+        createdAt: r.createdAt ? new Date(r.createdAt) : new Date(),
+      });
+    }
+    list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return list;
+  } catch (e) {
+    console.error('getModuleReviews:', e);
+    return [];
+  }
+}
+
+export async function submitModuleReview(moduleId: string, rating: number, comment?: string): Promise<void> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  if (rating < 1 || rating > 5) throw new Error('Rating must be between 1 and 5');
+  const userName =
+    currentUser.firstName && currentUser.lastName
+      ? `${currentUser.firstName} ${currentUser.lastName}`
+      : currentUser.username || 'User';
+  const now = Date.now();
+  await set(ref(db, `moduleReviews/${moduleId}/${currentUser.uid}`), {
+    rating,
+    comment: comment?.trim() || null,
+    createdAt: now,
+    userName,
+  });
+}
+
+// --- Trainers ---
+export async function getApprovedTrainers(): Promise<User[]> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) throw new Error('User must be authenticated to view trainers');
+    const usersRef = ref(db, 'users');
+    const snapshot = await get(usersRef);
+    if (!snapshot.exists()) return [];
+    const usersData = snapshot.val() as Record<string, Record<string, unknown>>;
+    const approvedTrainers: User[] = [];
+    for (const uid of Object.keys(usersData)) {
+      const userDataRaw = usersData[uid];
+      if (!userDataRaw || typeof userDataRaw !== 'object') continue;
+      if (userDataRaw.role !== 'trainer' || userDataRaw.trainerApproved !== true) continue;
+      approvedTrainers.push({
+        ...userDataRaw,
+        uid,
+        email: String(userDataRaw.email ?? ''),
+        username: String(userDataRaw.username ?? ''),
+        firstName: String(userDataRaw.firstName ?? ''),
+        lastName: String(userDataRaw.lastName ?? ''),
+        createdAt: userDataRaw.createdAt ? new Date(userDataRaw.createdAt as number) : new Date(),
+        lastActive: userDataRaw.lastActive ? new Date(userDataRaw.lastActive as number) : undefined,
+        role: 'trainer',
+        hasCompletedSkillProfile: Boolean(userDataRaw.hasCompletedSkillProfile ?? false),
+        trainerApproved: true,
+        blocked: Boolean(userDataRaw.blocked ?? false),
+        preferredTechnique: normalizeArray(userDataRaw.preferredTechnique),
+        trainingGoal: normalizeArray(userDataRaw.trainingGoal),
+        martialArtsBackground: normalizeArray(userDataRaw.martialArtsBackground),
+        profilePicture: userDataRaw.profilePicture != null ? String(userDataRaw.profilePicture) : undefined,
+      } as User);
+    }
+    approvedTrainers.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return approvedTrainers;
+  } catch (e) {
+    console.error('getApprovedTrainers:', e);
+    throw e;
+  }
+}
+
+export async function getTrainerApplicationData(uid: string): Promise<TrainerApplication | null> {
+  try {
+    const applicationRef = ref(db, `TrainerApplication/${uid}`);
+    const snap = await get(applicationRef);
+    if (!snap.exists()) return null;
+    const data = snap.val() as Record<string, unknown>;
+    return {
+      ...data,
+      uid: String(data.uid),
+      appliedDate: data.appliedDate ? new Date(data.appliedDate as number) : new Date(),
+    } as TrainerApplication;
+  } catch (e) {
+    console.error('getTrainerApplicationData:', e);
+    return null;
+  }
+}
+
+export const AuthController = {
+  register,
+  login,
+  getCurrentUser,
+  saveSkillProfile,
+  getApprovedModules,
+  forgotPassword,
+  logout,
+  getRecommendations,
+  getUserProgress,
+  recordModuleCompletion,
+  getModulesByIds,
+  getModuleByIdForUser,
+  getModuleReviews,
+  submitModuleReview,
+  getApprovedTrainers,
+  getTrainerApplicationData,
+};

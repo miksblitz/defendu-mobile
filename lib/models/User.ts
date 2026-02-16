@@ -25,6 +25,7 @@ export interface User {
   currentFitnessLevel?: string;
   trainingFrequency?: string;
   currentInjuries?: string | null;
+  profilePicture?: string | null;
 }
 
 export interface RegisterData {

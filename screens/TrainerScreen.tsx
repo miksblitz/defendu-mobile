@@ -18,11 +18,10 @@ interface TrainerWithData extends User {
 }
 
 interface TrainerScreenProps {
-  onBack: () => void;
   onMessageTrainer?: (uid: string, name: string, photoUrl: string | null) => void;
 }
 
-export default function TrainerScreen({ onBack, onMessageTrainer }: TrainerScreenProps) {
+export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) {
   const [trainers, setTrainers] = useState<TrainerWithData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTrainer, setSelectedTrainer] = useState<TrainerWithData | null>(null);
@@ -68,12 +67,6 @@ export default function TrainerScreen({ onBack, onMessageTrainer }: TrainerScree
 
   return (
     <View style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Trainers</Text>
-      </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         {trainers.length === 0 ? (
           <Text style={styles.emptyText}>No approved trainers yet.</Text>
@@ -125,8 +118,10 @@ export default function TrainerScreen({ onBack, onMessageTrainer }: TrainerScree
                   )}
                   <Text style={styles.detailName}>{fullName(selectedTrainer)}</Text>
                   {selectedTrainer.applicationData?.defenseStyles?.length ? (
-                    <Text style={styles.detailLabel}>Styles</Text>
-                    <Text style={styles.detailText}>{selectedTrainer.applicationData.defenseStyles.join(', ')}</Text>
+                    <>
+                      <Text style={styles.detailLabel}>Styles</Text>
+                      <Text style={styles.detailText}>{selectedTrainer.applicationData.defenseStyles.join(', ')}</Text>
+                    </>
                   ) : null}
                   {selectedTrainer.applicationData?.yearsOfExperience ? (
                     <>
@@ -168,12 +163,8 @@ export default function TrainerScreen({ onBack, onMessageTrainer }: TrainerScree
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
-  backButton: { paddingVertical: 8, paddingRight: 16 },
-  backText: { color: '#07bbc0', fontSize: 16, fontWeight: '600' },
-  headerTitle: { flex: 1, color: '#FFF', fontSize: 18, fontWeight: '700' },
   scroll: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { padding: 16, paddingTop: 8, paddingBottom: 40 },
   emptyText: { color: '#6b8693', fontSize: 16, textAlign: 'center', marginTop: 24 },
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#062731' },
   cardAvatar: { width: 56, height: 56, borderRadius: 28, marginRight: 16 },

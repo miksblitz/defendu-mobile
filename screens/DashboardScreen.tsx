@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
-import { useUnreadMessages } from '../lib/contexts/UnreadMessagesContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_MARGIN = 12;
@@ -21,21 +20,14 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const progressValues = [1, 0.8, 0.6, 0.3, 0, 0, 0];
 
 interface DashboardScreenProps {
-  onLogout: () => void;
-  onOpenMessages: () => void;
-  onOpenProfile: () => void;
-  onOpenTrainers: () => void;
   onOpenModule: (moduleId: string) => void;
 }
 
-export default function DashboardScreen({ onLogout, onOpenMessages, onOpenProfile, onOpenTrainers, onOpenModule }: DashboardScreenProps) {
+export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) {
   const [userName, setUserName] = useState('User');
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
-  const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showMenu, setShowMenu] = useState(false);
-  const { unreadCount, unreadDisplay, clearUnread } = useUnreadMessages();
 
   useEffect(() => {
     let cancelled = false;
@@ -71,18 +63,6 @@ export default function DashboardScreen({ onLogout, onOpenMessages, onOpenProfil
     return () => { cancelled = true; };
   }, []);
 
-  const handleLogout = async () => {
-    setShowMenu(false);
-    await AuthController.logout();
-    onLogout();
-  };
-
-  const handleMessages = () => {
-    clearUnread();
-    setShowMenu(false);
-    onOpenMessages();
-  };
-
   const todayIndex = (new Date().getDay() + 6) % 7;
   const todayName = DAYS[todayIndex];
   const weeklyProgress = progressValues.reduce((a, b) => a + b, 0) / DAYS.length;
@@ -111,17 +91,6 @@ export default function DashboardScreen({ onLogout, onOpenMessages, onOpenProfil
   return (
     <View style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Dashboard</Text>
-          <TouchableOpacity onPress={() => { clearUnread(); setShowMenu(true); }} style={styles.menuButton}>
-            <Text style={styles.menuButtonText}>⋮</Text>
-            {unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadBadgeText}>{unreadDisplay}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
         <View style={styles.welcomeSection}>
           <Image source={require('../assets/images/defendulogo.png')} style={styles.logo} resizeMode="contain" />
           <Text style={styles.welcomeText}>Welcome back, {userName}!</Text>
@@ -173,26 +142,6 @@ export default function DashboardScreen({ onLogout, onOpenMessages, onOpenProfil
           </View>
         )}
       </ScrollView>
-
-      {showMenu && (
-        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
-          <View style={styles.menuContainer}>
-            <TouchableOpacity style={styles.menuItem} onPress={handleMessages}>
-              <Text style={styles.menuText}>Messages</Text>
-              {unreadCount > 0 && <Text style={styles.menuUnreadText}> {unreadDisplay}</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); onOpenProfile(); }}>
-              <Text style={styles.menuText}>Profile</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); onOpenTrainers(); }}>
-              <Text style={styles.menuText}>Trainers</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-              <Text style={styles.menuText}>Logout</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      )}
     </View>
   );
 }
@@ -200,13 +149,7 @@ export default function DashboardScreen({ onLogout, onOpenMessages, onOpenProfil
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingBottom: 40 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, paddingBottom: 8 },
-  title: { fontSize: 22, fontWeight: '700', color: '#FFF' },
-  menuButton: { paddingVertical: 8, paddingHorizontal: 16, position: 'relative' },
-  menuButtonText: { color: '#FFF', fontSize: 24, fontWeight: '700' },
-  unreadBadge: { position: 'absolute', top: 0, right: 0, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#e53935', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
-  unreadBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  content: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 },
   welcomeSection: { marginBottom: 24 },
   logo: { width: 140, height: 100, alignSelf: 'center', marginBottom: 12 },
   welcomeText: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 4 },
@@ -251,9 +194,4 @@ const styles = StyleSheet.create({
   moduleTitle: { color: '#FFF', fontSize: 14, fontWeight: '700', marginBottom: 4 },
   moduleDesc: { color: '#6b8693', fontSize: 12, marginBottom: 4 },
   duration: { color: '#07bbc0', fontSize: 11, fontWeight: '600' },
-  menuOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,14,28,0.8)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: 56, paddingRight: 24 },
-  menuContainer: { backgroundColor: '#011f36', borderRadius: 12, borderWidth: 1, borderColor: '#062731', minWidth: 160 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20 },
-  menuText: { color: '#FFF', fontSize: 16, fontWeight: '500' },
-  menuUnreadText: { color: '#e53935', fontSize: 14, fontWeight: '700' },
 });

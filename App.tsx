@@ -13,6 +13,7 @@ import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScre
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
 import SkillProfileFitnessScreen from './screens/SkillProfileFitnessScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import MainLayout from './components/MainLayout';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
 import { UnreadMessagesProvider } from './lib/contexts/UnreadMessagesContext';
 import type { User } from './lib/models/User';
@@ -50,6 +51,11 @@ export default function App() {
   const goToDashboard = () => setScreen('dashboard');
   const handleLogout = () => setScreen('login');
 
+  const handleNav = (screen: 'dashboard' | 'profile' | 'trainer' | 'messages') => {
+    if (screen === 'messages') setMessagesOpenWith(null);
+    setScreen(screen);
+  };
+
   return (
     <>
       <StatusBar style="light" />
@@ -78,33 +84,33 @@ export default function App() {
       {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
-            <DashboardScreen
-              onLogout={handleLogout}
-              onOpenMessages={() => { setMessagesOpenWith(null); setScreen('messages'); }}
-              onOpenProfile={() => setScreen('profile')}
-              onOpenTrainers={() => setScreen('trainer')}
-              onOpenModule={(moduleId) => { setViewModuleId(moduleId); setScreen('view-module'); }}
-            />
+            <MainLayout title="Dashboard" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+              <DashboardScreen onOpenModule={(moduleId) => { setViewModuleId(moduleId); setScreen('view-module'); }} />
+            </MainLayout>
           )}
           {screen === 'view-module' && viewModuleId && (
-            <ViewModuleScreen moduleId={viewModuleId} onBack={() => { setViewModuleId(null); setScreen('dashboard'); }} />
+            <MainLayout title="Module" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+              <ViewModuleScreen moduleId={viewModuleId} onBack={() => { setViewModuleId(null); setScreen('dashboard'); }} />
+            </MainLayout>
           )}
           {screen === 'profile' && (
-            <ProfileScreen onBack={goToDashboard} />
+            <MainLayout title="Profile" currentScreen="profile" onNavigate={handleNav} onLogout={handleLogout}>
+              <ProfileScreen />
+            </MainLayout>
           )}
           {screen === 'messages' && (
-            <MessagesScreen
-              onBack={goToDashboard}
-              openWithUserId={messagesOpenWith?.uid}
-              openWithUserName={messagesOpenWith?.name}
-              openWithUserPhoto={messagesOpenWith?.photo ?? undefined}
-            />
+            <MainLayout title="Messages" currentScreen="messages" onNavigate={handleNav} onLogout={handleLogout}>
+              <MessagesScreen
+                openWithUserId={messagesOpenWith?.uid}
+                openWithUserName={messagesOpenWith?.name}
+                openWithUserPhoto={messagesOpenWith?.photo ?? undefined}
+              />
+            </MainLayout>
           )}
           {screen === 'trainer' && (
-            <TrainerScreen
-              onBack={goToDashboard}
-              onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }}
-            />
+            <MainLayout title="Trainers" currentScreen="trainer" onNavigate={handleNav} onLogout={handleLogout}>
+              <TrainerScreen onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }} />
+            </MainLayout>
           )}
         </UnreadMessagesProvider>
       )}

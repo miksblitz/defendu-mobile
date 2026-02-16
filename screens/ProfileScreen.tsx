@@ -11,11 +11,10 @@ import {
 import { AuthController } from '../lib/controllers/AuthController';
 
 interface ProfileScreenProps {
-  onBack: () => void;
   onEditProfile?: () => void;
 }
 
-export default function ProfileScreen({ onBack, onEditProfile }: ProfileScreenProps) {
+export default function ProfileScreen({ onEditProfile }: ProfileScreenProps) {
   const [username, setUsername] = useState('@');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -51,12 +50,6 @@ export default function ProfileScreen({ onBack, onEditProfile }: ProfileScreenPr
 
   return (
     <View style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
-      </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.avatarWrap}>
           {profilePicture ? (
@@ -82,12 +75,8 @@ export default function ProfileScreen({ onBack, onEditProfile }: ProfileScreenPr
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
-  backButton: { paddingVertical: 8, paddingRight: 16 },
-  backText: { color: '#07bbc0', fontSize: 16, fontWeight: '600' },
-  headerTitle: { flex: 1, color: '#FFF', fontSize: 18, fontWeight: '700' },
   scroll: { flex: 1 },
-  content: { padding: 24, alignItems: 'center' },
+  content: { padding: 24, alignItems: 'center', paddingTop: 16 },
   avatarWrap: { marginBottom: 16 },
   avatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#062731' },
   avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#07bbc0', justifyContent: 'center', alignItems: 'center' },

@@ -20,14 +20,12 @@ import {
 import { useUnreadMessages } from '../lib/contexts/UnreadMessagesContext';
 
 interface MessagesScreenProps {
-  onBack: () => void;
-  /** When opening from Trainer/Profile, pre-open chat with this user */
   openWithUserId?: string;
   openWithUserName?: string;
   openWithUserPhoto?: string | null;
 }
 
-export default function MessagesScreen({ onBack, openWithUserId, openWithUserName, openWithUserPhoto }: MessagesScreenProps) {
+export default function MessagesScreen({ openWithUserId, openWithUserName, openWithUserPhoto }: MessagesScreenProps) {
   const { clearUnread } = useUnreadMessages();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -113,12 +111,6 @@ export default function MessagesScreen({ onBack, openWithUserId, openWithUserNam
 
   return (
     <View style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Messages</Text>
-      </View>
       <View style={styles.body}>
         <View style={styles.conversationList}>
           {conversations.length === 0 ? (
@@ -198,10 +190,6 @@ export default function MessagesScreen({ onBack, openWithUserId, openWithUserNam
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
-  backButton: { paddingVertical: 8, paddingRight: 16 },
-  backText: { color: '#07bbc0', fontSize: 16, fontWeight: '600' },
-  headerTitle: { flex: 1, color: '#FFF', fontSize: 18, fontWeight: '700' },
   body: { flex: 1, flexDirection: 'row' },
   conversationList: { width: 120, borderRightWidth: 1, borderRightColor: '#062731', paddingVertical: 8 },
   emptyText: { color: '#6b8693', fontSize: 14, padding: 16 },

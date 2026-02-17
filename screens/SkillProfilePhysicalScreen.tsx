@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
+import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
@@ -127,7 +127,7 @@ export default function SkillProfilePhysicalScreen({ onNext, onBack }: SkillProf
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="arrow-back" size={24} color="#09AEC3" />
+            <Image source={require('../assets/images/icon-back.png')} style={styles.backButtonIcon} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Setup Profile</Text>
           <Text style={styles.progress}>1 of 4</Text>
@@ -213,6 +213,7 @@ const styles = StyleSheet.create({
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center', flexGrow: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
   backButton: { padding: 4 },
+  backButtonIcon: { width: 24, height: 24 },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#FFF' },
   progress: { fontSize: 14, fontWeight: '600', color: '#FFF', opacity: 0.5 },
   progressBarBackground: { width: '100%', height: 4, backgroundColor: '#073741', borderRadius: 4, marginBottom: 32 },

@@ -4,6 +4,7 @@
   "main": "index.tsx",
   "scripts": {
     "start": "expo start --tunnel",
+    "start:no-tunnel": "expo start",
     "start:lan": "set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.254.108 && expo start",
     "dev": "expo start --tunnel",
     "start:tunnel": "expo start --tunnel",

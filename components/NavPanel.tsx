@@ -8,6 +8,7 @@ import {
   Dimensions,
   Platform,
   StatusBar,
+  Image,
 } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -26,12 +27,22 @@ interface NavPanelProps {
   unreadDisplay: string;
 }
 
-const NAV_ITEMS: { key: NavScreen; label: string }[] = [
-  { key: 'dashboard', label: 'Home' },
-  { key: 'profile', label: 'Profile' },
-  { key: 'trainer', label: 'Trainers' },
-  { key: 'messages', label: 'Messages' },
+const NAV_ITEMS: { key: NavScreen; label: string; icon: number | 'messages' }[] = [
+  { key: 'dashboard', label: 'Home', icon: require('../assets/images/icon-home.png') },
+  { key: 'trainer', label: 'Trainers', icon: require('../assets/images/icon-profile.png') },
+  { key: 'profile', label: 'Profile', icon: require('../assets/images/icon-trainer.png') },
+  { key: 'messages', label: 'Messages', icon: 'messages' },
 ];
+const ICON_COLOR = '#07bbc0';
+
+function MessagesIcon() {
+  return (
+    <View style={iconStyles.messagesWrap}>
+      <View style={iconStyles.messagesBody} />
+      <View style={iconStyles.messagesTail} />
+    </View>
+  );
+}
 
 export default function NavPanel({
   visible,
@@ -90,14 +101,21 @@ export default function NavPanel({
         <View style={styles.panelHeader}>
           <Text style={styles.panelTitle}>Menu</Text>
         </View>
-        {NAV_ITEMS.map(({ key, label }) => (
+        {NAV_ITEMS.map(({ key, label, icon }) => (
           <TouchableOpacity
             key={key}
             style={[styles.navItem, currentScreen === key && styles.navItemActive]}
             onPress={() => handleNav(key)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.navItemText, currentScreen === key && styles.navItemTextActive]}>{label}</Text>
+            <View style={styles.navItemLeft}>
+              {icon === 'messages' ? (
+                <MessagesIcon />
+              ) : (
+                <Image source={icon} style={styles.navItemIcon} resizeMode="contain" />
+              )}
+              <Text style={[styles.navItemText, currentScreen === key && styles.navItemTextActive]}>{label}</Text>
+            </View>
             {key === 'messages' && unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadDisplay}</Text>
@@ -151,6 +169,15 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
   },
+  navItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  navItemIcon: {
+    width: 24,
+    height: 24,
+  },
   navItemActive: {
     backgroundColor: 'rgba(7, 187, 192, 0.15)',
     borderLeftWidth: 3,
@@ -189,5 +216,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#062731',
     marginVertical: 8,
     marginHorizontal: 20,
+  },
+});
+
+const iconStyles = StyleSheet.create({
+  messagesWrap: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messagesBody: {
+    width: 18,
+    height: 14,
+    borderRadius: 3,
+    backgroundColor: ICON_COLOR,
+  },
+  messagesTail: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightWidth: 5,
+    borderRightColor: 'transparent',
+    borderTopWidth: 6,
+    borderTopColor: ICON_COLOR,
   },
 });

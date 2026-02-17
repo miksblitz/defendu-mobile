@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
@@ -57,7 +57,7 @@ export default function SkillProfilePreferencesScreen({ onNext, onBack }: SkillP
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="arrow-back" size={24} color="#09AEC3" />
+            <Image source={require('../assets/images/icon-back.png')} style={styles.backButtonIcon} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Setup Profile</Text>
           <Text style={styles.progress}>2 of 4</Text>
@@ -106,6 +106,7 @@ const styles = StyleSheet.create({
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 30, flexGrow: 1, alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
   backButton: { padding: 4 },
+  backButtonIcon: { width: 24, height: 24 },
   headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: 'bold' },
   progress: { color: '#FFFFFF', fontSize: 14, opacity: 0.6 },
   progressBarBackground: { width: '100%', height: 4, backgroundColor: '#073741', borderRadius: 4, marginBottom: 32 },

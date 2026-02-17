@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar, Image } from 'react-native';
 import NavPanel, { type NavScreen } from './NavPanel';
 import { useUnreadMessages } from '../lib/contexts/UnreadMessagesContext';
 
@@ -24,11 +24,7 @@ export default function MainLayout({ title, currentScreen, onNavigate, onLogout,
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.navButton} onPress={openPanel} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <View style={styles.navButtonBars}>
-            <View style={[styles.navBar, styles.navBarFirst]} />
-            <View style={[styles.navBar, styles.navBarMid]} />
-            <View style={styles.navBar} />
-          </View>
+          <Image source={require('../assets/images/icon-menu.png')} style={styles.navButtonIcon} resizeMode="contain" />
           {unreadCount > 0 && (
             <View style={styles.headerBadge}>
               <Text style={styles.headerBadgeText}>{unreadDisplay}</Text>
@@ -79,15 +75,10 @@ const styles = StyleSheet.create({
     marginRight: 8,
     position: 'relative',
   },
-  navButtonBars: {},
-  navBar: {
-    width: 22,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: '#07bbc0',
+  navButtonIcon: {
+    width: 24,
+    height: 24,
   },
-  navBarFirst: { marginBottom: 5 },
-  navBarMid: { marginBottom: 5 },
   headerBadge: {
     position: 'absolute',
     top: 4,

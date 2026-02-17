@@ -146,7 +146,8 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
             onPress={onBackToLogin}
             disabled={loading}
           >
-            <Text style={styles.backText}>← Back to Login</Text>
+            <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
+            <Text style={styles.backText}>Back to Login</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -263,9 +264,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   backLink: {
-    marginTop: 24,
+    flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 24,
   },
+  backIcon: { width: 24, height: 24, marginRight: 8 },
   backText: {
     color: '#00AABB',
     fontWeight: '700',

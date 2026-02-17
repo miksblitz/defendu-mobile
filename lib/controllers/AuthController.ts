@@ -326,19 +326,31 @@ export async function getRecommendations(): Promise<{ similarUserIds: string[]; 
   }
 }
 
-export async function getUserProgress(): Promise<{ completedModuleIds: string[]; completedCount: number }> {
+export async function getUserProgress(): Promise<{
+  completedModuleIds: string[];
+  completedCount: number;
+  completionTimestamps: Record<string, number>;
+}> {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser) return { completedModuleIds: [], completedCount: 0 };
+    if (!currentUser) {
+      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {} };
+    }
     const snap = await get(ref(db, `userProgress/${currentUser.uid}`));
-    if (!snap.exists()) return { completedModuleIds: [], completedCount: 0 };
+    if (!snap.exists()) {
+      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {} };
+    }
     const data = snap.val();
     const completedModuleIds = Array.isArray(data?.completedModuleIds) ? data.completedModuleIds : [];
     const completedCount = typeof data?.completedCount === 'number' ? data.completedCount : completedModuleIds.length;
-    return { completedModuleIds, completedCount };
+    const completionTimestamps =
+      data?.completionTimestamps && typeof data.completionTimestamps === 'object'
+        ? data.completionTimestamps
+        : {};
+    return { completedModuleIds, completedCount, completionTimestamps };
   } catch (e) {
     console.error('getUserProgress:', e);
-    return { completedModuleIds: [], completedCount: 0 };
+    return { completedModuleIds: [], completedCount: 0, completionTimestamps: {} };
   }
 }
 
@@ -349,9 +361,11 @@ export async function recordModuleCompletion(moduleId: string): Promise<number> 
   if (existing.completedModuleIds.includes(moduleId)) return existing.completedCount;
   const completedModuleIds = [...existing.completedModuleIds, moduleId];
   const completedCount = completedModuleIds.length;
+  const completionTimestamps = { ...existing.completionTimestamps, [moduleId]: Date.now() };
   await set(ref(db, `userProgress/${currentUser.uid}`), {
     completedModuleIds,
     completedCount,
+    completionTimestamps,
     updatedAt: Date.now(),
   });
   return completedCount;

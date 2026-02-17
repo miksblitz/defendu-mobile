@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator, Image } from 'react-native';
+import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import { AuthController } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
@@ -88,7 +88,7 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack }: SkillP
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backRow}>
-            <Ionicons name="arrow-back" size={20} color="#09AEC3" />
+            <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
             <Text style={styles.backText}>Fitness Capabilities</Text>
           </TouchableOpacity>
           <View style={styles.headerRight}>
@@ -152,7 +152,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
   headerRight: { alignItems: 'flex-end' },
   backRow: { flexDirection: 'row', alignItems: 'center' },
-  backText: { color: '#09AEC3', fontSize: 20, fontWeight: 'bold', marginLeft: 8 },
+  backIcon: { width: 24, height: 24, marginRight: 8 },
+  backText: { color: '#09AEC3', fontSize: 20, fontWeight: 'bold' },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
   progress: { color: '#fff', fontSize: 14, opacity: 0.6 },
   progressBarBackground: { width: '100%', height: 4, backgroundColor: '#073741', borderRadius: 4, marginBottom: 32 },

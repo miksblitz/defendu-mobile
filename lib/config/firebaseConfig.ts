@@ -5,6 +5,11 @@ import { initializeAuth, getReactNativePersistence, getAuth, Auth } from 'fireba
 import { getDatabase, Database } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+export const cloudinaryConfig = {
+  cloudName: process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME ?? 'diii2xfo6',
+  uploadPreset: process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? 'defendu_uploads',
+};
+
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? 'AIzaSyBKq8u_QrSt5jontBA338Fk9PEjnD4pmdA',
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'defendu-e7970.firebaseapp.com',

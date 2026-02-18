@@ -4,7 +4,6 @@
   "outputDirectory": "dist",
   "installCommand": "npm install && npx expo install react-dom react-native-web --fix",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

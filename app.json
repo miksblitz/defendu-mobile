@@ -23,6 +23,7 @@
       }
     },
     "android": {
+      "package": "com.defendu.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

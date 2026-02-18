@@ -58,7 +58,7 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
     try {
       await AuthController.forgotPassword({ email });
       setSubmitError('');
-      showToast('Password reset email sent successfully! Please check your inbox.');
+      showToast('Password reset email sent! Please check your inbox.');
       setTimeout(() => {
         onBackToLogin?.();
       }, 2000);

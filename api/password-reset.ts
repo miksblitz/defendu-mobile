@@ -73,7 +73,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const mailjetApiSecret = process.env.MAILJET_API_SECRET;
     const mailjetFromEmail = process.env.MAILJET_FROM_EMAIL || 'noreply@defendu.com';
     const mailjetFromName = process.env.MAILJET_FROM_NAME || 'Defendu';
-    if (!mailjetApiKey || !mailjetApiSecret) throw new Error('Set MAILJET_API_KEY and MAILJET_API_SECRET in Vercel.');
+
+    if (!mailjetApiKey || !mailjetApiSecret) {
+      console.error('[password-reset] MAILJET_API_KEY or MAILJET_API_SECRET is not set in Vercel environment.');
+      return res.status(503).json({
+        error: 'Password reset email is temporarily unavailable.',
+        message: 'Email service is not configured. Please contact support.',
+        code: 'EMAIL_SERVICE_NOT_CONFIGURED',
+      });
+    }
 
     const mailjetApiUrl = 'https://api.mailjet.com/v3.1/send';
     const emailData = {
@@ -96,19 +104,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           </body></html>`,
       }],
     };
+    // Diagnostic logging (no secrets). Check Vercel → Deployments → Functions → password-reset → Logs.
+    const toDomain = email.replace(/^.*@/, '@');
+    console.log('[password-reset] User found, sending via Mailjet. From:', mailjetFromEmail, 'To:***' + toDomain);
+
     const authHeader = Buffer.from(`${mailjetApiKey}:${mailjetApiSecret}`).toString('base64');
     const mailjetResponse = await fetch(mailjetApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Basic ${authHeader}` },
       body: JSON.stringify(emailData),
     });
+
+    const mailjetBody = await mailjetResponse.json().catch(() => ({}));
+    console.log('[password-reset] Mailjet response:', mailjetResponse.status, JSON.stringify(mailjetBody));
+
     if (!mailjetResponse.ok) {
-      const errorData = await mailjetResponse.json().catch(() => ({}));
-      throw new Error(errorData.ErrorMessage || `Mailjet error: ${mailjetResponse.status}`);
+      const mailjetMsg = (mailjetBody as { ErrorMessage?: string }).ErrorMessage || (mailjetBody as { message?: string }).message || `HTTP ${mailjetResponse.status}`;
+      console.error('[password-reset] Mailjet send failed:', mailjetResponse.status, JSON.stringify(mailjetBody));
+      return res.status(500).json({
+        error: 'Could not send password reset email.',
+        message: 'Please check your email address and try again, or contact support if the problem continues.',
+        code: 'EMAIL_SEND_FAILED',
+      });
     }
+
     return res.status(200).json({ success: true, message: 'Password reset email sent successfully' });
-  } catch (error: any) {
-    console.error('Password reset error:', error);
-    return res.status(500).json({ error: 'Failed to process password reset request', message: error.message });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Password reset error:', err?.message, err);
+    return res.status(500).json({
+      error: 'Failed to process password reset request',
+      message: err?.message || 'Please try again later or contact support.',
+    });
   }
 }

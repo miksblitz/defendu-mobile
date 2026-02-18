@@ -1,6 +1,6 @@
 # Fix 404 on /api/password-reset and /api/hello
 
-There is **only one** `vercel.json` and **one** `api/` folder — both are inside **defendu-mobile**. The root folder no longer has any Vercel or API files.
+Defendu Mobile is a **mobile app** (iOS/Android). The API is deployed on Vercel so the app can call it (e.g. forgot password). There is **only one** `vercel.json` and **one** `api/` folder in this project.
 
 ---
 
@@ -71,7 +71,29 @@ If the build still fails:
 
 ---
 
+## 6. 404 when you click the reset link in the email
+
+If you get **404 NOT_FOUND** (or “Code: NOT_FOUND”) when clicking “Reset password” in the email:
+
+1. **Check the link URL**  
+   In the email, long-press the reset button/link and see which URL it opens (e.g. `https://defendu-mobile.vercel.app/api/reset-redirect?token=...` or a different domain). That host must be the same Vercel project where your `api/` is deployed.
+
+2. **Set `API_BASE_URL` in Vercel**  
+   So the link in the email points to the correct deployment:
+   - **Vercel** → your project → **Settings** → **Environment Variables**.
+   - Add **`API_BASE_URL`** = your exact deployment URL, e.g. `https://defendu-mobile.vercel.app` or `https://your-project-xxx.vercel.app` (no trailing slash).
+   - Redeploy so the password-reset API uses this URL when building the link.
+
+3. **Confirm the API is deployed**  
+   Open in a browser: **`https://YOUR_VERCEL_URL/api/reset-redirect?token=test`**  
+   You should see an “Invalid Reset Link” or “Opening Defendu…” page, **not** 404. If you get 404, the API is not deployed on that URL — fix **Root Directory** and **Framework Preset** (steps 1–2 above), then redeploy.
+
+4. **Redeploy** after any Root Directory, Framework, or env change.
+
+---
+
 ## Summary
 
 - **Single source:** Everything is in **defendu-mobile** (`vercel.json` + `api/` + app). No `vercel.json` or `api/` at the repo root.
-- **In Vercel:** Root Directory = **`defendu-mobile`**, Framework = **Other**, then **Redeploy**.
+- **In Vercel:** Root Directory = **`defendu-mobile`** (or empty if repo root is defendu-mobile), Framework = **Other**, then **Redeploy**.
+- **Reset link 404:** Set **API_BASE_URL** to your real deployment URL and ensure `/api/reset-redirect` returns a page, not 404.

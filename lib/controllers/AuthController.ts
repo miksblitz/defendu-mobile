@@ -1,7 +1,7 @@
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { ref, set, get, update } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth, db } from '../config/firebaseConfig';
+import { auth, db, cloudinaryConfig } from '../config/firebaseConfig';
 import type { User, RegisterData, LoginData } from '../models/User';
 import type { SkillProfile } from '../models/SkillProfile';
 import type { Module } from '../models/Module';
@@ -306,8 +306,7 @@ export async function forgotPassword(data: { email: string }): Promise<string> {
       console.error('[forgotPassword] 404 NOT_FOUND - API route missing at', url);
       throw new Error('Password reset service is currently unavailable. Please try again later or contact support.');
     }
-    const errorMsg = result.error ?? 'Failed to send password reset email';
-    const fullMsg = result.message ? `${errorMsg}: ${result.message}` : errorMsg;
+    const fullMsg = result.message || result.error || 'Failed to send password reset email';
     console.error('[forgotPassword]', response.status, url, result);
     throw new Error(fullMsg);
   }
@@ -560,6 +559,135 @@ export async function getTrainerApplicationData(uid: string): Promise<TrainerApp
   }
 }
 
+/** Get the current user's trainer application (same as getTrainerApplicationData for a given uid). */
+export async function getUserTrainerApplication(uid: string): Promise<TrainerApplication | null> {
+  return getTrainerApplicationData(uid);
+}
+
+/** Submit or resubmit trainer application; updates user role to trainer and sets trainerApproved to false. */
+export async function submitTrainerApplication(data: TrainerApplication): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== data.uid) {
+    throw new Error('User must be authenticated to submit application');
+  }
+  const existing = await getUserTrainerApplication(data.uid);
+  if (existing && existing.status !== 'rejected') {
+    throw new Error(
+      existing.status === 'awaiting review'
+        ? 'You already have an application pending. Please wait for review.'
+        : 'You cannot submit another application.'
+    );
+  }
+  const applicationData: Record<string, unknown> = {
+    uid: data.uid,
+    fullLegalName: data.fullLegalName,
+    email: data.email,
+    appliedDate: data.appliedDate instanceof Date ? data.appliedDate.getTime() : (data.appliedDate as unknown as number),
+    status: data.status,
+    dateOfBirth: data.dateOfBirth,
+    phone: data.phone,
+    physicalAddress: data.physicalAddress,
+    defenseStyles: data.defenseStyles,
+    yearsOfExperience: data.yearsOfExperience,
+    yearsOfTeaching: data.yearsOfTeaching,
+    uploadedFiles: data.uploadedFiles,
+    credentialsRevoked: data.credentialsRevoked,
+    felonyConviction: data.felonyConviction,
+    certifyAccurate: data.certifyAccurate,
+    agreeConduct: data.agreeConduct,
+  };
+  if (data.professionalAlias?.trim()) applicationData.professionalAlias = data.professionalAlias;
+  if (data.academyName?.trim()) applicationData.academyName = data.academyName;
+  if (data.currentRank?.trim()) applicationData.currentRank = data.currentRank;
+  if (data.facebookLink?.trim()) applicationData.facebookLink = data.facebookLink;
+  if (data.instagramLink?.trim()) applicationData.instagramLink = data.instagramLink;
+  if (data.otherLink?.trim()) applicationData.otherLink = data.otherLink;
+  if (data.credentialsRevokedExplanation?.trim()) applicationData.credentialsRevokedExplanation = data.credentialsRevokedExplanation;
+  if (data.felonyExplanation?.trim()) applicationData.felonyExplanation = data.felonyExplanation;
+  if (data.aboutMe?.trim()) applicationData.aboutMe = data.aboutMe;
+
+  await set(ref(db, `TrainerApplication/${data.uid}`), applicationData);
+  await update(ref(db, `users/${data.uid}`), { role: 'trainer', trainerApproved: false });
+}
+
+/** Save module (publish or draft). Only certified trainers. Returns moduleId. */
+export async function saveModule(
+  moduleData: Omit<Module, 'moduleId' | 'createdAt' | 'updatedAt'>,
+  isDraft: boolean = false
+): Promise<string> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  if (currentUser.role !== 'trainer' || !currentUser.trainerApproved) {
+    throw new Error('Only certified trainers can publish modules');
+  }
+  const moduleId = `module_${currentUser.uid}_${Date.now()}`;
+  const trainerName =
+    currentUser.firstName && currentUser.lastName
+      ? `${currentUser.firstName} ${currentUser.lastName}`
+      : currentUser.username || currentUser.email;
+  const now = Date.now();
+  const moduleForDB: Record<string, unknown> = {
+    moduleId,
+    trainerId: currentUser.uid,
+    trainerName,
+    moduleTitle: moduleData.moduleTitle,
+    description: moduleData.description,
+    category: moduleData.category,
+    introductionType: moduleData.introductionType ?? 'text',
+    introduction: moduleData.introduction ?? null,
+    introductionVideoUrl: moduleData.introductionVideoUrl ?? null,
+    techniqueVideoUrl: moduleData.techniqueVideoUrl ?? null,
+    techniqueVideoLink: moduleData.techniqueVideoLink ?? null,
+    videoDuration: moduleData.videoDuration ?? null,
+    thumbnailUrl: moduleData.thumbnailUrl ?? null,
+    intensityLevel: moduleData.intensityLevel ?? 2,
+    spaceRequirements: moduleData.spaceRequirements ?? [],
+    physicalDemandTags: moduleData.physicalDemandTags ?? [],
+    repRange: moduleData.repRange ?? null,
+    trainingDurationSeconds: moduleData.trainingDurationSeconds ?? null,
+    status: isDraft ? 'draft' : 'pending review',
+    createdAt: now,
+    updatedAt: now,
+    submittedAt: isDraft ? null : now,
+    certificationChecked: Boolean(moduleData.certificationChecked),
+  };
+  await set(ref(db, `modules/${moduleId}`), moduleForDB);
+  await set(ref(db, `trainerModules/${currentUser.uid}/${moduleId}`), {
+    moduleId,
+    moduleTitle: moduleData.moduleTitle,
+    status: moduleForDB.status,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return moduleId;
+}
+
+/** Upload video or image to Cloudinary; returns secure URL. */
+export async function uploadFileToCloudinary(
+  fileUri: string,
+  fileType: 'image' | 'video',
+  fileName: string
+): Promise<string> {
+  const resourceType = fileType === 'video' ? 'video' : 'image';
+  const publicId = `${fileType}_${Date.now()}_${(fileName || 'file').replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+  const formData = new FormData();
+  (formData as any).append('file', {
+    uri: fileUri,
+    name: fileName || (fileType === 'video' ? 'video.mp4' : 'image.jpg'),
+    type: fileType === 'video' ? 'video/mp4' : 'image/jpeg',
+  });
+  formData.append('upload_preset', cloudinaryConfig.uploadPreset);
+  formData.append('public_id', publicId);
+  const url = `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/${resourceType}/upload`;
+  const res = await fetch(url, { method: 'POST', body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Failed to upload ${fileType}`);
+  }
+  const data = await res.json();
+  return data.secure_url;
+}
+
 export const AuthController = {
   register,
   login,
@@ -577,4 +705,8 @@ export const AuthController = {
   submitModuleReview,
   getApprovedTrainers,
   getTrainerApplicationData,
+  getUserTrainerApplication,
+  submitTrainerApplication,
+  saveModule,
+  uploadFileToCloudinary,
 };

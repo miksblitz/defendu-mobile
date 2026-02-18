@@ -9,9 +9,11 @@ interface MainLayoutProps {
   onNavigate: (screen: NavScreen) => void;
   onLogout: () => void;
   children: React.ReactNode;
+  /** Optional right-side header element (e.g. Trainer Registration button) */
+  headerRight?: React.ReactNode;
 }
 
-export default function MainLayout({ title, currentScreen, onNavigate, onLogout, children }: MainLayoutProps) {
+export default function MainLayout({ title, currentScreen, onNavigate, onLogout, children, headerRight }: MainLayoutProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const { unreadCount, unreadDisplay, clearUnread } = useUnreadMessages();
 
@@ -32,7 +34,7 @@ export default function MainLayout({ title, currentScreen, onNavigate, onLogout,
           )}
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
-        <View style={styles.headerSpacer} />
+        {headerRight != null ? headerRight : <View style={styles.headerSpacer} />}
       </View>
       <View style={styles.content}>
         {children}

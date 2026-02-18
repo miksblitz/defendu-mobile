@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,19 @@ import {
   Image,
   ActivityIndicator,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
+
+/** Training category hero images (copy your 5 images to assets/images/training/ with these names). */
+const CATEGORY_IMAGES: Record<string, ReturnType<typeof require>> = {
+  'Punching': require('../assets/images/training/punching.png'),
+  'Kicking': require('../assets/images/training/kicking.png'),
+  'Elbow Strikes': require('../assets/images/training/elbow-strikes.png'),
+  'Palm Strikes': require('../assets/images/training/palm-strikes.png'),
+  'Defensive Moves': require('../assets/images/training/defensive-moves.png'),
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_MARGIN = 12;
@@ -61,6 +71,101 @@ const MODULE_CATEGORIES = [
 
 function normalizeCategory(cat: string | undefined): string {
   return (cat ?? '').trim().toLowerCase();
+}
+
+/** Animated category card with hero image, gradient overlay, and press scale. */
+function TrainingCategoryCard({
+  category,
+  moduleCount,
+  onPress,
+  index = 0,
+}: {
+  category: string;
+  moduleCount: number;
+  onPress: () => void;
+  index?: number;
+}) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+  const [imageError, setImageError] = useState(false);
+  const imageSource = CATEGORY_IMAGES[category];
+  const showImage = imageSource && !imageError;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 320,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 320,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [index, opacityAnim, translateY]);
+
+  const onPressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      speed: 80,
+      bounciness: 0,
+    }).start();
+  };
+  const onPressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 80,
+      bounciness: 4,
+    }).start();
+  };
+
+  return (
+    <TouchableOpacity
+      activeOpacity={1}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+    >
+      <Animated.View
+        style={[
+          styles.categoryCard,
+          {
+            opacity: opacityAnim,
+            transform: [{ translateY }, { scale: scaleAnim }],
+          },
+        ]}
+      >
+        <View style={styles.categoryCardImageWrap}>
+          {showImage ? (
+            <Image
+              source={imageSource}
+              style={styles.categoryCardImage}
+              resizeMode="cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <View style={styles.categoryCardImagePlaceholder}>
+              <Text style={styles.categoryCardPlaceholderIcon}>🥋</Text>
+            </View>
+          )}
+          <View style={styles.categoryCardGradient} pointerEvents="none" />
+          <View style={styles.categoryCardContent} pointerEvents="none">
+            <Text style={styles.categoryCardTitle} numberOfLines={1}>{category}</Text>
+            <Text style={styles.categoryCardCount}>
+              {moduleCount} module{moduleCount !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        </View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
 }
 
 interface DashboardScreenProps {
@@ -247,18 +352,16 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
           </View>
         ) : (
           <View style={styles.categoryList}>
-            {MODULE_CATEGORIES.map((cat) => {
+            {MODULE_CATEGORIES.map((cat, index) => {
               const count = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(cat)).length;
               return (
-                <TouchableOpacity
+                <TrainingCategoryCard
                   key={cat}
-                  style={styles.categoryItem}
+                  category={cat}
+                  moduleCount={count}
+                  index={index}
                   onPress={() => setSelectedCategory(cat)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.categoryItemTitle}>{cat}</Text>
-                  <Text style={styles.categoryItemCount}>{count} module{count !== 1 ? 's' : ''}</Text>
-                </TouchableOpacity>
+                />
               );
             })}
           </View>
@@ -315,16 +418,38 @@ const styles = StyleSheet.create({
   backIcon: { width: 24, height: 24, marginRight: 8 },
   backCategoryText: { color: '#07bbc0', fontSize: 15, fontWeight: '600' },
   categoryHeading: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 16 },
-  categoryList: { gap: 12 },
-  categoryItem: {
+  categoryList: { gap: 16 },
+  categoryCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
     backgroundColor: '#011f36',
-    borderRadius: 16,
-    padding: 18,
     borderWidth: 1,
-    borderColor: '#062731',
+    borderColor: 'rgba(7, 187, 192, 0.25)',
   },
-  categoryItemTitle: { color: '#FFF', fontSize: 17, fontWeight: '700', marginBottom: 4 },
-  categoryItemCount: { color: '#6b8693', fontSize: 14 },
+  categoryCardImageWrap: { position: 'relative', height: 160, overflow: 'hidden' },
+  categoryCardImage: { width: '100%', height: '100%' },
+  categoryCardImagePlaceholder: {
+    width: '100%', height: '100%', backgroundColor: '#0a3645', justifyContent: 'center', alignItems: 'center',
+  },
+  categoryCardPlaceholderIcon: { fontSize: 48 },
+  categoryCardGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 90,
+    backgroundColor: 'rgba(4, 21, 39, 0.88)',
+  },
+  categoryCardContent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  categoryCardTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', letterSpacing: 0.5, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  categoryCardCount: { color: '#07bbc0', fontSize: 13, fontWeight: '600', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   loadingBox: { paddingVertical: 48, alignItems: 'center' },
   loadingText: { color: '#6b8693', fontSize: 14, marginTop: 12 },
   emptyBox: { paddingVertical: 48, alignItems: 'center' },

@@ -257,8 +257,14 @@ export async function getApprovedModules(): Promise<ModuleItem[]> {
   }
 }
 
+/** API base URL for password reset and related endpoints (defendu-mobile Vercel deployment). */
+function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
+  return process.env.EXPO_PUBLIC_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || 'https://defendu-mobile.vercel.app';
+}
+
 export async function forgotPassword(data: { email: string }): Promise<string> {
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || 'https://defendu-app.vercel.app';
+  const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}/api/password-reset`;
 
   let response: Response;
@@ -282,14 +288,23 @@ export async function forgotPassword(data: { email: string }): Promise<string> {
     result = text ? JSON.parse(text) : {};
   } catch {
     const preview = text ? text.substring(0, 80).replace(/\n/g, ' ') : '(empty)';
-    const msg = `Server did not return JSON. Status: ${response.status} | URL: ${url} | Response preview: ${preview}`;
-    console.error('[forgotPassword]', msg);
-    throw new Error(msg);
+    // 404 with non-JSON (e.g. Vercel HTML or NOT_FOUND page) = route not deployed
+    if (response.status === 404) {
+      console.error('[forgotPassword] 404 - API route not found. URL:', url);
+      throw new Error('Password reset service is currently unavailable. Please try again later or contact support.');
+    }
+    console.error('[forgotPassword]', 'Non-JSON response. Status:', response.status, 'URL:', url, 'Preview:', preview);
+    throw new Error('Server did not respond correctly. Please try again later.');
   }
 
   if (!response.ok) {
     if (response.status === 404 && result.code === 'USER_NOT_FOUND') {
       throw new Error('No account found with this email address. Please check your email or create an account.');
+    }
+    // Vercel 404 NOT_FOUND = API route not deployed at this URL
+    if (response.status === 404 && (result.code === 'NOT_FOUND' || (result.error && String(result.error).includes('NOT_FOUND')))) {
+      console.error('[forgotPassword] 404 NOT_FOUND - API route missing at', url);
+      throw new Error('Password reset service is currently unavailable. Please try again later or contact support.');
     }
     const errorMsg = result.error ?? 'Failed to send password reset email';
     const fullMsg = result.message ? `${errorMsg}: ${result.message}` : errorMsg;
@@ -298,6 +313,30 @@ export async function forgotPassword(data: { email: string }): Promise<string> {
   }
 
   return result.message ?? 'Password reset email sent successfully';
+}
+
+/** Validate reset token (e.g. when app opens via deep link). */
+export async function validateResetToken(token: string): Promise<{ valid: true; email: string } | { valid: false; error: string }> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/api/validate-reset-token`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.valid === true) return { valid: true, email: data.email };
+  return { valid: false, error: data.error || 'Invalid or expired link. Please request a new one.' };
+}
+
+/** Submit new password after token validation. */
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<string> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/api/confirm-password-reset`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to reset password');
+  return data.message || 'Password reset successfully';
 }
 
 export async function logout(): Promise<void> {

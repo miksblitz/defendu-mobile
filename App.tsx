@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import * as Linking from 'expo-linking';
+import { useState, useEffect } from 'react';
 import StartupScreen from './screens/StartupScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -13,6 +14,7 @@ import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScre
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
 import SkillProfileFitnessScreen from './screens/SkillProfileFitnessScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import MainLayout from './components/MainLayout';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
 import { UnreadMessagesProvider } from './lib/contexts/UnreadMessagesContext';
@@ -23,6 +25,7 @@ type Screen =
   | 'login'
   | 'register'
   | 'forgot-password'
+  | 'reset-password'
   | 'dashboard'
   | 'view-module'
   | 'profile'
@@ -35,8 +38,40 @@ type Screen =
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('startup');
+  const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
+
+  // Deep link: defenduapp://resetpassword?token=... (e.g. from email link)
+  useEffect(() => {
+    const parseResetPasswordUrl = (url: string | null): string | null => {
+      if (!url) return null;
+      const parsed = Linking.parse(url);
+      if (parsed.path === 'resetpassword' && parsed.queryParams?.token && typeof parsed.queryParams.token === 'string') {
+        return parsed.queryParams.token;
+      }
+      return null;
+    };
+
+    const handleUrl = (url: string) => {
+      const token = parseResetPasswordUrl(url);
+      if (token) {
+        setResetPasswordToken(token);
+        setScreen('reset-password');
+      }
+    };
+
+    Linking.getInitialURL().then((url) => {
+      const token = parseResetPasswordUrl(url);
+      if (token) {
+        setResetPasswordToken(token);
+        setScreen('reset-password');
+      }
+    });
+
+    const sub = Linking.addEventListener('url', (e) => handleUrl(e.url));
+    return () => sub.remove();
+  }, []);
 
   const handleLoginSuccess = (user: User) => {
     if (user.role === 'admin') {
@@ -71,6 +106,13 @@ export default function App() {
       )}
       {screen === 'forgot-password' && (
         <ForgotPasswordScreen onBackToLogin={() => setScreen('login')} />
+      )}
+      {screen === 'reset-password' && resetPasswordToken && (
+        <ResetPasswordScreen
+          token={resetPasswordToken}
+          onSuccess={() => { setResetPasswordToken(null); setScreen('login'); }}
+          onInvalidLink={() => { setResetPasswordToken(null); setScreen('login'); }}
+        />
       )}
       {screen === 'register' && (
         <RegisterScreen

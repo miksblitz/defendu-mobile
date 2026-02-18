@@ -2,6 +2,7 @@
   "expo": {
     "name": "defendu-mobile",
     "slug": "defendu-mobile",
+    "scheme": "defenduapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

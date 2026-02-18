@@ -4,14 +4,14 @@
   "main": "index.tsx",
   "scripts": {
     "start": "expo start --tunnel",
+    "start:lan": "expo start",
     "start:no-tunnel": "expo start",
-    "start:lan": "set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.254.108 && expo start",
     "dev": "expo start --tunnel",
-    "start:tunnel": "expo start --tunnel",
     "tunnel": "npx localtunnel --port 8082",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build": "CI=1 npx expo export -p web"
   },
   "dependencies": {
     "@vercel/node": "^3.0.0",
@@ -23,9 +23,14 @@
     "expo-status-bar": "~3.0.9",
     "firebase": "^12.9.0",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-web": "~0.21.0"
   },
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",

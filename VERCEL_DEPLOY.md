@@ -20,12 +20,15 @@ The app uses the **defenduapp** scheme (see `app.json`). Ensure your native buil
 
 ## Deploy steps
 
-1. **Connect the repo** in Vercel. After selecting the repo, set **Root Directory** to the folder that contains `vercel.json` and the `api/` folder (e.g. `defendu-mobile`). If your repo root is the workspace and the app lives in a subfolder, click **Edit** next to Root Directory and enter that subfolder name. Without this, Vercel builds from the repo root and will **not** see the API routes → you get 404 on `/api/password-reset`.
-2. **Build settings** (from `vercel.json`):
+**Important:** There is only one `vercel.json` and one `api/` — both are inside **defendu-mobile**. The repo root has no Vercel or API files.
+
+1. **Connect the repo** in Vercel. **Root Directory:** If your repo root already has `vercel.json` and `api/`, leave Root Directory **empty**. If Vercel says "Root Directory 'defendu-mobile' does not exist", clear it so the repo root is used. Only set it to `defendu-mobile` if that subfolder exists in your repo.
+2. **Set Framework Preset** to **Other** (Settings → General). Then Vercel will deploy the `api/` folder.
+3. **Build settings** (from `defendu-mobile/vercel.json`):
    - Build Command: `npx expo export -p web`
    - Output Directory: `dist`
    - Install Command: `npm install`
-3. **Environment variables** (Vercel → Project → Settings → Environment Variables):
+4. **Environment variables** (Vercel → Project → Settings → Environment Variables):
 
    For each row, put the **Key** in the "Key" field and the **Value** in the "Value" field.
 

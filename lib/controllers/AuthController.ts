@@ -68,6 +68,18 @@ export async function register(data: RegisterData): Promise<User> {
 
     await set(ref(db, `users/${firebaseUser.uid}`), userDataForDB);
 
+    // Notify admin for trainer approval
+    if (data.role === 'trainer') {
+      const adminNotification = {
+        type: 'trainer_registration',
+        trainerId: firebaseUser.uid,
+        trainerName: `${data.firstName} ${data.lastName}`,
+        email: data.email,
+        createdAt: Date.now(),
+      };
+      await push(ref(db, 'adminNotifications'), adminNotification);
+    }
+
     return {
       uid: firebaseUser.uid,
       email: data.email,

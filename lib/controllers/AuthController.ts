@@ -68,17 +68,7 @@ export async function register(data: RegisterData): Promise<User> {
 
     await set(ref(db, `users/${firebaseUser.uid}`), userDataForDB);
 
-    // Notify admin for trainer approval
-    if (data.role === 'trainer') {
-      const adminNotification = {
-        type: 'trainer_registration',
-        trainerId: firebaseUser.uid,
-        trainerName: `${data.firstName} ${data.lastName}`,
-        email: data.email,
-        createdAt: Date.now(),
-      };
-      await push(ref(db, 'adminNotifications'), adminNotification);
-    }
+    // No admin notification or approval for mobile registration
 
     return {
       uid: firebaseUser.uid,
@@ -118,6 +108,10 @@ export async function login(data: LoginData): Promise<User> {
     await update(ref(db, `users/${firebaseUser.uid}`), { lastActive: now });
 
     const userRole = userDataRaw.role === 'admin' ? 'admin' : (userDataRaw.role as string) || 'individual';
+    if (userRole === 'admin') {
+      await signOut(auth);
+      throw new Error('Admin login is disabled on mobile. Please use the web dashboard.');
+    }
     const userData: User = {
       ...userDataRaw,
       uid: firebaseUser.uid,

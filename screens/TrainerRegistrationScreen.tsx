@@ -255,6 +255,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
       showToast('File picker not available. Run: npx expo install expo-document-picker');
       return;
     }
+    if (!DocumentPicker) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/pdf', 'image/*'],
@@ -690,7 +691,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingTop: 28,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#062731',
     backgroundColor: '#041527',

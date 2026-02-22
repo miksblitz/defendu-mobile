@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
-import { useState, useEffect } from 'react';
-import { TouchableOpacity, Text } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { TouchableOpacity, Text, View } from 'react-native';
 import StartupScreen from './screens/StartupScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -42,6 +42,14 @@ type Screen =
   | 'skill-profile-step3'
   | 'skill-profile-step4';
 
+const startupOverlayStyle = {
+  position: 'absolute' as const,
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+};
+
 function parseResetPasswordToken(url: string | null): string | null {
   if (!url) return null;
   try {
@@ -62,6 +70,7 @@ export default function App() {
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
 
@@ -127,19 +136,23 @@ export default function App() {
   return (
     <>
       <StatusBar style="light" />
-      {screen === 'startup' && (
-        <StartupScreen
-          onFinish={() => {
-            if (initialUrlChecked) setScreen('login');
-          }}
-        />
-      )}
-      {screen === 'login' && (
-        <LoginScreen
-          onForgotPassword={() => setScreen('forgot-password')}
-          onRegister={() => setScreen('register')}
-          onLoginSuccess={handleLoginSuccess}
-        />
+      {(screen === 'startup' || screen === 'login') && (
+        <View style={{ flex: 1 }}>
+          <LoginScreen
+            onForgotPassword={() => setScreen('forgot-password')}
+            onRegister={() => setScreen('register')}
+            onLoginSuccess={handleLoginSuccess}
+          />
+          {screen === 'startup' && (
+            <View style={startupOverlayStyle} pointerEvents="box-none">
+              <StartupScreen
+                onFinish={() => {
+                  if (initialUrlChecked) setScreen('login');
+                }}
+              />
+            </View>
+          )}
+        </View>
       )}
       {screen === 'forgot-password' && (
         <ForgotPasswordScreen onBackToLogin={() => setScreen('login')} />
@@ -163,13 +176,23 @@ export default function App() {
       {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
-            <MainLayout title="Dashboard" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
-              <DashboardScreen onOpenModule={(moduleId) => { setViewModuleId(moduleId); setScreen('view-module'); }} />
+            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+              <DashboardScreen
+                refreshKey={dashboardRefreshKey}
+                onOpenModule={(moduleId) => { setViewModuleId(moduleId); setScreen('view-module'); }}
+              />
             </MainLayout>
           )}
           {screen === 'view-module' && viewModuleId && (
-            <MainLayout title="Module" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
-              <ViewModuleScreen moduleId={viewModuleId} onBack={() => { setViewModuleId(null); setScreen('dashboard'); }} />
+            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+              <ViewModuleScreen
+                moduleId={viewModuleId}
+                onBack={() => {
+                  setViewModuleId(null);
+                  setScreen('dashboard');
+                  setDashboardRefreshKey((k) => k + 1);
+                }}
+              />
             </MainLayout>
           )}
           {screen === 'profile' && (
@@ -253,6 +276,7 @@ export default function App() {
             <SkillProfileFitnessScreen
               onComplete={goToDashboard}
               onBack={() => setScreen('skill-profile-step3')}
+              onSessionExpired={() => setScreen('login')}
             />
           )}
         </SkillProfileProvider>

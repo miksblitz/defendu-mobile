@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
-import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialCommunityIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';

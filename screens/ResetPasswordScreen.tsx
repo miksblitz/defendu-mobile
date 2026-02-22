@@ -11,7 +11,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { AuthController } from '../lib/controllers/AuthController';
+import { validateResetToken, confirmPasswordReset } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
@@ -39,7 +39,7 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const result = await AuthController.validateResetToken(token);
+      const result = await validateResetToken(token);
       if (cancelled) return;
       setValidating(false);
       if (result.valid) setValid(true);
@@ -64,7 +64,7 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
     setLoading(true);
     setError('');
     try {
-      await AuthController.confirmPasswordReset(token, password);
+      await confirmPasswordReset(token, password);
       showToast('Password reset successfully! You can now log in.');
       setTimeout(() => onSuccess(), 1500);
     } catch (err) {

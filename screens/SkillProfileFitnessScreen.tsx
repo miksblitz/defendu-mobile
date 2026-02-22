@@ -9,6 +9,7 @@ import { useToast } from '../hooks/useToast';
 interface SkillProfileFitnessScreenProps {
   onComplete: () => void;
   onBack: () => void;
+  onSessionExpired?: () => void;
 }
 
 const CURRENT_FITNESS_LEVELS = [
@@ -19,7 +20,7 @@ const CURRENT_FITNESS_LEVELS = [
 ];
 const TRAINING_FREQUENCIES = ['Never', '1-2 times per week', '3-4 times per week', 'Daily'];
 
-export default function SkillProfileFitnessScreen({ onComplete, onBack }: SkillProfileFitnessScreenProps) {
+export default function SkillProfileFitnessScreen({ onComplete, onBack, onSessionExpired }: SkillProfileFitnessScreenProps) {
   const { setFitnessCapabilities, fitnessCapabilities, physicalAttributes, preferences, pastExperience, clearProfile } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [selectedCurrentLevel, setSelectedCurrentLevel] = useState<string | null>(fitnessCapabilities?.currentFitnessLevel ?? null);
@@ -77,7 +78,9 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack }: SkillP
       onComplete();
     } catch (error) {
       console.error('Error saving skill profile:', error);
-      showToast((error as Error)?.message ?? 'Failed to save skill profile. Please try again.');
+      const message = (error as Error)?.message ?? 'Failed to save skill profile. Please try again.';
+      showToast(message);
+      if (message.includes('Session expired')) onSessionExpired?.();
     } finally {
       setLoading(false);
     }

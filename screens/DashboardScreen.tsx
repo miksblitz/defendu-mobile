@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Dimensions,
   Animated,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
@@ -22,9 +24,18 @@ const CATEGORY_IMAGES: Record<string, ReturnType<typeof require>> = {
   'Defensive Moves': require('../assets/images/training/defensive-moves.png'),
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const SAFE_TOP = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 48;
+/** Hero overlay height: enough to cover weekly goal box (~logo + header + bar + days + padding). */
+const EXPANDED_HERO_HEIGHT = Math.min(SCREEN_HEIGHT * 0.5, 320);
 const CARD_MARGIN = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - CARD_MARGIN * 2 - 24) / 2 - CARD_MARGIN / 2;
+
+/** Horizontal category strip: card width so ~1.2 cards visible, with gap. */
+const HORIZONTAL_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.72, 280);
+const HORIZONTAL_CARD_GAP = 16;
+const HORIZONTAL_PADDING = 24;
+const HORIZONTAL_SNAP_INTERVAL = HORIZONTAL_CARD_WIDTH + HORIZONTAL_CARD_GAP;
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MODULES_PER_DAY_GOAL = 5;
@@ -73,21 +84,23 @@ function normalizeCategory(cat: string | undefined): string {
   return (cat ?? '').trim().toLowerCase();
 }
 
-/** Animated category card with hero image, gradient overlay, and press scale. */
+/** Animated category card for horizontal strip: hero image, gradient, glow border, press scale, slide-in. */
 function TrainingCategoryCard({
   category,
   moduleCount,
   onPress,
   index = 0,
+  cardWidth,
 }: {
   category: string;
   moduleCount: number;
   onPress: () => void;
   index?: number;
+  cardWidth: number;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(20)).current;
+  const translateX = useRef(new Animated.Value(32)).current;
   const [imageError, setImageError] = useState(false);
   const imageSource = CATEGORY_IMAGES[category];
   const showImage = imageSource && !imageError;
@@ -96,24 +109,25 @@ function TrainingCategoryCard({
     Animated.parallel([
       Animated.timing(opacityAnim, {
         toValue: 1,
-        duration: 320,
-        delay: index * 60,
+        duration: 380,
+        delay: index * 70,
         useNativeDriver: true,
       }),
-      Animated.timing(translateY, {
+      Animated.spring(translateX, {
         toValue: 0,
-        duration: 320,
-        delay: index * 60,
+        delay: index * 70,
         useNativeDriver: true,
+        tension: 65,
+        friction: 11,
       }),
     ]).start();
-  }, [index, opacityAnim, translateY]);
+  }, [index, opacityAnim, translateX]);
 
   const onPressIn = () => {
     Animated.spring(scaleAnim, {
-      toValue: 0.97,
+      toValue: 0.96,
       useNativeDriver: true,
-      speed: 80,
+      speed: 100,
       bounciness: 0,
     }).start();
   };
@@ -122,7 +136,7 @@ function TrainingCategoryCard({
       toValue: 1,
       useNativeDriver: true,
       speed: 80,
-      bounciness: 4,
+      bounciness: 6,
     }).start();
   };
 
@@ -132,17 +146,17 @@ function TrainingCategoryCard({
       onPress={onPress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
+      style={[styles.horizontalCardTouch, { width: cardWidth }]}
     >
       <Animated.View
         style={[
           styles.categoryCard,
-          {
-            opacity: opacityAnim,
-            transform: [{ translateY }, { scale: scaleAnim }],
-          },
+          styles.categoryCardHorizontal,
+          { width: cardWidth, opacity: opacityAnim, transform: [{ translateX }, { scale: scaleAnim }] },
         ]}
       >
-        <View style={styles.categoryCardImageWrap}>
+        <View style={styles.categoryCardGlow} pointerEvents="none" />
+        <View style={[styles.categoryCardImageWrap, styles.categoryCardImageWrapHorizontal]}>
           {showImage ? (
             <Image
               source={imageSource}
@@ -158,9 +172,14 @@ function TrainingCategoryCard({
           <View style={styles.categoryCardGradient} pointerEvents="none" />
           <View style={styles.categoryCardContent} pointerEvents="none">
             <Text style={styles.categoryCardTitle} numberOfLines={1}>{category}</Text>
-            <Text style={styles.categoryCardCount}>
-              {moduleCount} module{moduleCount !== 1 ? 's' : ''}
-            </Text>
+            <View style={styles.categoryCardCountRow}>
+              <View style={styles.categoryCardCountPill}>
+                <Text style={styles.categoryCardCount}>
+                  {moduleCount} module{moduleCount !== 1 ? 's' : ''}
+                </Text>
+              </View>
+              <Text style={styles.categoryCardChevron}>›</Text>
+            </View>
           </View>
         </View>
       </Animated.View>
@@ -170,10 +189,11 @@ function TrainingCategoryCard({
 
 interface DashboardScreenProps {
   onOpenModule: (moduleId: string) => void;
+  /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
+  refreshKey?: number;
 }
 
-export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) {
-  const [userName, setUserName] = useState('User');
+export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: DashboardScreenProps) {
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
@@ -184,12 +204,8 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const user = await AuthController.getCurrentUser();
+      await AuthController.getCurrentUser();
       if (cancelled) return;
-      if (user) {
-        const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username || user.email?.split('@')[0] || 'User';
-        setUserName(name);
-      }
       try {
         const [list, recs, progress] = await Promise.all([
           AuthController.getApprovedModules(),
@@ -213,21 +229,59 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshKey]);
 
   const todayIndex = (new Date().getDay() + 6) % 7;
-  const todayName = DAYS[todayIndex];
   const dayCounts = getDayCountsThisWeek(completionTimestamps);
   const dayProgress = dayCounts.map((c) => Math.min(1, c / MODULES_PER_DAY_GOAL));
   const weeklyProgress = dayProgress.length
     ? dayProgress.reduce((a, b) => a + b, 0) / 7
     : 0;
-  const selectedDayCount = dayCounts[selectedDay] ?? 0;
-  const selectedDayPct = Math.min(100, Math.round((selectedDayCount / MODULES_PER_DAY_GOAL) * 100));
 
   const modulesInCategory = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
     : [];
+
+  const heroScale = useRef(new Animated.Value(0.92)).current;
+  const heroOpacity = useRef(new Animated.Value(0)).current;
+  const listTranslateY = useRef(new Animated.Value(24)).current;
+  const listOpacity = useRef(new Animated.Value(0)).current;
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!selectedCategory) return;
+    overlayOpacity.setValue(1);
+    heroScale.setValue(0.92);
+    heroOpacity.setValue(0);
+    listTranslateY.setValue(24);
+    listOpacity.setValue(0);
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(heroOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.spring(heroScale, { toValue: 1, useNativeDriver: true, tension: 70, friction: 12 }),
+      ]),
+      Animated.delay(100),
+      Animated.parallel([
+        Animated.timing(listOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
+        Animated.spring(listTranslateY, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }),
+      ]),
+    ]).start();
+  }, [selectedCategory, heroScale, heroOpacity, listTranslateY, listOpacity]);
+
+  const handleBackFromCategory = () => {
+    const OVERLAY_FADE_MS = 130;
+    Animated.timing(overlayOpacity, {
+      toValue: 0,
+      duration: OVERLAY_FADE_MS,
+      useNativeDriver: true,
+    }).start(() => setSelectedCategory(null));
+    Animated.parallel([
+      Animated.timing(heroOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(heroScale, { toValue: 0.92, duration: 120, useNativeDriver: true }),
+      Animated.timing(listOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
+      Animated.timing(listTranslateY, { toValue: 16, duration: 120, useNativeDriver: true }),
+    ]).start();
+  };
 
   const renderModuleCard = (mod: ModuleItem | Module, onPress: () => void): React.ReactNode => {
     const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
@@ -253,12 +307,6 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
   return (
     <View style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.welcomeSection}>
-          <Image source={require('../assets/images/defendulogo.png')} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.welcomeText}>Welcome back, {userName}!</Text>
-          <Text style={styles.welcomeSubtext}>Today is {todayName} – Let's keep training</Text>
-        </View>
-
         {recommendedModules.length > 0 && (
           <View style={styles.recommendationsSection}>
             <Text style={styles.recommendationsTitle}>Recommended for you</Text>
@@ -270,6 +318,7 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
         )}
 
         <View style={styles.weeklyGoalContainer}>
+          <Image source={require('../assets/images/defendudashboardlogo.png')} style={styles.weeklyGoalLogo} resizeMode="contain" />
           <View style={styles.weeklyGoalHeader}>
             <View>
               <Text style={styles.weeklyGoalTitle}>Weekly Goal</Text>
@@ -277,7 +326,6 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
             </View>
             <View style={styles.weeklyGoalStats}>
               <Text style={styles.weeklyGoalPercentage}>{Math.round(weeklyProgress * 100)}%</Text>
-              <Text style={styles.weeklyGoalLabel}>Complete</Text>
             </View>
           </View>
           <View style={styles.progressBarBackground}>
@@ -297,19 +345,10 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
                 <View style={styles.dayProgressContent}>
                   <Text style={[styles.dayLabel, i === selectedDay && styles.dayLabelActive]}>{day}</Text>
                   {i === todayIndex && <Text style={styles.todayBadge}>Today</Text>}
-                  <Text style={styles.dayCountText}>{dayCounts[i] ?? 0}/{MODULES_PER_DAY_GOAL}</Text>
                 </View>
               </TouchableOpacity>
             ))}
           </View>
-          {selectedDay !== null && (
-            <View style={styles.selectedDaySummary}>
-              <Text style={styles.selectedDaySummaryText}>
-                {DAYS[selectedDay]}: {selectedDayPct}% ({selectedDayCount} of {MODULES_PER_DAY_GOAL} modules)
-                {selectedDay === todayIndex ? ' • Complete modules today to increase' : ' • Past day (view only)'}
-              </Text>
-            </View>
-          )}
         </View>
 
         <View style={styles.section}>
@@ -323,50 +362,100 @@ export default function DashboardScreen({ onOpenModule }: DashboardScreenProps) 
             <ActivityIndicator size="large" color="#07bbc0" />
             <Text style={styles.loadingText}>Loading modules...</Text>
           </View>
-        ) : selectedCategory ? (
-          <>
-            <TouchableOpacity
-              style={styles.backCategoryRow}
-              onPress={() => setSelectedCategory(null)}
-              activeOpacity={0.7}
-            >
-              <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
-              <Text style={styles.backCategoryText}>Back to categories</Text>
-            </TouchableOpacity>
-            <Text style={styles.categoryHeading}>{selectedCategory}</Text>
-            {modulesInCategory.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Text style={styles.emptyTitle}>No modules in this category yet</Text>
-                <Text style={styles.emptySubtitle}>Check back later for new content.</Text>
-              </View>
-            ) : (
-              <View style={styles.moduleGrid}>
-                {modulesInCategory.map((mod: ModuleItem) => renderModuleCard(mod, () => onOpenModule(mod.moduleId)))}
-              </View>
-            )}
-          </>
         ) : modules.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyTitle}>No modules available yet</Text>
             <Text style={styles.emptySubtitle}>Check back later for new training content.</Text>
           </View>
         ) : (
-          <View style={styles.categoryList}>
-            {MODULE_CATEGORIES.map((cat, index) => {
-              const count = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(cat)).length;
-              return (
-                <TrainingCategoryCard
-                  key={cat}
-                  category={cat}
-                  moduleCount={count}
-                  index={index}
-                  onPress={() => setSelectedCategory(cat)}
-                />
-              );
-            })}
-          </View>
+          <>
+            <Text style={styles.swipeHint}>Swipe to explore categories</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryScrollContent}
+              snapToInterval={HORIZONTAL_SNAP_INTERVAL}
+              snapToAlignment="start"
+              decelerationRate="fast"
+            >
+              {MODULE_CATEGORIES.map((cat, index) => {
+                const count = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(cat)).length;
+                return (
+                  <TrainingCategoryCard
+                    key={cat}
+                    category={cat}
+                    moduleCount={count}
+                    index={index}
+                    cardWidth={HORIZONTAL_CARD_WIDTH}
+                    onPress={() => setSelectedCategory(cat)}
+                  />
+                );
+              })}
+            </ScrollView>
+          </>
         )}
       </ScrollView>
+
+      {selectedCategory ? (
+        <View style={styles.categoryOverlay} pointerEvents="box-none">
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: overlayOpacity }]}>
+          <ScrollView style={styles.categoryOverlayScroll} contentContainerStyle={styles.categoryOverlayContent} showsVerticalScrollIndicator={false}>
+            <Animated.View
+              style={[
+                styles.expandedCategoryHeroOverlay,
+                {
+                  opacity: heroOpacity,
+                  transform: [{ scale: heroScale }],
+                },
+              ]}
+            >
+              <View style={styles.expandedCategoryHeroImageWrap}>
+                {CATEGORY_IMAGES[selectedCategory] != null ? (
+                  <Image
+                    source={CATEGORY_IMAGES[selectedCategory]}
+                    style={styles.expandedCategoryHeroImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.expandedCategoryHeroPlaceholder}>
+                    <Text style={styles.categoryCardPlaceholderIcon}>🥋</Text>
+                  </View>
+                )}
+                <View style={styles.expandedCategoryHeroGradient} />
+                <Text style={styles.expandedCategoryHeroTitle}>{selectedCategory}</Text>
+                <TouchableOpacity
+                  style={styles.expandedCategoryHeroBackBtn}
+                  onPress={handleBackFromCategory}
+                  activeOpacity={0.8}
+                >
+                  <Image source={require('../assets/images/icon-back.png')} style={styles.expandedCategoryHeroBackIcon} resizeMode="contain" />
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.expandedCategoryListWrap,
+                {
+                  opacity: listOpacity,
+                  transform: [{ translateY: listTranslateY }],
+                },
+              ]}
+            >
+              {modulesInCategory.length === 0 ? (
+                <View style={styles.emptyBox}>
+                  <Text style={styles.emptyTitle}>No modules in this category yet</Text>
+                  <Text style={styles.emptySubtitle}>Check back later for new content.</Text>
+                </View>
+              ) : (
+                <View style={styles.moduleGrid}>
+                  {modulesInCategory.map((mod: ModuleItem) => renderModuleCard(mod, () => onOpenModule(mod.moduleId)))}
+                </View>
+              )}
+            </Animated.View>
+          </ScrollView>
+          </Animated.View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -375,20 +464,16 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 },
-  welcomeSection: { marginBottom: 24 },
-  logo: { width: 140, height: 100, alignSelf: 'center', marginBottom: 12 },
-  welcomeText: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 4 },
-  welcomeSubtext: { fontSize: 14, color: '#6b8693' },
   recommendationsSection: { marginBottom: 24 },
   recommendationsTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', marginBottom: 4 },
   recommendationsSubtext: { fontSize: 13, color: '#6b8693', marginBottom: 12 },
   weeklyGoalContainer: { backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#062731' },
+  weeklyGoalLogo: { width: '100%', maxWidth: 200, height: 44, alignSelf: 'center', marginBottom: 16 },
   weeklyGoalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   weeklyGoalTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   weeklyGoalSubtitle: { fontSize: 12, color: '#6b8693', marginTop: 2 },
   weeklyGoalStats: { alignItems: 'flex-end' },
   weeklyGoalPercentage: { fontSize: 24, fontWeight: '700', color: '#07bbc0' },
-  weeklyGoalLabel: { fontSize: 11, color: '#6b8693', marginTop: 2 },
   progressBarBackground: { height: 8, backgroundColor: '#0a3645', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
   progressBarFill: { height: 8, backgroundColor: '#07bbc0', borderRadius: 8 },
   weekDaysRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
@@ -408,17 +493,55 @@ const styles = StyleSheet.create({
   dayLabel: { color: '#6b8693', fontSize: 11, fontWeight: '500' },
   dayLabelActive: { color: '#07bbc0', fontWeight: '700' },
   todayBadge: { color: '#07bbc0', fontSize: 9, fontWeight: '700', marginTop: 1 },
-  dayCountText: { color: '#FFF', fontSize: 11, marginTop: 2 },
-  selectedDaySummary: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#062731' },
-  selectedDaySummaryText: { color: '#6b8693', fontSize: 12 },
   section: { marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', letterSpacing: 2, marginBottom: 4 },
   sectionSubtitle: { fontSize: 14, color: '#6b8693' },
-  backCategoryRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  backIcon: { width: 24, height: 24, marginRight: 8 },
-  backCategoryText: { color: '#07bbc0', fontSize: 15, fontWeight: '600' },
+  categoryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#041527',
+    zIndex: 50,
+  },
+  categoryOverlayScroll: { flex: 1 },
+  categoryOverlayContent: { paddingHorizontal: 24, paddingBottom: 48 },
+  expandedCategoryHeroOverlay: { marginBottom: 20 },
+  expandedCategoryHero: { marginHorizontal: -24, marginBottom: 20 },
+  expandedCategoryHeroImageWrap: { width: SCREEN_WIDTH, height: EXPANDED_HERO_HEIGHT, position: 'relative', overflow: 'hidden' },
+  expandedCategoryHeroImage: { width: '100%', height: '100%' },
+  expandedCategoryHeroPlaceholder: { width: '100%', height: '100%', backgroundColor: '#0a3645', justifyContent: 'center', alignItems: 'center' },
+  expandedCategoryHeroGradient: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: 160,
+    backgroundColor: 'rgba(4, 21, 39, 0.88)',
+  },
+  expandedCategoryHeroTitle: {
+    position: 'absolute', left: 24, right: 24, bottom: 32,
+    color: '#FFF', fontSize: 28, fontWeight: '800', letterSpacing: 0.5,
+    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+  },
+  expandedCategoryHeroBackBtn: {
+    position: 'absolute',
+    top: SAFE_TOP,
+    left: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(4, 21, 39, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expandedCategoryHeroBackIcon: { width: 24, height: 24, tintColor: '#FFF' },
+  expandedCategoryListWrap: { marginBottom: 24 },
   categoryHeading: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 16 },
-  categoryList: { gap: 16 },
+  swipeHint: { color: '#6b8693', fontSize: 12, marginBottom: 12, letterSpacing: 0.5 },
+  categoryScrollContent: {
+    paddingLeft: HORIZONTAL_PADDING,
+    paddingRight: HORIZONTAL_PADDING + HORIZONTAL_CARD_GAP,
+    paddingVertical: 8,
+  },
+  horizontalCardTouch: { marginRight: HORIZONTAL_CARD_GAP },
   categoryCard: {
     borderRadius: 20,
     overflow: 'hidden',
@@ -426,7 +549,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(7, 187, 192, 0.25)',
   },
+  categoryCardHorizontal: {
+    shadowColor: '#07bbc0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  categoryCardGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.35)',
+    pointerEvents: 'none',
+  },
   categoryCardImageWrap: { position: 'relative', height: 160, overflow: 'hidden' },
+  categoryCardImageWrapHorizontal: { height: 300 },
   categoryCardImage: { width: '100%', height: '100%' },
   categoryCardImagePlaceholder: {
     width: '100%', height: '100%', backgroundColor: '#0a3645', justifyContent: 'center', alignItems: 'center',
@@ -437,8 +579,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 90,
-    backgroundColor: 'rgba(4, 21, 39, 0.88)',
+    height: 96,
+    backgroundColor: 'rgba(4, 21, 39, 0.92)',
   },
   categoryCardContent: {
     position: 'absolute',
@@ -449,7 +591,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   categoryCardTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', letterSpacing: 0.5, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  categoryCardCount: { color: '#07bbc0', fontSize: 13, fontWeight: '600', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  categoryCardCountRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, justifyContent: 'space-between' },
+  categoryCardCountPill: { backgroundColor: 'rgba(7, 187, 192, 0.25)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  categoryCardCount: { color: '#07bbc0', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  categoryCardChevron: { color: 'rgba(255,255,255,0.6)', fontSize: 22, fontWeight: '300', marginRight: 4 },
   loadingBox: { paddingVertical: 48, alignItems: 'center' },
   loadingText: { color: '#6b8693', fontSize: 14, marginTop: 12 },
   emptyBox: { paddingVertical: 48, alignItems: 'center' },

@@ -1,7 +1,19 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar, Image } from 'react-native';
+import React, { useState, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  SafeAreaView,
+  Platform,
+  StatusBar,
+  Image,
+  PanResponder,
+} from 'react-native';
 import NavPanel, { type NavScreen } from './NavPanel';
 import { useUnreadMessages } from '../lib/contexts/UnreadMessagesContext';
+
+const SWIPE_MIN_DX = 50;
 
 interface MainLayoutProps {
   title: string;
@@ -17,10 +29,23 @@ export default function MainLayout({ title, currentScreen, onNavigate, onLogout,
   const [panelOpen, setPanelOpen] = useState(false);
   const { unreadCount, unreadDisplay, clearUnread } = useUnreadMessages();
 
-  const openPanel = () => {
+  const openPanel = useCallback(() => {
     clearUnread();
     setPanelOpen(true);
-  };
+  }, [clearUnread]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const startX = gestureState.moveX - gestureState.dx;
+        return gestureState.dx > 18 && startX < 55;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx >= SWIPE_MIN_DX) openPanel();
+      },
+    })
+  ).current;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -33,10 +58,10 @@ export default function MainLayout({ title, currentScreen, onNavigate, onLogout,
             </View>
           )}
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+        {title ? <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text> : <View style={styles.headerTitle} />}
         {headerRight != null ? headerRight : <View style={styles.headerSpacer} />}
       </View>
-      <View style={styles.content}>
+      <View style={styles.content} {...panResponder.panHandlers}>
         {children}
       </View>
       <NavPanel

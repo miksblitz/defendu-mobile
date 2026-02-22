@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';

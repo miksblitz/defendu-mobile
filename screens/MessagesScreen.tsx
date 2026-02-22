@@ -147,8 +147,6 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
     <View style={styles.safeArea}>
       <TouchableOpacity style={styles.backRow} onPress={() => setSelectedChat(null)} activeOpacity={0.7}>
         <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
-        <Text style={styles.backText}>Back</Text>
-        <Text style={styles.backName} numberOfLines={1}>{selectedChat.otherUserDisplayName}</Text>
       </TouchableOpacity>
       <ScrollView
         ref={scrollRef}
@@ -225,9 +223,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#062731',
     backgroundColor: '#011f36',
   },
-  backIcon: { width: 24, height: 24, marginRight: 8 },
-  backText: { color: '#07bbc0', fontSize: 16, marginRight: 12 },
-  backName: { flex: 1, color: '#FFF', fontSize: 16, fontWeight: '600' },
+  backIcon: { width: 24, height: 24 },
   messagesScroll: { flex: 1 },
   messagesContent: { padding: 16, paddingBottom: 24 },
   messageBubble: { maxWidth: '80%', padding: 12, borderRadius: 16, marginBottom: 8 },
@@ -239,6 +235,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     padding: 12,
+    paddingBottom: 36,
     borderTopWidth: 1,
     borderTopColor: '#062731',
     backgroundColor: '#011f36',

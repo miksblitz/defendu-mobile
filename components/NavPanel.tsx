@@ -124,8 +124,17 @@ export default function NavPanel({
           </TouchableOpacity>
         ))}
         <View style={styles.divider} />
-        <TouchableOpacity style={styles.navItem} onPress={handleLogout} activeOpacity={0.7}>
-          <Text style={styles.navItemTextLogout}>Logout</Text>
+        <View style={styles.quoteSpacer} />
+        <View style={[styles.quoteBlockWrapper, styles.quoteBlock]}>
+          <Text style={styles.quoteMark}>"</Text>
+          <Text style={styles.quoteText}>
+            I fear not the man who has practiced 10,000 kicks once, but I fear the man who has practiced one kick 10,000 times.
+          </Text>
+          <Text style={styles.quoteAttribution}>— Bruce Lee</Text>
+        </View>
+        <View style={styles.logoutSpacer} />
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7}>
+          <Image source={require('../assets/images/logouticon.png')} style={styles.logoutIcon} resizeMode="contain" />
         </TouchableOpacity>
       </Animated.View>
     </>
@@ -143,6 +152,8 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
+    flex: 1,
+    flexDirection: 'column',
     backgroundColor: '#011f36',
     borderRightWidth: 1,
     borderRightColor: '#062731',
@@ -192,10 +203,16 @@ const styles = StyleSheet.create({
     color: '#07bbc0',
     fontWeight: '700',
   },
-  navItemTextLogout: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#e57373',
+  logoutSpacer: { flex: 1, minHeight: 16 },
+  logoutButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignSelf: 'flex-start',
+  },
+  logoutIcon: {
+    width: 24,
+    height: 24,
+    tintColor: ICON_COLOR,
   },
   badge: {
     minWidth: 22,
@@ -216,6 +233,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#062731',
     marginVertical: 8,
     marginHorizontal: 20,
+  },
+  quoteSpacer: { height: 20 },
+  quoteBlockWrapper: { marginBottom: 16 },
+  quoteBlock: {
+    marginHorizontal: 12,
+    paddingLeft: 16,
+    paddingRight: 20,
+    paddingVertical: 20,
+    paddingBottom: 24 + ANDROID_STATUS_PADDING,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(7, 187, 192, 0.2)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#07bbc0',
+    backgroundColor: 'rgba(7, 187, 192, 0.06)',
+  },
+  quoteMark: {
+    fontSize: 40,
+    fontWeight: '800',
+    color: 'rgba(7, 187, 192, 0.45)',
+    lineHeight: 40,
+    marginBottom: -12,
+  },
+  quoteText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: 'rgba(255, 255, 255, 0.95)',
+    lineHeight: 22,
+    letterSpacing: 0.4,
+  },
+  quoteAttribution: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#07bbc0',
+    marginTop: 14,
+    letterSpacing: 1.5,
   },
 });
 

@@ -207,9 +207,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Image source={require('../assets/images/icon-back.png')} style={styles.backButtonIcon} resizeMode="contain" />
-          <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{module.moduleTitle}</Text>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
         {step === 'intro' && (
@@ -382,10 +380,8 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
-  backButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingRight: 16 },
-  backButtonIcon: { width: 24, height: 24, marginRight: 6 },
-  backButtonText: { color: '#07bbc0', fontSize: 16, fontWeight: '600' },
-  headerTitle: { flex: 1, color: '#FFF', fontSize: 18, fontWeight: '700' },
+  backButton: { paddingVertical: 8, paddingRight: 16 },
+  backButtonIcon: { width: 24, height: 24 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   loadingText: { color: '#6b8693', fontSize: 14 },
   scroll: { flex: 1 },

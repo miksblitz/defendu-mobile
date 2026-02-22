@@ -115,6 +115,10 @@ export async function login(data: LoginData): Promise<User> {
     await update(ref(db, `users/${firebaseUser.uid}`), { lastActive: now });
 
     const userRole = userDataRaw.role === 'admin' ? 'admin' : (userDataRaw.role as string) || 'individual';
+    if (userRole === 'admin') {
+      await signOut(auth);
+      throw new Error('Admin login is disabled on mobile. Please use the web dashboard.');
+    }
     const userData: User = {
       ...userDataRaw,
       uid: firebaseUser.uid,

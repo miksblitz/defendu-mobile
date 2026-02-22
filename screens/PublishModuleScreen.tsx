@@ -172,30 +172,50 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
 
   const handleSubmit = useCallback(async () => {
     if (loading) return;
-    const titleError = !moduleTitle.trim() ? 'Module title is required' : '';
-    const descError = !description.trim() ? 'Description is required' : '';
-    const catError = !category ? 'Category is required' : '';
+    // Enhanced validation logic (mirroring web)
+    const titleError = !moduleTitle.trim()
+      ? 'Please fill this in'
+      : moduleTitle.length > 50
+        ? 'Module title must be 50 characters or less'
+        : '';
+    const descError = !description.trim()
+      ? 'Please fill this in'
+      : description.length > 600
+        ? 'Description must be 600 characters or less'
+        : '';
+    const catError = !category ? 'Please select a category' : '';
     const introError =
       introductionType === 'text'
-        ? !introduction.trim()
-          ? 'Introduction is required'
-          : ''
-        : !introductionVideoUri
-          ? 'Pick an introduction video (MP4) from gallery'
-          : '';
-    const videoError =
-      !videoLink.trim() && !techniqueVideoFile ? 'Add a video link or pick an MP4 file' : '';
-    const certError = !certificationChecked ? 'You must certify the technique' : '';
+        ? !introduction.trim() ? 'Please fill this in or upload an introduction video' : ''
+        : !introductionVideoUri ? 'Please upload an introduction video or add text' : '';
+    // Technique video is optional, so no error unless both are missing
+    const videoError = '';
+    const thumbnailError = !thumbnailUri && !thumbnailUrl.trim() ? 'Please upload a thumbnail' : '';
+    const certError = !certificationChecked ? 'Please check this box to certify' : '';
     setErrors({
       moduleTitle: titleError,
       description: descError,
       category: catError,
       introduction: introError,
       video: videoError,
+      thumbnail: thumbnailError,
       certification: certError,
     });
-    if (titleError || descError || catError || introError || videoError || certError) {
-      showToast('Please complete all required fields');
+    const hasFieldErrors = titleError || descError || catError || introError || videoError || thumbnailError;
+    if (hasFieldErrors || certError) {
+      // Build a guiding toast listing what's missing
+      const missing: string[] = [];
+      if (titleError) missing.push('Module title');
+      if (descError) missing.push('Description');
+      if (catError) missing.push('Category');
+      if (introError) missing.push('Introduction');
+      if (videoError) missing.push('Technique video or link');
+      if (thumbnailError) missing.push('Thumbnail');
+      if (certError) missing.push('Certification box (check "I certify...")');
+      const message = missing.length === 1
+        ? `Please fill in: ${missing[0]}`
+        : `Please complete: ${missing.join(', ')}`;
+      showToast(message);
       return;
     }
     setLoading(true);
@@ -206,36 +226,50 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         setLoading(false);
         return;
       }
-      let introductionVideoUrl: string | undefined;
+      showToast('Uploading files...');
+      // Upload all files in parallel for speed
       let techniqueVideoUrl: string | undefined;
+      let introductionVideoUrl: string | undefined;
       let thumbnailUploadUrl: string | undefined;
-
-      if (introductionType === 'video' && introductionVideoUri) {
-        showToast('Uploading introduction video...');
-        introductionVideoUrl = await AuthController.uploadFileToCloudinary(
-          introductionVideoUri,
-          'video',
-          introductionVideoName || 'intro.mp4'
+      const uploadTasks: Promise<{ kind: 'technique' | 'intro' | 'thumbnail'; url: string }>[] = [];
+      if (techniqueVideoFile) {
+        uploadTasks.push(
+          AuthController.uploadFileToCloudinary(techniqueVideoFile.uri, 'video', techniqueVideoFile.name)
+            .then((url) => ({ kind: 'technique' as const, url }))
         );
       }
-      if (techniqueVideoFile) {
-        showToast('Uploading technique video...');
-        techniqueVideoUrl = await AuthController.uploadFileToCloudinary(
-          techniqueVideoFile.uri,
-          'video',
-          techniqueVideoFile.name
+      if (introductionType === 'video' && introductionVideoUri) {
+        uploadTasks.push(
+          AuthController.uploadFileToCloudinary(introductionVideoUri, 'video', introductionVideoName || 'intro.mp4')
+            .then((url) => ({ kind: 'intro' as const, url }))
         );
       }
       if (thumbnailUri) {
-        showToast('Uploading thumbnail...');
-        thumbnailUploadUrl = await AuthController.uploadFileToCloudinary(
-          thumbnailUri,
-          'image',
-          'thumbnail.jpg'
+        uploadTasks.push(
+          AuthController.uploadFileToCloudinary(thumbnailUri, 'image', 'thumbnail.jpg')
+            .then((url) => ({ kind: 'thumbnail' as const, url }))
         );
       }
-
-      showToast('Saving module...');
+      try {
+        const results = await Promise.all(uploadTasks);
+        results.forEach((r) => {
+          if (r.kind === 'technique') techniqueVideoUrl = r.url;
+          else if (r.kind === 'intro') introductionVideoUrl = r.url;
+          else if (r.kind === 'thumbnail') thumbnailUploadUrl = r.url;
+        });
+      } catch (error: any) {
+        const msg = error?.message || '';
+        if (msg.toLowerCase().includes('video')) {
+          showToast('Failed to upload video. Please try again.');
+        } else if (msg.toLowerCase().includes('image') || msg.toLowerCase().includes('thumbnail')) {
+          showToast('Failed to upload thumbnail. Please try again.');
+        } else {
+          showToast('Failed to upload files. Please try again.');
+        }
+        setLoading(false);
+        return;
+      }
+      // Prepare module data
       const moduleData = {
         trainerId: user.uid,
         moduleTitle: moduleTitle.trim(),
@@ -255,12 +289,30 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         status: 'pending review' as const,
         certificationChecked,
       };
+      showToast('Saving module to database...');
       await AuthController.saveModule(moduleData, false);
-      showToast('Module submitted. Please wait for approval.');
-      setTimeout(() => onSuccess(), 1500);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to publish module';
-      showToast(msg);
+      // Reset form after success
+      setModuleTitle('');
+      setDescription('');
+      setCategory('');
+      setIntroduction('');
+      setIntroductionType('text');
+      setIntroductionVideoUri(null);
+      setIntroductionVideoName('');
+      setVideoLink('');
+      setTechniqueVideoFile(null);
+      setThumbnailUri(null);
+      setThumbnailUrl('');
+      setIntensityLevel(2);
+      setSpaceRequirements([]);
+      setPhysicalTags([]);
+      setRepRange('');
+      setTrainingDuration('');
+      setCertificationChecked(false);
+      showToast('Module successfully submitted. Please wait for approval.');
+      setTimeout(() => onSuccess(), 1200);
+    } catch (error: any) {
+      showToast(error?.message || 'Failed to publish module');
     } finally {
       setLoading(false);
     }

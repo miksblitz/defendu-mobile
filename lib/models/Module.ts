@@ -10,6 +10,8 @@ export interface Module {
   introductionVideoUrl?: string;
   techniqueVideoUrl?: string;
   techniqueVideoLink?: string;
+  /** Optional URL to precomputed reference pose sequence JSON (one rep) for "Try with pose". */
+  referencePoseSequenceUrl?: string;
   videoDuration?: number;
   thumbnailUrl?: string;
   intensityLevel?: number;

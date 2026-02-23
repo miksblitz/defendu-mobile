@@ -83,3 +83,6 @@ Do these in order:
 
 ### “Expo Go” not installed
 - You must use the **Expo Go** app to run the project in development. The phone’s normal camera app only opens the link; Expo Go loads the JavaScript bundle.
+
+
+setx /M REACT_NATIVE_PACKAGER_HOSTNAME 192.168.254.100

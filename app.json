@@ -17,9 +17,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        }
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true },
+        "NSCameraUsageDescription": "This app uses the camera for pose-based technique feedback during exercises."
       }
     },
     "android": {
@@ -31,10 +30,9 @@
       "edgeToEdgeEnabled": true
     },
     "plugins": [
-      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }],
+      "expo-camera"
     ],
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "web": { "favicon": "./assets/favicon.png" }
   }
 }

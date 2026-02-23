@@ -16,8 +16,11 @@ import {
 import { AuthController } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 import type { ModuleReview } from '../lib/models/ModuleReview';
+import PoseCameraView from '../components/PoseCameraView';
+import { getRequiredReps } from '../utils/repRange';
+import type { PoseSequence } from '../lib/pose/types';
 
-type Step = 'intro' | 'video' | 'tryIt' | 'complete';
+type Step = 'intro' | 'video' | 'tryIt' | 'tryItPose' | 'complete';
 
 interface ViewModuleScreenProps {
   moduleId: string;
@@ -49,6 +52,10 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [showAllReviewsModal, setShowAllReviewsModal] = useState(false);
+  const [poseCorrectReps, setPoseCorrectReps] = useState(0);
+  const [poseCurrentRepCorrect, setPoseCurrentRepCorrect] = useState<boolean | null>(null);
+  const [referencePoseSequence, setReferencePoseSequence] = useState<PoseSequence | null>(null);
+  const [referencePoseLoading, setReferencePoseLoading] = useState(false);
   const tryItTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -152,6 +159,36 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     setStep('tryIt');
   };
 
+  const handleTryWithPose = () => {
+    setPoseCorrectReps(0);
+    setPoseCurrentRepCorrect(null);
+    setReferencePoseSequence(null);
+    setStep('tryItPose');
+  };
+
+  useEffect(() => {
+    if (step !== 'tryItPose' || !module?.referencePoseSequenceUrl) {
+      setReferencePoseSequence(null);
+      return;
+    }
+    let cancelled = false;
+    setReferencePoseLoading(true);
+    fetch(module.referencePoseSequenceUrl)
+      .then((r) => r.json())
+      .then((data: { sequence?: PoseSequence } | PoseSequence) => {
+        if (cancelled) return;
+        const seq = Array.isArray(data) ? data : data?.sequence ?? null;
+        setReferencePoseSequence(Array.isArray(seq) && seq.length > 0 ? seq : null);
+      })
+      .catch(() => {
+        if (!cancelled) setReferencePoseSequence(null);
+      })
+      .finally(() => {
+        if (!cancelled) setReferencePoseLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [step, module?.referencePoseSequenceUrl]);
+
   const handleSaveProgress = async () => {
     if (moduleId) {
       try {
@@ -184,7 +221,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const handleBack = () => {
     if (step === 'intro') onBack();
     else if (step === 'video') setStep('intro');
-    else if (step === 'tryIt') setStep('video');
+    else if (step === 'tryIt' || step === 'tryItPose') setStep('video');
     else if (step === 'complete') onBack();
   };
 
@@ -201,6 +238,34 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
 
   const averageRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
   const reviewCount = reviews.length;
+
+  if (step === 'tryItPose') {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.poseFullScreen}>
+          <PoseCameraView
+            requiredReps={getRequiredReps(module.repRange)}
+            correctReps={poseCorrectReps}
+            isCurrentRepCorrect={poseCurrentRepCorrect}
+            onBack={() => setStep('video')}
+            onCorrectRepsUpdate={(count, lastCorrect) => {
+              setPoseCorrectReps(count);
+              setPoseCurrentRepCorrect(lastCorrect);
+            }}
+            referenceSequence={referencePoseLoading ? null : referencePoseSequence}
+          />
+          {poseCorrectReps >= getRequiredReps(module.repRange) && (
+            <TouchableOpacity
+              style={styles.continueOverlayButton}
+              onPress={() => setStep('complete')}
+            >
+              <Text style={styles.primaryButtonText}>Continue to Complete</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -254,6 +319,11 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
             <TouchableOpacity style={styles.secondaryButton} onPress={handleTryItYourself}>
               <Text style={styles.secondaryButtonText}>Try it yourself</Text>
             </TouchableOpacity>
+            {(module.techniqueVideoUrl ?? module.techniqueVideoLink) ? (
+              <TouchableOpacity style={styles.secondaryButton} onPress={handleTryWithPose}>
+                <Text style={styles.secondaryButtonText}>Try with pose</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity style={styles.primaryButton} onPress={handleIntroDone}>
               <Text style={styles.primaryButtonText}>Continue to Complete</Text>
             </TouchableOpacity>
@@ -379,6 +449,8 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
+  poseFullScreen: { flex: 1 },
+  continueOverlayButton: { position: 'absolute', bottom: 24, left: 20, right: 20, backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
   backButton: { paddingVertical: 8, paddingRight: 16 },
   backButtonIcon: { width: 24, height: 24 },

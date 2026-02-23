@@ -8,16 +8,19 @@
     "start:no-tunnel": "expo start",
     "dev": "expo start --tunnel",
     "tunnel": "npx localtunnel --port 8082",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
-    "build": "CI=1 npx expo export -p web"
+    "build": "CI=1 npx expo export -p web",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@vercel/node": "^3.0.0",
     "expo": "~54.0.33",
+    "@thinksys/react-native-mediapipe": "^0.0.19",
     "expo-build-properties": "~1.0.10",
+    "expo-camera": "~17.0.10",
     "expo-document-picker": "~14.0.3",
     "expo-image-picker": "~17.0.10",
     "expo-linking": "~8.0.11",
@@ -34,6 +37,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "patch-package": "^8.0.0",
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "eslint": "^10.0.0",

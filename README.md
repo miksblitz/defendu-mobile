@@ -29,7 +29,20 @@ When the app runs on your phone (Expo Go), errors and logs are sent to the **sam
    - **`j`** – open debugger (browser with console)
    - **`m`** – open more options
 
-So: **keep the `npm start` terminal visible on your PC**; that’s where phone errors and logs show up.
+### Open the debugger (when "Open Debugger" on the phone shows "cannot reach the site" on PC)
+
+If you tap **"Open Debugger"** (or **"Open DevTools"**) on the phone and a browser popup on your PC says **"cannot reach the site"**, the dev server is opening your PC's LAN address (e.g. `http://192.168.x.x:8081/...`) instead of `localhost`. Your browser often can't load that, so the tab fails.
+
+**Do this instead — open the debugger from the PC:**
+
+1. **Best:** In the **same terminal where `npm start` is running**, press **`j`**. That opens React Native DevTools in your browser and connects correctly.
+2. **Or** open the debugger in the browser **first**, then connect from the phone:
+   - Double-click **`open-debugger.bat`** in the `defendu-mobile` folder (or run `.\open-debugger.bat` in a terminal there).
+   - Or open in Chrome: **http://localhost:8081/debugger-ui** (if Metro is on **8082**, use **http://localhost:8082/debugger-ui**).
+3. **On your phone:** Shake the device → developer menu → tap **"Open Debugger"** or **"Open DevTools"**.  
+   The app will connect to the debugger tab you opened on the PC.
+
+So: **keep the `npm start` terminal visible on your PC**; that’s where phone errors and logs show up, and pressing **`j`** is the most reliable way to open the debugger.
 
 ---
 
@@ -173,3 +186,57 @@ ssh -R 80:localhost:8082 nokey@localhost.run
 ```
 
 It will print a **https://** URL. Use that URL in the app as **Server URL** and tap **Test connection**. No signup (OpenSSH is built into Windows 10/11).
+
+
+POWERSHELL CHANGE PORT COMMAND CHANGE NUMBER TO PHONE IP ADDRESS
+setx /M REACT_NATIVE_PACKAGER_HOSTNAME 192.168.254.102
+
+---
+
+## Running in dev mode (pose estimation, native features)
+
+Some features (e.g. **“Try with pose”** / pose estimation) use **native modules** and **do not work in Expo Go**. Use a **dev build** on a physical device or emulator.
+
+### 1. Prerequisites
+
+- **Android:** Android Studio installed, device in developer mode with USB debugging, or an Android emulator.
+- **iOS (Mac only):** Xcode, device or simulator.
+- From the project folder: `npm install` (or `yarn`) already done.
+
+### 2. Run a dev build
+
+**Android (device or emulator):**
+
+```bash
+cd defendu-mobile
+npx expo run:android
+```
+
+With a device connected via USB: `npx expo run:android --device`.  
+The first run builds and installs the app; later runs are faster.
+
+**iOS (Mac only):**
+
+```bash
+cd defendu-mobile
+npx expo run:ios
+```
+
+Use `--device` for a physical device, or omit it to use the simulator.
+
+### 3. Start Metro (for live reload / dev)
+
+In a terminal on your PC:
+
+```bash
+cd defendu-mobile
+npx expo start
+```
+
+Keep this running. The dev build on the phone will use this Metro bundler for JS updates. Shake the device (or use the dev menu) for reload, debugger, etc.
+
+### 4. Pose estimation (“Try with pose”)
+
+- **Expo Go:** Not supported (native camera/pose libraries are not in Expo Go).
+- **Dev build:** Supported. Install the app with `npx expo run:android` (or `run:ios`), then open a module that has **“Try with pose”** and allow camera when prompted.
+- For more detail (reference poses, practice mode, rep count), see **docs/POSE_ESTIMATION_IMPLEMENTATION.md**.

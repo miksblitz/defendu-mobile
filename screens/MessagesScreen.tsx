@@ -1,3 +1,7 @@
+/**
+ * MessagesScreen
+ * Conversations list and chat with trainers; optional open with user.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -21,12 +25,14 @@ import {
 } from '../lib/controllers/MessageController';
 import { useUnreadMessages } from '../lib/contexts/UnreadMessagesContext';
 
+// --- Types ---
 interface MessagesScreenProps {
   openWithUserId?: string;
   openWithUserName?: string;
   openWithUserPhoto?: string | null;
 }
 
+// --- Component ---
 export default function MessagesScreen({ openWithUserId, openWithUserName, openWithUserPhoto }: MessagesScreenProps) {
   const { clearUnread } = useUnreadMessages();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -331,6 +337,7 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },

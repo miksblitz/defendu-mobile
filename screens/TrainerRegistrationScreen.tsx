@@ -1,3 +1,7 @@
+/**
+ * TrainerRegistrationScreen
+ * Apply to become a trainer: profile, martial arts, credentials, links.
+ */
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -18,13 +22,16 @@ import { MARTIAL_ARTS as martialArts, BELT_BASED_MARTIAL_ARTS as beltBasedMartia
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+// --- Constants ---
 const yearsOptions = Array.from({ length: 51 }, (_, i) => i.toString());
 
+// --- Types ---
 interface TrainerRegistrationScreenProps {
   onBack: () => void;
   onSuccess: () => void;
 }
 
+// --- Component ---
 export default function TrainerRegistrationScreen({ onBack, onSuccess }: TrainerRegistrationScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -660,6 +667,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#041527' },
   flex: { flex: 1 },

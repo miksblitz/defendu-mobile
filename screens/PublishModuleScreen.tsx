@@ -1,3 +1,7 @@
+/**
+ * PublishModuleScreen
+ * Trainers create/publish training modules: title, category, media, technique, rep range, etc.
+ */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -16,10 +20,11 @@ import {
   Dimensions,
   Easing,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 
+// --- Constants ---
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SLIDE_DURATION = 280;
-import * as ImagePicker from 'expo-image-picker';
 import { AuthController } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
@@ -50,11 +55,13 @@ const trainingDurationOptions: { label: string; value: number }[] = [
   { label: '15 min', value: 900 },
 ];
 
+// --- Types ---
 interface PublishModuleScreenProps {
   onBack: () => void;
   onSuccess: () => void;
 }
 
+// --- Component ---
 export default function PublishModuleScreen({ onBack, onSuccess }: PublishModuleScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -850,6 +857,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#041527' },
   flex: { flex: 1 },

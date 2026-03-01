@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import React, { useState, useEffect, useRef } from 'react';
-import { TouchableOpacity, Text, View } from 'react-native';
+import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image } from 'react-native';
 import StartupScreen from './screens/StartupScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -25,6 +25,7 @@ import { AuthController } from './lib/controllers/AuthController';
 import type { User } from './lib/models/User';
 
 type Screen =
+  | 'splash'
   | 'startup'
   | 'login'
   | 'register'
@@ -66,13 +67,21 @@ function parseResetPasswordToken(url: string | null): string | null {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('startup');
+  const [screen, setScreen] = useState<Screen>('splash');
+  const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
+
+  // Splash: defendudashboard for 2s then go to startup (avoids laggy animation on startup)
+  useEffect(() => {
+    if (screen !== 'splash') return;
+    const t = setTimeout(() => setScreen('startup'), 2000);
+    return () => clearTimeout(t);
+  }, [screen]);
 
   useEffect(() => {
     if (screen !== 'trainer') return;
@@ -126,7 +135,16 @@ export default function App() {
   };
 
   const goToDashboard = () => setScreen('dashboard');
-  const handleLogout = () => setScreen('login');
+  const handleLogout = () => setLoggingOut(true);
+
+  useEffect(() => {
+    if (!loggingOut) return;
+    const t = setTimeout(() => {
+      setScreen('login');
+      setLoggingOut(false);
+    }, 800);
+    return () => clearTimeout(t);
+  }, [loggingOut]);
 
   const handleNav = (screen: 'dashboard' | 'profile' | 'trainer' | 'messages') => {
     if (screen === 'messages') setMessagesOpenWith(null);
@@ -136,6 +154,21 @@ export default function App() {
   return (
     <>
       <StatusBar style="light" />
+      {screen === 'splash' && (
+        <View style={splashStyles.container}>
+          <Image
+            source={require('./assets/images/defendudashboardlogo.png')}
+            style={splashStyles.logo}
+            resizeMode="contain"
+          />
+        </View>
+      )}
+      {loggingOut && (
+        <View style={logoutOverlayStyles.overlay}>
+          <ActivityIndicator size="large" color="#00AABB" />
+          <Text style={logoutOverlayStyles.text}>Logging out...</Text>
+        </View>
+      )}
       {(screen === 'startup' || screen === 'login') && (
         <View style={{ flex: 1 }}>
           <LoginScreen
@@ -284,3 +317,33 @@ export default function App() {
     </>
   );
 }
+
+const splashStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    width: '80%',
+    maxWidth: 320,
+    height: 200,
+  },
+});
+
+const logoutOverlayStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#041527',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  text: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+});

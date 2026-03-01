@@ -1,3 +1,7 @@
+/**
+ * ForgotPasswordScreen
+ * Request password reset email. Back to login.
+ */
 import React, { useState } from 'react';
 import {
   View,
@@ -15,6 +19,7 @@ import { AuthController } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+// --- Helpers ---
 function validateEmail(email: string): string {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email) return 'Email is required';
@@ -24,10 +29,12 @@ function validateEmail(email: string): string {
   return '';
 }
 
+// --- Types ---
 interface ForgotPasswordScreenProps {
   onBackToLogin?: () => void;
 }
 
+// --- Component ---
 export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProps) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -162,6 +169,7 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,

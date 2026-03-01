@@ -1,3 +1,7 @@
+/**
+ * TrainerScreen
+ * List of approved trainers; open detail and message trainer.
+ */
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -14,6 +18,7 @@ import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
 import type { TrainerApplication } from '../lib/models/TrainerApplication';
 
+// --- Types ---
 interface TrainerWithData extends User {
   applicationData?: TrainerApplication | null;
 }
@@ -22,6 +27,7 @@ interface TrainerScreenProps {
   onMessageTrainer?: (uid: string, name: string, photoUrl: string | null) => void;
 }
 
+// --- Component ---
 export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) {
   const [trainers, setTrainers] = useState<TrainerWithData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -214,6 +220,7 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },

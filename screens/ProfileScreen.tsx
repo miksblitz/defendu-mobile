@@ -1,3 +1,7 @@
+/**
+ * ProfileScreen
+ * User profile: name, photo, stats, password change. Trainer profile section if approved.
+ */
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -18,10 +22,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthController } from '../lib/controllers/AuthController';
 import { MARTIAL_ARTS, BELT_BASED_MARTIAL_ARTS, BELT_SYSTEMS } from '../lib/constants/martialArts';
 
+// --- Constants ---
 const PRIVACY_URL = 'https://defendu.com/privacy';
 const TERMS_URL = 'https://defendu.com/terms';
 const CONTACT_EMAIL = 'support@defendu.com';
 
+// --- Component ---
 export default function ProfileScreen() {
   const [username, setUsername] = useState('@');
   const [firstName, setFirstName] = useState('');
@@ -739,6 +745,7 @@ export default function ProfileScreen() {
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },

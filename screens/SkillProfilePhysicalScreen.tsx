@@ -1,14 +1,21 @@
+/**
+ * SkillProfilePhysicalScreen
+ * Skill profile step 1: physical stats, limitations, age.
+ */
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { MaterialCommunityIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+
+// --- Types ---
 interface SkillProfilePhysicalScreenProps {
   onNext: () => void;
   onBack: () => void;
 }
 
+// --- Constants & helpers ---
 const PHYSICAL_LIMITATION_OPTIONS = [
   'No left arm', 'No right arm', 'No use of left arm', 'No use of right arm',
   'No left leg', 'No right leg', 'No use of left leg', 'No use of right leg',
@@ -54,6 +61,7 @@ function validateAge(value: string): string {
   return '';
 }
 
+// --- Component ---
 export default function SkillProfilePhysicalScreen({ onNext, onBack }: SkillProfilePhysicalScreenProps) {
   const { setPhysicalAttributes, physicalAttributes } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
@@ -208,6 +216,7 @@ export default function SkillProfilePhysicalScreen({ onNext, onBack }: SkillProf
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center', flexGrow: 1 },

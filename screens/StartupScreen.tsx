@@ -1,6 +1,11 @@
+/**
+ * StartupScreen
+ * Animated tile intro with logo; tap to continue to login.
+ */
 import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, Image, TouchableWithoutFeedback } from 'react-native';
 
+// --- Constants ---
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const TILE_ROWS = 8;
 const TILE_COLS = 8;
@@ -8,6 +13,7 @@ const TILE_WIDTH = SCREEN_WIDTH / TILE_COLS;
 const TILE_HEIGHT = SCREEN_HEIGHT / TILE_ROWS;
 const SLIDE_DURATION = 320;
 
+// --- Types ---
 interface TileData {
   anim: Animated.Value;
   rotation: number;
@@ -19,6 +25,7 @@ interface StartupScreenProps {
   onFinish?: () => void;
 }
 
+// --- Component ---
 export default function StartupScreen({ onFinish }: StartupScreenProps) {
   const [tiles, setTiles] = useState<TileData[][]>([]);
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -151,6 +158,7 @@ export default function StartupScreen({ onFinish }: StartupScreenProps) {
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,

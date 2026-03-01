@@ -1,3 +1,7 @@
+/**
+ * LoginScreen
+ * Email/password login, forgot password link, register link.
+ */
 import { useState } from 'react';
 import {
   View,
@@ -17,6 +21,7 @@ import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
 
+// --- Helpers ---
 function getLoginToastMessage(rawMessage: string): string {
   if (!rawMessage || typeof rawMessage !== 'string') return 'Login failed. Please try again.';
   const msg = rawMessage.toLowerCase();
@@ -31,12 +36,14 @@ function getLoginToastMessage(rawMessage: string): string {
   return 'Invalid email or password. Please check your details and try again.';
 }
 
+// --- Types ---
 interface LoginScreenProps {
   onForgotPassword?: () => void;
   onRegister?: () => void;
   onLoginSuccess?: (user: User) => void;
 }
 
+// --- Component ---
 export default function LoginScreen({ onForgotPassword, onRegister, onLoginSuccess }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -177,6 +184,7 @@ export default function LoginScreen({ onForgotPassword, onRegister, onLoginSucce
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,

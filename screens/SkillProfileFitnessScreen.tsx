@@ -1,3 +1,7 @@
+/**
+ * SkillProfileFitnessScreen
+ * Skill profile step 4: fitness level, frequency, injuries; submits full profile.
+ */
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator, Image } from 'react-native';
 import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
@@ -6,6 +10,7 @@ import { AuthController } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+// --- Types ---
 interface SkillProfileFitnessScreenProps {
   onComplete: () => void;
   onBack: () => void;
@@ -20,6 +25,7 @@ const CURRENT_FITNESS_LEVELS = [
 ];
 const TRAINING_FREQUENCIES = ['Never', '1-2 times per week', '3-4 times per week', 'Daily'];
 
+// --- Component ---
 export default function SkillProfileFitnessScreen({ onComplete, onBack, onSessionExpired }: SkillProfileFitnessScreenProps) {
   const { setFitnessCapabilities, fitnessCapabilities, physicalAttributes, preferences, pastExperience, clearProfile } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
@@ -149,6 +155,7 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack, onSessio
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 30, flexGrow: 1, alignItems: 'center' },

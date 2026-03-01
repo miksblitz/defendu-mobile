@@ -1,3 +1,7 @@
+/**
+ * RegisterScreen
+ * New user registration: name, email, password, confirm password.
+ */
 import { useState } from 'react';
 import {
   View,
@@ -16,6 +20,7 @@ import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
 
+// --- Validation helpers ---
 function validateName(name: string, fieldName: string): string {
   if (!name) return `${fieldName} is required`;
   if (name.length < 2) return `${fieldName} must be at least 2 characters long`;
@@ -51,6 +56,7 @@ function validateConfirmPassword(confirmPassword: string, password: string): str
   return '';
 }
 
+// --- Types ---
 interface FormState {
   username: string;
   firstName: string;
@@ -73,6 +79,7 @@ interface RegisterScreenProps {
   onRegisterSuccess?: (user: User) => void;
 }
 
+// --- Component ---
 export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterScreenProps) {
   const [form, setForm] = useState<FormState>({
     username: '',
@@ -341,6 +348,7 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterS
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },

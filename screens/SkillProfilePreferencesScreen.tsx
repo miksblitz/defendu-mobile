@@ -1,3 +1,7 @@
+/**
+ * SkillProfilePreferencesScreen
+ * Skill profile step 2: preferred techniques, training goals.
+ */
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -5,6 +9,7 @@ import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+// --- Types ---
 interface SkillProfilePreferencesScreenProps {
   onNext: () => void;
   onBack: () => void;
@@ -24,6 +29,7 @@ const TRAINING_GOALS = [
   { key: 'Confidence Building', icon: 'trophy' },
 ];
 
+// --- Component ---
 export default function SkillProfilePreferencesScreen({ onNext, onBack }: SkillProfilePreferencesScreenProps) {
   const { setPreferences, preferences } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
@@ -101,6 +107,7 @@ export default function SkillProfilePreferencesScreen({ onNext, onBack }: SkillP
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 30, flexGrow: 1, alignItems: 'center' },

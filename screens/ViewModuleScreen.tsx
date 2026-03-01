@@ -1,3 +1,7 @@
+/**
+ * ViewModuleScreen
+ * Displays a single training module: intro → safety protocol → introduction (video/text) → try it / pose → complete.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -21,13 +25,15 @@ import { getRequiredReps } from '../utils/repRange';
 import type { PoseSequence, PoseFocus } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 
-type Step = 'intro' | 'video' | 'tryIt' | 'tryItPose' | 'complete';
+// --- Types & props ---
+type Step = 'intro' | 'safety' | 'video' | 'tryIt' | 'tryItPose' | 'complete';
 
 interface ViewModuleScreenProps {
   moduleId: string;
   onBack: () => void;
 }
 
+// --- Helpers ---
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -39,7 +45,9 @@ function openVideoInBrowser(url: string | undefined) {
   Linking.openURL(url.trim()).catch(() => {});
 }
 
+// --- Component ---
 export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenProps) {
+  // State
   const [module, setModule] = useState<Module | null>(null);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState<Step>('intro');
@@ -60,6 +68,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const [referencePoseLoading, setReferencePoseLoading] = useState(false);
   const tryItTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Data loading
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -87,6 +96,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     return () => { cancelled = true; };
   }, [moduleId, onBack]);
 
+  // Handlers
   const loadReviews = async () => {
     if (!moduleId) return;
     try {
@@ -141,7 +151,9 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     };
   }, [step, tryItPaused]);
 
-  const handleStart = () => {
+  const handleStart = () => setStep('safety');
+
+  const handleSafetyConfirm = () => {
     const hasVideo = module?.introductionType === 'video' && module?.introductionVideoUrl;
     const hasText = module?.introductionType === 'text' && module?.introduction?.trim();
     if (hasVideo || hasText) {
@@ -232,11 +244,13 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
 
   const handleBack = () => {
     if (step === 'intro') onBack();
-    else if (step === 'video') setStep('intro');
+    else if (step === 'safety') setStep('intro');
+    else if (step === 'video') setStep('safety');
     else if (step === 'tryIt' || step === 'tryItPose') setStep('video');
     else if (step === 'complete') onBack();
   };
 
+  // Loading state
   if (loading || !module) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -251,6 +265,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const averageRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
   const reviewCount = reviews.length;
 
+  // Pose step (full-screen camera)
   if (step === 'tryItPose') {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -280,6 +295,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     );
   }
 
+  // Main: intro | safety | video | tryIt | complete
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -309,6 +325,25 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
             <Text style={styles.cardDescription}>{module.description}</Text>
             <TouchableOpacity style={styles.primaryButton} onPress={handleStart}>
               <Text style={styles.primaryButtonText}>Start</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {step === 'safety' && (
+          <View style={styles.card}>
+            <Text style={styles.safetyTitle}>Safety Protocol</Text>
+            <Text style={styles.safetyIntro}>Please read and confirm the following before starting this module:</Text>
+            <View style={styles.safetyList}>
+              <Text style={styles.safetyItem}>• Ensure you have enough space to move safely with no obstacles.</Text>
+              <Text style={styles.safetyItem}>• Warm up before practicing. Do not train if you feel unwell or injured.</Text>
+              <Text style={styles.safetyItem}>• This content is for educational purposes. Train at your own risk and within your ability.</Text>
+              <Text style={styles.safetyItem}>• If using camera-based features, make sure the area behind you is clear.</Text>
+            </View>
+            <TouchableOpacity style={styles.primaryButton} onPress={handleSafetyConfirm}>
+              <Text style={styles.primaryButtonText}>Confirm</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => setStep('intro')}>
+              <Text style={styles.secondaryButtonText}>Back</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -460,6 +495,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   poseFullScreen: { flex: 1 },
@@ -480,6 +516,10 @@ const styles = StyleSheet.create({
   ratingText: { color: '#6b8693', fontSize: 14 },
   showReviewsLink: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   cardDescription: { color: '#6b8693', fontSize: 14, marginBottom: 20 },
+  safetyTitle: { color: '#07bbc0', fontSize: 20, fontWeight: '700', marginBottom: 12 },
+  safetyIntro: { color: '#FFF', fontSize: 14, marginBottom: 16 },
+  safetyList: { marginBottom: 24 },
+  safetyItem: { color: '#6b8693', fontSize: 14, marginBottom: 10, lineHeight: 22 },
   sectionLabel: { color: '#07bbc0', fontSize: 16, fontWeight: '700', marginBottom: 12 },
   introText: { color: '#FFF', fontSize: 14, marginBottom: 16 },
   videoOpenButton: { backgroundColor: '#062731', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, marginBottom: 16 },

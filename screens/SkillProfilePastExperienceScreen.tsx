@@ -1,3 +1,7 @@
+/**
+ * SkillProfilePastExperienceScreen
+ * Skill profile step 3: experience level, martial arts background, duration.
+ */
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -5,6 +9,7 @@ import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+// --- Types ---
 interface SkillProfilePastExperienceScreenProps {
   onNext: () => void;
   onBack: () => void;
@@ -19,6 +24,7 @@ const EXPERIENCE_LEVELS = [
 const MARTIAL_ARTS_OPTIONS = ['Boxing', 'Brazilian Jiu-Jitsu (BJJ)', 'MMA (Mixed Martial Arts)', 'Taekwondo (TKD)', 'Muay Thai', 'Wushu', 'Karate', 'Judo', 'Wrestling', 'Kickboxing', 'Krav Maga', 'Aikido', 'Capoeira', 'Kung Fu', 'Jiu-Jitsu', 'Sambo', 'Savate', 'Other'];
 const EXPERIENCE_DURATIONS = ['None', '1-6 months', '7-12 months', '1-2 years', '3-5 years', '5-10 years', 'Over 10 years'];
 
+// --- Component ---
 export default function SkillProfilePastExperienceScreen({ onNext, onBack }: SkillProfilePastExperienceScreenProps) {
   const { setPastExperience, pastExperience } = useSkillProfile();
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
@@ -130,6 +136,7 @@ export default function SkillProfilePastExperienceScreen({ onNext, onBack }: Ski
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center', flexGrow: 1 },

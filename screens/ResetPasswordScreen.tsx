@@ -1,3 +1,7 @@
+/**
+ * ResetPasswordScreen
+ * Set new password after reset link. Token from deep link or email.
+ */
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -11,25 +15,31 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { validateResetToken, confirmPasswordReset } from '../lib/controllers/AuthController';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
+// --- Types ---
 interface ResetPasswordScreenProps {
   token: string;
   onSuccess: () => void;
   onInvalidLink: () => void;
 }
 
+// --- Helpers ---
 function validatePassword(password: string): string {
   if (!password) return 'Password is required';
   if (password.length < 8) return 'Password must be at least 8 characters';
   return '';
 }
 
+// --- Component ---
 export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }: ResetPasswordScreenProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [validating, setValidating] = useState(true);
   const [valid, setValid] = useState(false);
   const [error, setError] = useState('');
@@ -119,10 +129,22 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
               placeholderTextColor="rgba(255,255,255,0.6)"
               value={password}
               onChangeText={setPassword}
-              secureTextEntry
+              secureTextEntry={!showPassword}
               autoCapitalize="none"
               editable={!loading}
             />
+            <TouchableOpacity
+              onPress={() => setShowPassword(!showPassword)}
+              style={styles.eyeButton}
+              activeOpacity={0.7}
+              disabled={loading}
+            >
+              <Ionicons
+                name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={22}
+                color="#FFF"
+              />
+            </TouchableOpacity>
           </View>
           <View style={styles.inputWrapper}>
             <TextInput
@@ -131,10 +153,22 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
               placeholderTextColor="rgba(255,255,255,0.6)"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
-              secureTextEntry
+              secureTextEntry={!showConfirmPassword}
               autoCapitalize="none"
               editable={!loading}
             />
+            <TouchableOpacity
+              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={styles.eyeButton}
+              activeOpacity={0.7}
+              disabled={loading}
+            >
+              <Ionicons
+                name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={22}
+                color="#FFF"
+              />
+            </TouchableOpacity>
           </View>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -153,6 +187,7 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   scrollContent: { flexGrow: 1, justifyContent: 'center', paddingVertical: 40 },
@@ -172,6 +207,7 @@ const styles = StyleSheet.create({
     height: 56,
   },
   input: { flex: 1, fontSize: 16, height: 56, color: '#FFF', paddingVertical: 0, paddingHorizontal: 4 },
+  eyeButton: { padding: 8 },
   errorText: { color: '#FF6B6B', fontSize: 12, marginBottom: 8, textAlign: 'center' },
   button: { backgroundColor: '#00AABB', borderRadius: 30, paddingVertical: 14, alignItems: 'center', marginBottom: 20 },
   buttonDisabled: { opacity: 0.6 },

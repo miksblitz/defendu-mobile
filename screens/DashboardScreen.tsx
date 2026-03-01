@@ -1,3 +1,7 @@
+/**
+ * DashboardScreen
+ * Home: weekly goal, categories, recommended and category modules. Opens ViewModuleScreen.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -16,6 +20,7 @@ import {
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 
+// --- Constants ---
 /** Training category hero images (copy your 5 images to assets/images/training/ with these names). */
 const CATEGORY_IMAGES: Record<string, ReturnType<typeof require>> = {
   'Punching': require('../assets/images/training/punching.png'),
@@ -47,6 +52,7 @@ const MODULES_PER_DAY_GOAL = 5;
 /** @deprecated Weekly progress now comes from completionTimestamps/dayProgress. Kept to avoid ReferenceError if cache references it. */
 const progressValues = [0, 0, 0, 0, 0, 0, 0];
 
+// --- Helpers ---
 /** Start of current week (Monday 00:00) and end (Sunday 23:59:59.999) in local time. */
 function getCurrentWeekRange(): { start: number; end: number } {
   const now = new Date();
@@ -192,12 +198,14 @@ function TrainingCategoryCard({
   );
 }
 
+// --- Types ---
 interface DashboardScreenProps {
   onOpenModule: (moduleId: string) => void;
   /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
   refreshKey?: number;
 }
 
+// --- Component ---
 export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: DashboardScreenProps) {
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
@@ -545,6 +553,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   scroll: { flex: 1 },

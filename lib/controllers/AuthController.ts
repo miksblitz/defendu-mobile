@@ -14,6 +14,7 @@ import type { SkillProfile } from '../models/SkillProfile';
 import type { Module } from '../models/Module';
 import type { ModuleReview } from '../models/ModuleReview';
 import type { TrainerApplication } from '../models/TrainerApplication';
+import { SEED_TEST_MODULES } from '../seed/testModules';
 
 function normalizeArray(value: unknown): string[] | undefined {
   if (!value) return undefined;
@@ -241,6 +242,8 @@ export interface ModuleItem {
   category?: string;
   thumbnailUrl?: string;
   videoDuration?: number;
+  /** basic | intermediate | advanced – used to group modules in the app */
+  difficultyLevel?: 'basic' | 'intermediate' | 'advanced';
   createdAt?: Date;
   updatedAt?: Date;
   status?: string;
@@ -792,6 +795,61 @@ export async function saveModule(
   return moduleId;
 }
 
+/** Seed test modules (approved trainers only). Writes approved modules under current trainer. */
+export async function seedTestModules(): Promise<{ added: number }> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  if (currentUser.role !== 'trainer' || !currentUser.trainerApproved) {
+    throw new Error('Only approved trainers can seed test modules');
+  }
+  const trainerName =
+    currentUser.firstName && currentUser.lastName
+      ? `${currentUser.firstName} ${currentUser.lastName}`
+      : currentUser.username || currentUser.email;
+  const now = Date.now();
+  let added = 0;
+  for (let i = 0; i < SEED_TEST_MODULES.length; i++) {
+    const m = SEED_TEST_MODULES[i];
+    const moduleId = `module_${currentUser.uid}_seed_${now}_${i}`;
+    const payload = {
+      moduleId,
+      trainerId: currentUser.uid,
+      trainerName,
+      moduleTitle: m.moduleTitle,
+      description: m.description,
+      category: m.category,
+      difficultyLevel: m.difficultyLevel,
+      introductionType: 'text',
+      introduction: m.introduction ?? null,
+      introductionVideoUrl: null,
+      techniqueVideoUrl: null,
+      techniqueVideoLink: null,
+      videoDuration: m.videoDuration ?? null,
+      thumbnailUrl: null,
+      intensityLevel: 2,
+      spaceRequirements: [],
+      physicalDemandTags: [],
+      repRange: null,
+      trainingDurationSeconds: null,
+      status: 'approved',
+      createdAt: now,
+      updatedAt: now,
+      submittedAt: now,
+      certificationChecked: true,
+    };
+    await set(ref(db, `modules/${moduleId}`), payload);
+    await set(ref(db, `trainerModules/${currentUser.uid}/${moduleId}`), {
+      moduleId,
+      moduleTitle: m.moduleTitle,
+      status: 'approved',
+      createdAt: now,
+      updatedAt: now,
+    });
+    added++;
+  }
+  return { added };
+}
+
 /** Upload video or image to Cloudinary; returns secure URL. */
 export async function uploadFileToCloudinary(
   fileUri: string,
@@ -844,5 +902,6 @@ export const AuthController = {
   updateTrainerProfile,
   submitTrainerApplication,
   saveModule,
+  seedTestModules,
   uploadFileToCloudinary,
 };

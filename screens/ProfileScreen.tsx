@@ -60,6 +60,8 @@ export default function ProfileScreen() {
   const [showBeltPicker, setShowBeltPicker] = useState(false);
   const [savingTrainerProfile, setSavingTrainerProfile] = useState(false);
   const [trainerProfileError, setTrainerProfileError] = useState('');
+  const [seedingModules, setSeedingModules] = useState(false);
+  const [seedModulesMessage, setSeedModulesMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -466,6 +468,30 @@ export default function ProfileScreen() {
           {isApprovedTrainer ? 'Trainer page info · Name & password' : 'Change your name and password'}
         </Text>
 
+        {isApprovedTrainer && (
+          <View style={styles.seedSection}>
+            <TouchableOpacity
+              style={styles.seedButton}
+              onPress={async () => {
+                setSeedModulesMessage(null);
+                setSeedingModules(true);
+                try {
+                  const { added } = await AuthController.seedTestModules();
+                  setSeedModulesMessage(`Added ${added} test modules. Open Home and pick a category to see them.`);
+                } catch (e) {
+                  setSeedModulesMessage((e as Error)?.message ?? 'Failed to seed modules');
+                } finally {
+                  setSeedingModules(false);
+                }
+              }}
+              disabled={seedingModules}
+            >
+              <Text style={styles.seedButtonText}>{seedingModules ? 'Adding…' : 'Seed test modules'}</Text>
+            </TouchableOpacity>
+            {seedModulesMessage ? <Text style={styles.seedMessage}>{seedModulesMessage}</Text> : null}
+          </View>
+        )}
+
         <View style={styles.linksSection}>
           <TouchableOpacity style={styles.linkRow} onPress={() => openLink(PRIVACY_URL)}>
             <Text style={styles.linkText}>Privacy Policy</Text>
@@ -799,6 +825,17 @@ const styles = StyleSheet.create({
   editButton: { borderWidth: 2, borderColor: '#07bbc0', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, marginBottom: 6 },
   editButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   editHint: { color: '#6b8693', fontSize: 12, marginBottom: 28 },
+  seedSection: { marginBottom: 24 },
+  seedButton: {
+    borderWidth: 1.5,
+    borderColor: '#07bbc0',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  seedButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
+  seedMessage: { color: '#6b8693', fontSize: 13, marginTop: 8 },
   linksSection: { width: '100%', backgroundColor: '#011f36', borderRadius: 16, padding: 4, borderWidth: 1, borderColor: '#062731', marginBottom: 20 },
   linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#062731' },
   linkRowLast: { borderBottomWidth: 0 },

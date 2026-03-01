@@ -11,6 +11,7 @@ import {
   Animated,
   Platform,
   StatusBar,
+  TextInput,
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
@@ -26,10 +27,14 @@ const CATEGORY_IMAGES: Record<string, ReturnType<typeof require>> = {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SAFE_TOP = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 48;
-/** Hero overlay height: enough to cover weekly goal box (~logo + header + bar + days + padding). */
-const EXPANDED_HERO_HEIGHT = Math.min(SCREEN_HEIGHT * 0.5, 320);
+/** Hero overlay: smaller so modules get more space. */
+const EXPANDED_HERO_HEIGHT = Math.min(SCREEN_HEIGHT * 0.28, 180);
+const EXPANDED_HERO_MAX_WIDTH = SCREEN_WIDTH * 0.88;
 const CARD_MARGIN = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - CARD_MARGIN * 2 - 24) / 2 - CARD_MARGIN / 2;
+/** Fixed width for module cards in horizontal scroll (category overlay). */
+const MODULE_ROW_CARD_WIDTH = Math.min(160, SCREEN_WIDTH * 0.42);
+const MODULE_ROW_CARD_GAP = 12;
 
 /** Horizontal category strip: card width so ~1.2 cards visible, with gap. */
 const HORIZONTAL_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.72, 280);
@@ -198,6 +203,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
 
@@ -238,9 +244,34 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
     ? dayProgress.reduce((a, b) => a + b, 0) / 7
     : 0;
 
-  const modulesInCategory = selectedCategory
+  const modulesInCategoryRaw = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
     : [];
+  const categorySearch = (categorySearchQuery ?? '').trim().toLowerCase();
+  const modulesInCategory = categorySearch
+    ? modulesInCategoryRaw.filter(
+        (m) =>
+          (m.moduleTitle ?? '').toLowerCase().includes(categorySearch) ||
+          (m.description ?? '').toLowerCase().includes(categorySearch)
+      )
+    : modulesInCategoryRaw;
+
+  function groupByDifficulty<T extends { difficultyLevel?: string | null }>(list: T[]): { level: 'basic' | 'intermediate' | 'advanced' | 'other'; label: string; items: T[] }[] {
+    const basic = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'basic');
+    const intermediate = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'intermediate');
+    const advanced = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'advanced');
+    const other = list.filter((m) => {
+      const L = (m.difficultyLevel ?? '').toLowerCase();
+      return L !== 'basic' && L !== 'intermediate' && L !== 'advanced';
+    });
+    const out: { level: 'basic' | 'intermediate' | 'advanced' | 'other'; label: string; items: T[] }[] = [];
+    if (basic.length) out.push({ level: 'basic', label: 'Basic', items: basic });
+    if (intermediate.length) out.push({ level: 'intermediate', label: 'Intermediate', items: intermediate });
+    if (advanced.length) out.push({ level: 'advanced', label: 'Advanced', items: advanced });
+    if (other.length) out.push({ level: 'other', label: 'More', items: other });
+    return out;
+  }
+  const modulesInCategoryByLevel = groupByDifficulty(modulesInCategory);
 
   const heroScale = useRef(new Animated.Value(0.92)).current;
   const heroOpacity = useRef(new Animated.Value(0)).current;
@@ -269,6 +300,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
   }, [selectedCategory, heroScale, heroOpacity, listTranslateY, listOpacity]);
 
   const handleBackFromCategory = () => {
+    setCategorySearchQuery('');
     const OVERLAY_FADE_MS = 130;
     Animated.timing(overlayOpacity, {
       toValue: 0,
@@ -299,6 +331,24 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
           <Text style={styles.moduleTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
           {mod.description ? <Text style={styles.moduleDesc} numberOfLines={2}>{mod.description}</Text> : null}
           {durationMin ? <Text style={styles.duration}>{durationMin}</Text> : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderModuleCardRow = (mod: ModuleItem | Module, onPress: () => void): React.ReactNode => {
+    const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
+    return (
+      <TouchableOpacity key={mod.moduleId} style={styles.moduleRowCard} activeOpacity={0.8} onPress={onPress}>
+        <View style={styles.moduleRowCardBody}>
+          {mod.thumbnailUrl ? (
+            <Image source={{ uri: mod.thumbnailUrl }} style={styles.moduleRowThumbnail} />
+          ) : (
+            <View style={styles.moduleRowThumbnailPlaceholder}><Text style={styles.moduleRowThumbnailIcon}>🥋</Text></View>
+          )}
+          <Text style={styles.moduleRowTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
+          {mod.description ? <Text style={styles.moduleRowDesc} numberOfLines={1}>{mod.description}</Text> : null}
+          {durationMin ? <Text style={styles.moduleRowDuration}>{durationMin}</Text> : null}
         </View>
       </TouchableOpacity>
     );
@@ -432,6 +482,26 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
                 </TouchableOpacity>
               </View>
             </Animated.View>
+
+            <View style={styles.categorySearchWrap}>
+              <TextInput
+                style={[styles.categorySearchInput, categorySearchQuery ? styles.categorySearchInputWithClear : null]}
+                placeholder="Search modules..."
+                placeholderTextColor="#6b8693"
+                value={categorySearchQuery}
+                onChangeText={setCategorySearchQuery}
+              />
+              {categorySearchQuery ? (
+                <TouchableOpacity
+                  style={styles.categorySearchClear}
+                  onPress={() => setCategorySearchQuery('')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.categorySearchClearText}>✕</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
             <Animated.View
               style={[
                 styles.expandedCategoryListWrap,
@@ -443,13 +513,28 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
             >
               {modulesInCategory.length === 0 ? (
                 <View style={styles.emptyBox}>
-                  <Text style={styles.emptyTitle}>No modules in this category yet</Text>
-                  <Text style={styles.emptySubtitle}>Check back later for new content.</Text>
+                  <Text style={styles.emptyTitle}>
+                    {categorySearch ? 'No modules match your search' : 'No modules in this category yet'}
+                  </Text>
+                  <Text style={styles.emptySubtitle}>
+                    {categorySearch ? 'Try a different search.' : 'Check back later for new content.'}
+                  </Text>
                 </View>
               ) : (
-                <View style={styles.moduleGrid}>
-                  {modulesInCategory.map((mod: ModuleItem) => renderModuleCard(mod, () => onOpenModule(mod.moduleId)))}
-                </View>
+                <>
+                  {modulesInCategoryByLevel.map(({ label, items }) => (
+                    <View key={label} style={styles.difficultySection}>
+                      <Text style={styles.difficultySectionTitle}>{label}</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.moduleRowScrollContent}
+                      >
+                        {items.map((mod: ModuleItem) => renderModuleCardRow(mod, () => onOpenModule(mod.moduleId)))}
+                      </ScrollView>
+                    </View>
+                  ))}
+                </>
               )}
             </Animated.View>
           </ScrollView>
@@ -507,19 +592,27 @@ const styles = StyleSheet.create({
   },
   categoryOverlayScroll: { flex: 1 },
   categoryOverlayContent: { paddingHorizontal: 24, paddingBottom: 48 },
-  expandedCategoryHeroOverlay: { marginBottom: 20 },
-  expandedCategoryHero: { marginHorizontal: -24, marginBottom: 20 },
-  expandedCategoryHeroImageWrap: { width: SCREEN_WIDTH, height: EXPANDED_HERO_HEIGHT, position: 'relative', overflow: 'hidden' },
+  expandedCategoryHeroOverlay: { marginBottom: 12 },
+  expandedCategoryHero: { marginBottom: 12 },
+  expandedCategoryHeroImageWrap: {
+    width: EXPANDED_HERO_MAX_WIDTH,
+    maxWidth: SCREEN_WIDTH - 48,
+    height: EXPANDED_HERO_HEIGHT,
+    alignSelf: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 16,
+  },
   expandedCategoryHeroImage: { width: '100%', height: '100%' },
   expandedCategoryHeroPlaceholder: { width: '100%', height: '100%', backgroundColor: '#0a3645', justifyContent: 'center', alignItems: 'center' },
   expandedCategoryHeroGradient: {
-    position: 'absolute', left: 0, right: 0, bottom: 0, height: 160,
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: 80,
     backgroundColor: 'rgba(4, 21, 39, 0.88)',
   },
   expandedCategoryHeroTitle: {
-    position: 'absolute', left: 24, right: 24, bottom: 32,
-    color: '#FFF', fontSize: 28, fontWeight: '800', letterSpacing: 0.5,
-    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+    position: 'absolute', left: 16, right: 16, bottom: 16,
+    color: '#FFF', fontSize: 22, fontWeight: '800', letterSpacing: 0.5,
+    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
   },
   expandedCategoryHeroBackBtn: {
     position: 'absolute',
@@ -533,7 +626,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   expandedCategoryHeroBackIcon: { width: 24, height: 24, tintColor: '#FFF' },
+  categorySearchWrap: { marginBottom: 16, position: 'relative' },
+  categorySearchInput: {
+    backgroundColor: '#011f36',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#062731',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#FFF',
+  },
+  categorySearchInputWithClear: { paddingRight: 44 },
+  categorySearchClear: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  categorySearchClearText: { color: '#6b8693', fontSize: 18, fontWeight: '600' },
   expandedCategoryListWrap: { marginBottom: 24 },
+  difficultySection: { marginBottom: 20 },
+  difficultySectionTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', marginBottom: 10, letterSpacing: 0.5 },
+  moduleRowScrollContent: { paddingRight: 24 },
+  moduleRowCard: {
+    width: MODULE_ROW_CARD_WIDTH,
+    marginRight: MODULE_ROW_CARD_GAP,
+    borderRadius: 14,
+    backgroundColor: '#011f36',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#062731',
+  },
+  moduleRowCardBody: { padding: 10 },
+  moduleRowThumbnail: { width: '100%', height: 72, borderRadius: 8, marginBottom: 6, backgroundColor: '#0a3645' },
+  moduleRowThumbnailPlaceholder: { width: '100%', height: 72, borderRadius: 8, marginBottom: 6, backgroundColor: '#0a3645', justifyContent: 'center', alignItems: 'center' },
+  moduleRowThumbnailIcon: { fontSize: 28 },
+  moduleRowTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  moduleRowDesc: { color: '#6b8693', fontSize: 11, marginBottom: 2 },
+  moduleRowDuration: { color: '#07bbc0', fontSize: 10, fontWeight: '600' },
   categoryHeading: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 16 },
   swipeHint: { color: '#6b8693', fontSize: 12, marginBottom: 12, letterSpacing: 0.5 },
   categoryScrollContent: {

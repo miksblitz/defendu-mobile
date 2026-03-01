@@ -14,6 +14,8 @@ export interface TrainerApplication {
   yearsOfTeaching: string;
   currentRank?: string;
   aboutMe?: string;
+  /** Optional image or file URL for trainer profile (e.g. headshot or bio attachment). */
+  aboutMeImageUrl?: string;
   facebookLink?: string;
   instagramLink?: string;
   otherLink?: string;

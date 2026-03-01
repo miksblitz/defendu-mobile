@@ -18,7 +18,8 @@ import type { Module } from '../lib/models/Module';
 import type { ModuleReview } from '../lib/models/ModuleReview';
 import PoseCameraView from '../components/PoseCameraView';
 import { getRequiredReps } from '../utils/repRange';
-import type { PoseSequence } from '../lib/pose/types';
+import type { PoseSequence, PoseFocus } from '../lib/pose/types';
+import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 
 type Step = 'intro' | 'video' | 'tryIt' | 'tryItPose' | 'complete';
 
@@ -54,7 +55,8 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const [showAllReviewsModal, setShowAllReviewsModal] = useState(false);
   const [poseCorrectReps, setPoseCorrectReps] = useState(0);
   const [poseCurrentRepCorrect, setPoseCurrentRepCorrect] = useState<boolean | null>(null);
-  const [referencePoseSequence, setReferencePoseSequence] = useState<PoseSequence | null>(null);
+  const [referencePoseSequence, setReferencePoseSequence] = useState<PoseSequence | PoseSequence[] | null>(null);
+  const [referencePoseFocus, setReferencePoseFocus] = useState<PoseFocus>(DEFAULT_POSE_FOCUS);
   const [referencePoseLoading, setReferencePoseLoading] = useState(false);
   const tryItTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -169,19 +171,29 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   useEffect(() => {
     if (step !== 'tryItPose' || !module?.referencePoseSequenceUrl) {
       setReferencePoseSequence(null);
+      setReferencePoseFocus(DEFAULT_POSE_FOCUS);
       return;
     }
     let cancelled = false;
     setReferencePoseLoading(true);
     fetch(module.referencePoseSequenceUrl)
       .then((r) => r.json())
-      .then((data: { sequence?: PoseSequence } | PoseSequence) => {
+      .then((data: { sequence?: PoseSequence; sequences?: PoseSequence[]; focus?: PoseFocus } | PoseSequence) => {
         if (cancelled) return;
-        const seq = Array.isArray(data) ? data : data?.sequence ?? null;
+        const obj = data && typeof data === 'object' && !Array.isArray(data) ? data as { focus?: PoseFocus } : {};
+        const focus = obj.focus === 'punching' || obj.focus === 'kicking' || obj.focus === 'full' ? obj.focus : DEFAULT_POSE_FOCUS;
+        setReferencePoseFocus(focus);
+        if (data && typeof data === 'object' && Array.isArray((data as { sequences?: PoseSequence[] }).sequences)) {
+          const list = (data as { sequences: PoseSequence[] }).sequences;
+          setReferencePoseSequence(list.length > 0 ? list : null);
+          return;
+        }
+        const seq = Array.isArray(data) ? data : (data as { sequence?: PoseSequence })?.sequence ?? null;
         setReferencePoseSequence(Array.isArray(seq) && seq.length > 0 ? seq : null);
       })
       .catch(() => {
         if (!cancelled) setReferencePoseSequence(null);
+        if (!cancelled) setReferencePoseFocus(DEFAULT_POSE_FOCUS);
       })
       .finally(() => {
         if (!cancelled) setReferencePoseLoading(false);
@@ -253,6 +265,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
               setPoseCurrentRepCorrect(lastCorrect);
             }}
             referenceSequence={referencePoseLoading ? null : referencePoseSequence}
+            poseFocus={referencePoseFocus}
           />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity

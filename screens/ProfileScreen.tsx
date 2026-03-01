@@ -16,6 +16,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthController } from '../lib/controllers/AuthController';
+import { MARTIAL_ARTS, BELT_BASED_MARTIAL_ARTS, BELT_SYSTEMS } from '../lib/constants/martialArts';
 
 const PRIVACY_URL = 'https://defendu.com/privacy';
 const TERMS_URL = 'https://defendu.com/terms';
@@ -47,6 +48,18 @@ export default function ProfileScreen() {
   const [confirmPwError, setConfirmPwError] = useState('');
   const [showImagePickerModal, setShowImagePickerModal] = useState(false);
   const [uploadingPicture, setUploadingPicture] = useState(false);
+  const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
+  const [trainerProfileModalVisible, setTrainerProfileModalVisible] = useState(false);
+  const [selectedDefenseStyles, setSelectedDefenseStyles] = useState<string[]>([]);
+  const [trainerCurrentRank, setTrainerCurrentRank] = useState('');
+  const [trainerAboutMe, setTrainerAboutMe] = useState('');
+  const [trainerAboutMeImageUrl, setTrainerAboutMeImageUrl] = useState<string | null>(null);
+  const [trainerAboutMeImageName, setTrainerAboutMeImageName] = useState<string | null>(null);
+  const [uploadingAboutMeAttachment, setUploadingAboutMeAttachment] = useState(false);
+  const [showDefenseStylesPicker, setShowDefenseStylesPicker] = useState(false);
+  const [showBeltPicker, setShowBeltPicker] = useState(false);
+  const [savingTrainerProfile, setSavingTrainerProfile] = useState(false);
+  const [trainerProfileError, setTrainerProfileError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +74,7 @@ export default function ProfileScreen() {
         setFirstName(user.firstName || '');
         setLastName(user.lastName || '');
         setProfilePicture(user.profilePicture || null);
+        setIsApprovedTrainer(user.role === 'trainer' && user.trainerApproved === true);
         const h = user.height ?? skillProfile?.height;
         const w = user.weight ?? skillProfile?.weight;
         setHeight(h != null ? String(h) : '');
@@ -123,6 +137,98 @@ export default function ProfileScreen() {
     setNewPwError('');
     setConfirmPwError('');
     setEditModalVisible(true);
+  };
+
+  const openTrainerProfileModal = async () => {
+    setTrainerProfileError('');
+    try {
+      const user = await AuthController.getCurrentUser();
+      if (!user) return;
+      const app = await AuthController.getUserTrainerApplication(user.uid);
+      if (app) {
+        setSelectedDefenseStyles(Array.isArray(app.defenseStyles) ? app.defenseStyles : []);
+        setTrainerCurrentRank(app.currentRank || '');
+        setTrainerAboutMe(app.aboutMe || '');
+        setTrainerAboutMeImageUrl(app.aboutMeImageUrl || null);
+        setTrainerAboutMeImageName(app.aboutMeImageUrl ? 'Attached' : null);
+      } else {
+        setSelectedDefenseStyles([]);
+        setTrainerCurrentRank('');
+        setTrainerAboutMe('');
+        setTrainerAboutMeImageUrl(null);
+        setTrainerAboutMeImageName(null);
+      }
+      setTrainerProfileModalVisible(true);
+    } catch (e) {
+      console.error('openTrainerProfileModal:', e);
+      setTrainerProfileError('Could not load trainer profile.');
+    }
+  };
+
+  const hasBeltSystem = selectedDefenseStyles.some((a) => BELT_BASED_MARTIAL_ARTS.includes(a));
+  const availableBelts = ((): string[] => {
+    const set = new Set<string>();
+    selectedDefenseStyles.forEach((a) => BELT_SYSTEMS[a]?.forEach((b) => set.add(b)));
+    return Array.from(set).sort();
+  })();
+
+  const toggleDefenseStyle = (art: string) => {
+    setSelectedDefenseStyles((prev) =>
+      prev.includes(art) ? prev.filter((a) => a !== art) : [...prev, art]
+    );
+  };
+
+  const handleAddAboutMeAttachment = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow access to your photos to add a picture.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const asset = result.assets[0];
+    setUploadingAboutMeAttachment(true);
+    setTrainerProfileError('');
+    try {
+      const url = await AuthController.uploadFileToCloudinary(
+        asset.uri,
+        'image',
+        asset.fileName || `about_${Date.now()}.jpg`
+      );
+      setTrainerAboutMeImageUrl(url);
+      setTrainerAboutMeImageName(asset.fileName || 'Image');
+    } catch (e) {
+      console.error('upload about-me image:', e);
+      setTrainerProfileError('Failed to upload image. Try again.');
+    } finally {
+      setUploadingAboutMeAttachment(false);
+    }
+  };
+
+  const handleSaveTrainerProfile = async () => {
+    setTrainerProfileError('');
+    const user = await AuthController.getCurrentUser();
+    if (!user) return;
+    setSavingTrainerProfile(true);
+    try {
+      await AuthController.updateTrainerProfile(user.uid, {
+        defenseStyles: selectedDefenseStyles,
+        currentRank: trainerCurrentRank.trim() || undefined,
+        aboutMe: trainerAboutMe.trim() || undefined,
+        aboutMeImageUrl: trainerAboutMeImageUrl || undefined,
+      });
+      setTrainerProfileModalVisible(false);
+    } catch (e) {
+      console.error('handleSaveTrainerProfile:', e);
+      setTrainerProfileError((e as Error)?.message || 'Could not save. Please try again.');
+    } finally {
+      setSavingTrainerProfile(false);
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -222,7 +328,7 @@ export default function ProfileScreen() {
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -249,7 +355,7 @@ export default function ProfileScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -343,10 +449,22 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.editButton} onPress={openEditModal}>
-          <Text style={styles.editButtonText}>Edit Profile</Text>
-        </TouchableOpacity>
-        <Text style={styles.editHint}>Change your name and password</Text>
+        <View style={styles.editButtonRow}>
+          {isApprovedTrainer && (
+            <TouchableOpacity style={styles.editButtonHalf} onPress={openTrainerProfileModal}>
+              <Text style={styles.editButtonText}>Edit trainer profile</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.editButtonHalf, !isApprovedTrainer && styles.editButtonFull]}
+            onPress={openEditModal}
+          >
+            <Text style={styles.editButtonText}>Edit profile</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.editHint}>
+          {isApprovedTrainer ? 'Trainer page info · Name & password' : 'Change your name and password'}
+        </Text>
 
         <View style={styles.linksSection}>
           <TouchableOpacity style={styles.linkRow} onPress={() => openLink(PRIVACY_URL)}>
@@ -440,6 +558,129 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal visible={trainerProfileModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} keyboardShouldPersistTaps="handled">
+            <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Edit trainer profile</Text>
+            <Text style={styles.editHint}>This is what learners see on the Trainer page.</Text>
+            <View style={styles.modalFieldWrap}>
+              <Text style={styles.label}>Defense styles</Text>
+              <TouchableOpacity
+                style={styles.defenseStylesSelect}
+                onPress={() => setShowDefenseStylesPicker(!showDefenseStylesPicker)}
+              >
+                <Text style={selectedDefenseStyles.length ? styles.selectText : styles.placeholderText} numberOfLines={2}>
+                  {selectedDefenseStyles.length ? selectedDefenseStyles.join(', ') : 'Tap to choose martial arts'}
+                </Text>
+                <Text style={styles.chevron}>▼</Text>
+              </TouchableOpacity>
+              {showDefenseStylesPicker && (
+                <View style={styles.pickerList}>
+                  <ScrollView style={styles.pickerScroll} nestedScrollEnabled>
+                    {MARTIAL_ARTS.map((art) => (
+                      <TouchableOpacity
+                        key={art}
+                        style={styles.pickerItem}
+                        onPress={() => toggleDefenseStyle(art)}
+                      >
+                        <Text style={styles.pickerItemText}>{art}</Text>
+                        {selectedDefenseStyles.includes(art) ? <Text style={styles.check}>✓</Text> : null}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            {hasBeltSystem && (
+              <View style={styles.modalFieldWrap}>
+                <Text style={styles.label}>Belt / rank</Text>
+                <TouchableOpacity
+                  style={styles.defenseStylesSelect}
+                  onPress={() => setShowBeltPicker(!showBeltPicker)}
+                >
+                  <Text style={trainerCurrentRank ? styles.selectText : styles.placeholderText}>
+                    {trainerCurrentRank || 'Select belt...'}
+                  </Text>
+                  <Text style={styles.chevron}>▼</Text>
+                </TouchableOpacity>
+                {showBeltPicker && (
+                  <View style={styles.pickerList}>
+                    <ScrollView style={styles.pickerScroll} nestedScrollEnabled>
+                      {availableBelts.map((b) => (
+                        <TouchableOpacity
+                          key={b}
+                          style={styles.pickerItem}
+                          onPress={() => {
+                            setTrainerCurrentRank(b);
+                            setShowBeltPicker(false);
+                          }}
+                        >
+                          <Text style={styles.pickerItemText}>{b}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
+            <View style={styles.modalFieldWrap}>
+              <Text style={styles.label}>About you</Text>
+              <TextInput
+                style={[styles.input, styles.modalInput, styles.modalInputMultiline]}
+                value={trainerAboutMe}
+                onChangeText={setTrainerAboutMe}
+                placeholder="Short bio for the Trainer page"
+                placeholderTextColor="#6b8693"
+                multiline
+                numberOfLines={4}
+              />
+              <Text style={styles.labelSecondary}>Picture or attachment (optional)</Text>
+              {trainerAboutMeImageUrl ? (
+                <View style={styles.attachmentRow}>
+                  <Image source={{ uri: trainerAboutMeImageUrl }} style={styles.aboutMeThumb} />
+                  <Text style={styles.attachmentName} numberOfLines={1}>{trainerAboutMeImageName || 'Attached'}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setTrainerAboutMeImageUrl(null);
+                      setTrainerAboutMeImageName(null);
+                    }}
+                    style={styles.removeAttachmentBtn}
+                  >
+                    <Text style={styles.removeAttachmentText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.addAttachmentBtn}
+                  onPress={handleAddAboutMeAttachment}
+                  disabled={uploadingAboutMeAttachment}
+                >
+                  <Ionicons name="image-outline" size={20} color="#07bbc0" />
+                  <Text style={styles.addAttachmentText}>
+                    {uploadingAboutMeAttachment ? 'Uploading…' : 'Add picture or image'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {trainerProfileError ? <Text style={styles.errorText}>{trainerProfileError}</Text> : null}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setTrainerProfileModalVisible(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, savingTrainerProfile && styles.buttonDisabled]}
+                onPress={handleSaveTrainerProfile}
+                disabled={savingTrainerProfile}
+              >
+                <Text style={styles.modalSaveText}>{savingTrainerProfile ? 'Saving…' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -552,8 +793,11 @@ const styles = StyleSheet.create({
   saveStatsBtn: { backgroundColor: '#07bbc0', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginTop: 8 },
   saveStatsBtnText: { color: '#041527', fontSize: 16, fontWeight: '600' },
   buttonDisabled: { opacity: 0.6 },
+  editButtonRow: { flexDirection: 'row', gap: 10, marginBottom: 6, flexWrap: 'wrap' },
+  editButtonHalf: { borderWidth: 1.5, borderColor: '#07bbc0', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, flex: 1, minWidth: 100, alignItems: 'center' },
+  editButtonFull: { flex: 1, minWidth: '100%' },
   editButton: { borderWidth: 2, borderColor: '#07bbc0', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, marginBottom: 6 },
-  editButtonText: { color: '#07bbc0', fontSize: 16, fontWeight: '600' },
+  editButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   editHint: { color: '#6b8693', fontSize: 12, marginBottom: 28 },
   linksSection: { width: '100%', backgroundColor: '#011f36', borderRadius: 16, padding: 4, borderWidth: 1, borderColor: '#062731', marginBottom: 20 },
   linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#062731' },
@@ -563,10 +807,41 @@ const styles = StyleSheet.create({
   resetButton: { paddingVertical: 14, paddingHorizontal: 20 },
   resetButtonText: { color: '#e57373', fontSize: 15, fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalScroll: { maxHeight: '85%', width: '100%' },
+  modalScrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   modalContent: { width: '100%', maxWidth: 360, backgroundColor: '#041527', borderRadius: 20, padding: 24, borderWidth: 1, borderColor: '#062731' },
   modalTitle: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 20 },
   modalFieldWrap: { marginBottom: 20 },
   modalInput: { marginBottom: 0 },
+  modalInputMultiline: { minHeight: 88, textAlignVertical: 'top' },
+  defenseStylesSelect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#062731',
+    backgroundColor: '#062731',
+    minHeight: 48,
+  },
+  selectText: { color: '#FFF', fontSize: 15, flex: 1 },
+  placeholderText: { color: '#6b8693', fontSize: 15, flex: 1 },
+  chevron: { color: '#6b8693', fontSize: 12, marginLeft: 8 },
+  pickerList: { marginTop: 8, maxHeight: 200, borderRadius: 10, borderWidth: 1, borderColor: '#062731', backgroundColor: '#062731' },
+  pickerScroll: { maxHeight: 200 },
+  pickerItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#041527' },
+  pickerItemText: { color: '#FFF', fontSize: 15 },
+  check: { color: '#07bbc0', fontSize: 16, fontWeight: '700' },
+  labelSecondary: { fontSize: 13, color: '#6b8693', marginTop: 12, marginBottom: 8 },
+  attachmentRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, padding: 12, backgroundColor: '#062731', borderRadius: 10, gap: 10 },
+  aboutMeThumb: { width: 40, height: 40, borderRadius: 6 },
+  attachmentName: { flex: 1, color: '#FFF', fontSize: 14 },
+  removeAttachmentBtn: { paddingVertical: 6, paddingHorizontal: 10 },
+  removeAttachmentText: { color: '#e57373', fontSize: 14 },
+  addAttachmentBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#062731', borderStyle: 'dashed' },
+  addAttachmentText: { color: '#07bbc0', fontSize: 14 },
   fieldErrorText: { color: '#e57373', fontSize: 12, marginTop: 6 },
   passwordSectionLabel: { fontSize: 14, color: '#6b8693', marginTop: 8, marginBottom: 4 },
   errorText: { color: '#e57373', fontSize: 13, marginTop: 8 },

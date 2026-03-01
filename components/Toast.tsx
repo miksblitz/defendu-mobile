@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, Animated, Image, Modal } from 'react-native';
 
 interface ToastProps {
   message: string;
@@ -40,51 +40,66 @@ export default function Toast({ message, visible, onHide, duration = 3000 }: Toa
   if (!visible) return null;
 
   return (
-    <Animated.View
-      style={[
-        styles.toastContainer,
-        {
-          opacity: opacityAnim,
-          transform: [
-            {
-              translateY: opacityAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [20, 0],
-              }),
-            },
-          ],
-        },
-      ]}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={onHide}
     >
-      <View style={styles.toastContent}>
-        <Image
-          source={require('../assets/images/defendulogo.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-        <Text style={styles.message}>{message}</Text>
+      <View style={styles.overlay} pointerEvents="box-none">
+        <Animated.View
+          style={[
+            styles.toastContainer,
+            {
+              opacity: opacityAnim,
+              transform: [
+                {
+                  translateY: opacityAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-20, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+          pointerEvents="auto"
+        >
+          <View style={styles.toastContent}>
+            <Image
+              source={require('../assets/images/defendulogo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.message}>{message}</Text>
+          </View>
+          <Animated.View
+            style={[
+              styles.progressBar,
+              {
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['100%', '0%'],
+                }),
+              },
+            ]}
+          />
+        </Animated.View>
       </View>
-      <Animated.View
-        style={[
-          styles.progressBar,
-          {
-            width: progressAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['100%', '0%'],
-            }),
-          },
-        ]}
-      />
-    </Animated.View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 56,
+    paddingRight: 20,
+  },
   toastContainer: {
-    position: 'absolute',
-    bottom: 40,
-    left: 20,
-    right: 20,
     backgroundColor: '#041527',
     borderRadius: 12,
     borderWidth: 1,
@@ -96,8 +111,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 10,
     overflow: 'hidden',
+    zIndex: 10000,
   },
   toastContent: {
     flexDirection: 'row',

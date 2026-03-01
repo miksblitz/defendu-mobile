@@ -18,6 +18,8 @@ export interface Module {
   spaceRequirements?: string[];
   physicalDemandTags?: string[];
   repRange?: string;
+  /** Overall difficulty: Basic, Intermediate, or Advanced. */
+  difficultyLevel?: 'basic' | 'intermediate' | 'advanced';
   trainingDurationSeconds?: number;
   status: 'draft' | 'pending review' | 'approved' | 'rejected';
   createdAt: Date;

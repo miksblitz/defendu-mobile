@@ -141,15 +141,13 @@ Use **MoveNet** only if you need the lightest option (e.g. very low-end devices 
 
 ## 4. Reference pipeline: technique video → pose sequence
 
-The **source of data** for “correct technique” is the module’s **technique video** (`techniqueVideoUrl`).
+The **source of data** for “correct technique” is the module’s **technique video** (`techniqueVideoUrl`). You do **not** train a new model—you run the same MediaPipe Pose on the reference video to get one "correct rep"; the app compares the user's rep to that.
 
 ### 4.1 Where to run it
 
-- **Backend (recommended for v1)**: A Cloud Function or a small Node script that:
-  - Downloads or streams the technique video.
-  - Runs **MediaPipe Pose** or **TF.js pose-detection** (e.g. in Node with `@mediapipe/tasks-vision` or headless Chrome) to get landmarks per frame.
-  - Outputs a **reference pose sequence**: array of frames, each frame = array of `{x, y, z?, visibility?}` (or similar) for each landmark.
-- **On device**: Possible but heavy (decode video + run pose on every frame). Better as a later optimization.
+- **Script (recommended):** Run **scripts/extract_reference_pose.py** (see **scripts/README.md**): reads the technique video, runs MediaPipe Pose per frame, writes the JSON the app expects. Upload the JSON and set `referencePoseSequenceUrl` on the module.
+- **Backend:** A Cloud Function or Node script can download the video, run MediaPipe (e.g. `@mediapipe/tasks-vision` or headless Chrome), and output the same JSON format.
+- **On device:** Possible but heavy; better as a later optimization.
 
 ### 4.2 Output format (reference pose sequence)
 
@@ -329,5 +327,8 @@ The app uses **@thinksys/react-native-mediapipe** for pose detection on **Androi
 
 1. **Prebuild** (native code): run `npx expo prebuild`, then run on a **physical Android device**: `npx expo run:android --device`.
 2. **Android**: Camera permission is requested at runtime; the ThinkSys package and expo-camera plugin configure the manifest. Ensure your device has camera access allowed for the app.
+
+**If pose works with `npx expo run:android` (emulator) but not with `npx expo run:android --device` (physical phone):**  
+Without `--device`, the app targets the **emulator** (x86, virtual camera). With `--device` it targets the **phone** (arm, real camera)—a different build and runtime. Check: (1) Camera permission allowed for the app on the device. (2) Build explicitly for device: run `npx expo run:android --device` so the arm build is used. (3) Run `adb logcat` while opening “Try with pose” on the device to see the native error (MediaPipe / TsMediapipe / camera).
 3. **Practice mode**: If a module has no `referencePoseSequenceUrl`, "Try with pose" still works: every tap on **Rep** counts as a correct rep so you can complete the required reps and proceed. Once you add reference JSON per module, comparison runs and only matching reps turn green and count.
 4. **Reference JSON format**: Store one rep of pose frames as either a raw array of frames or `{ "sequence": [ ... ] }`. Each frame is an array of 33 landmarks `{ x, y, z?, visibility? }`. Host the JSON and set `referencePoseSequenceUrl` on the module in Firebase.

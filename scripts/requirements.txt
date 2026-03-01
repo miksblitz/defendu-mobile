@@ -1,0 +1,6 @@
+# For extract_reference_pose.py (reference pose extraction from videos)
+# Script supports both legacy (mp.solutions) and new Tasks API (mp.tasks.vision).
+# On Windows, 0.10.30 can raise "function 'free' not found"; use 0.10.21.
+opencv-python>=4.5.0
+mediapipe>=0.10.0,<=0.10.21
+numpy

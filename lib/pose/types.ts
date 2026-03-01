@@ -23,3 +23,9 @@ export type ReferencePoseSequence = {
   landmarksPerFrame: number;
   sequence: PoseSequence;
 };
+
+/** Which body region to use for rep detection and comparison (per technique). */
+export type PoseFocus = 'punching' | 'kicking' | 'full';
+
+/** Default focus when not specified in reference JSON. */
+export const DEFAULT_POSE_FOCUS: PoseFocus = 'full';

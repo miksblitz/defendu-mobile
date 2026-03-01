@@ -14,33 +14,9 @@ import {
 } from 'react-native';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { TrainerApplication } from '../lib/models/TrainerApplication';
+import { MARTIAL_ARTS as martialArts, BELT_BASED_MARTIAL_ARTS as beltBasedMartialArts, BELT_SYSTEMS as beltSystems } from '../lib/constants/martialArts';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
-
-const martialArts = [
-  'Brazilian Jiu-Jitsu (BJJ)', 'Judo', 'Karate', 'Taekwondo', 'Muay Thai', 'Boxing',
-  'Wrestling', 'Kickboxing', 'Krav Maga', 'Aikido', 'Wing Chun', 'Jeet Kune Do',
-  'Capoeira', 'Sambo', 'Kyokushin Karate', 'Shotokan Karate', 'Wado-Ryu Karate',
-  'Tang Soo Do', 'Hapkido', 'Kung Fu', 'Mixed Martial Arts (MMA)', 'Kali/Eskrima/Arnis',
-  'Silat', 'Savate', 'Lethwei',
-];
-
-const beltBasedMartialArts = [
-  'Brazilian Jiu-Jitsu (BJJ)', 'Judo', 'Karate', 'Taekwondo', 'Kyokushin Karate',
-  'Shotokan Karate', 'Wado-Ryu Karate', 'Tang Soo Do', 'Hapkido',
-];
-
-const beltSystems: Record<string, string[]> = {
-  'Brazilian Jiu-Jitsu (BJJ)': ['White', 'Blue', 'Purple', 'Brown', 'Black'],
-  'Judo': ['White', 'Yellow', 'Orange', 'Green', 'Blue', 'Brown', 'Black'],
-  'Karate': ['White', 'Yellow', 'Orange', 'Green', 'Blue', 'Purple', 'Brown', 'Black'],
-  'Taekwondo': ['White', 'Yellow', 'Orange', 'Green', 'Blue', 'Red', 'Black'],
-  'Kyokushin Karate': ['White', 'Orange', 'Blue', 'Yellow', 'Green', 'Brown', 'Black'],
-  'Shotokan Karate': ['White', 'Yellow', 'Orange', 'Green', 'Blue', 'Purple', 'Brown', 'Black'],
-  'Wado-Ryu Karate': ['White', 'Yellow', 'Orange', 'Green', 'Blue', 'Purple', 'Brown', 'Black'],
-  'Tang Soo Do': ['White', 'Orange', 'Green', 'Red', 'Blue', 'Brown', 'Black'],
-  'Hapkido': ['White', 'Yellow', 'Orange', 'Green', 'Blue', 'Red', 'Brown', 'Black'],
-};
 
 const yearsOptions = Array.from({ length: 51 }, (_, i) => i.toString());
 

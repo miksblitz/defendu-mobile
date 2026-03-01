@@ -668,6 +668,31 @@ export async function getUserTrainerApplication(uid: string): Promise<TrainerApp
   return getTrainerApplicationData(uid);
 }
 
+/** Update the public trainer profile (what shows on Trainer page). Only approved trainers. */
+export async function updateTrainerProfile(
+  uid: string,
+  updates: {
+    defenseStyles?: string[];
+    currentRank?: string;
+    aboutMe?: string;
+    aboutMeImageUrl?: string;
+  }
+): Promise<void> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || currentUser.uid !== uid) throw new Error('User must be authenticated');
+  if (currentUser.role !== 'trainer' || !currentUser.trainerApproved) {
+    throw new Error('Only approved trainers can update their trainer profile');
+  }
+  const applicationRef = ref(db, `TrainerApplication/${uid}`);
+  const patch: Record<string, unknown> = {};
+  if (updates.defenseStyles !== undefined) patch.defenseStyles = updates.defenseStyles;
+  if (updates.currentRank !== undefined) patch.currentRank = updates.currentRank;
+  if (updates.aboutMe !== undefined) patch.aboutMe = updates.aboutMe;
+  if (updates.aboutMeImageUrl !== undefined) patch.aboutMeImageUrl = updates.aboutMeImageUrl;
+  if (Object.keys(patch).length === 0) return;
+  await update(applicationRef, patch);
+}
+
 /** Submit or resubmit trainer application; updates user role to trainer and sets trainerApproved to false. */
 export async function submitTrainerApplication(data: TrainerApplication): Promise<void> {
   const currentUser = auth.currentUser;
@@ -748,6 +773,7 @@ export async function saveModule(
     spaceRequirements: moduleData.spaceRequirements ?? [],
     physicalDemandTags: moduleData.physicalDemandTags ?? [],
     repRange: moduleData.repRange ?? null,
+    difficultyLevel: moduleData.difficultyLevel ?? null,
     trainingDurationSeconds: moduleData.trainingDurationSeconds ?? null,
     status: isDraft ? 'draft' : 'pending review',
     createdAt: now,
@@ -815,6 +841,7 @@ export const AuthController = {
   getApprovedTrainers,
   getTrainerApplicationData,
   getUserTrainerApplication,
+  updateTrainerProfile,
   submitTrainerApplication,
   saveModule,
   uploadFileToCloudinary,

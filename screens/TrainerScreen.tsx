@@ -57,6 +57,8 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
 
   const fullName = (t: User) => [t.firstName, t.lastName].filter(Boolean).join(' ') || t.username || t.email || 'Trainer';
 
+  const yearLabel = (n: string) => (n === '1' ? 'year' : 'years');
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -88,7 +90,7 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                   </Text>
                 ) : null}
                 {t.applicationData?.yearsOfExperience ? (
-                  <Text style={styles.cardMeta}>{t.applicationData.yearsOfExperience} years experience</Text>
+                  <Text style={styles.cardMeta}>{t.applicationData.yearsOfExperience} {yearLabel(t.applicationData.yearsOfExperience)} experience</Text>
                 ) : null}
               </View>
               <Text style={styles.chevron}>›</Text>
@@ -108,14 +110,23 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                     <Text style={styles.modalClose}>✕</Text>
                   </TouchableOpacity>
                 </View>
-                <ScrollView style={styles.modalScroll}>
-                  {selectedTrainer.profilePicture ? (
-                    <Image source={{ uri: selectedTrainer.profilePicture }} style={styles.detailAvatar} />
+                <View style={styles.detailCoverWrap}>
+                  {selectedTrainer.applicationData?.aboutMeImageUrl ? (
+                    <Image source={{ uri: selectedTrainer.applicationData.aboutMeImageUrl }} style={styles.detailCoverPhoto} />
                   ) : (
-                    <View style={[styles.cardAvatarPlaceholder, styles.detailAvatar]}>
-                      <Text style={styles.detailAvatarLetter}>{fullName(selectedTrainer).charAt(0).toUpperCase()}</Text>
-                    </View>
+                    <View style={styles.detailCoverPlaceholder} />
                   )}
+                  <View style={styles.detailAvatarOverlay}>
+                    {selectedTrainer.profilePicture ? (
+                      <Image source={{ uri: selectedTrainer.profilePicture }} style={styles.detailAvatar} />
+                    ) : (
+                      <View style={[styles.cardAvatarPlaceholder, styles.detailAvatar]}>
+                        <Text style={styles.detailAvatarLetter}>{fullName(selectedTrainer).charAt(0).toUpperCase()}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+                <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator>
                   <Text style={styles.detailName}>{fullName(selectedTrainer)}</Text>
                   {selectedTrainer.applicationData?.defenseStyles?.length ? (
                     <>
@@ -123,10 +134,16 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                       <Text style={styles.detailText}>{selectedTrainer.applicationData.defenseStyles.join(', ')}</Text>
                     </>
                   ) : null}
+                  {selectedTrainer.applicationData?.currentRank ? (
+                    <>
+                      <Text style={styles.detailLabel}>Rank / belt</Text>
+                      <Text style={styles.detailText}>{selectedTrainer.applicationData.currentRank}</Text>
+                    </>
+                  ) : null}
                   {selectedTrainer.applicationData?.yearsOfExperience ? (
                     <>
                       <Text style={styles.detailLabel}>Experience</Text>
-                      <Text style={styles.detailText}>{selectedTrainer.applicationData.yearsOfExperience} years</Text>
+                      <Text style={styles.detailText}>{selectedTrainer.applicationData.yearsOfExperience} {yearLabel(selectedTrainer.applicationData.yearsOfExperience)}</Text>
                     </>
                   ) : null}
                   {selectedTrainer.applicationData?.aboutMe ? (
@@ -135,7 +152,9 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                       <Text style={styles.detailText}>{selectedTrainer.applicationData.aboutMe}</Text>
                     </>
                   ) : null}
-                  {onMessageTrainer && (
+                </ScrollView>
+                {onMessageTrainer && selectedTrainer && (
+                  <View style={styles.messageTrainerButtonWrap}>
                     <TouchableOpacity
                       style={styles.messageTrainerButton}
                       onPress={() => {
@@ -149,8 +168,8 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                     >
                       <Text style={styles.messageTrainerButtonText}>Message</Text>
                     </TouchableOpacity>
-                  )}
-                </ScrollView>
+                  </View>
+                )}
               </>
             )}
           </View>
@@ -179,12 +198,32 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#062731' },
   modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
   modalClose: { color: '#FFF', fontSize: 24 },
-  modalScroll: { padding: 16, maxHeight: 400 },
-  detailAvatar: { width: 80, height: 80, borderRadius: 40, alignSelf: 'center', marginBottom: 16 },
+  modalScroll: { padding: 16, paddingTop: 8, flexGrow: 1, maxHeight: 320 },
+  modalScrollContent: { paddingBottom: 24 },
+  detailCoverWrap: { width: '100%', height: 140, backgroundColor: '#062731', position: 'relative' },
+  detailCoverPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
+  detailCoverPlaceholder: { width: '100%', height: '100%', backgroundColor: '#062731' },
+  detailAvatarOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailAvatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 3,
+    borderColor: '#011f36',
+    backgroundColor: '#062731',
+  },
   detailAvatarLetter: { color: '#041527', fontSize: 36, fontWeight: '700' },
-  detailName: { color: '#FFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
+  detailName: { color: '#FFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16, marginTop: 48 },
   detailLabel: { color: '#07bbc0', fontSize: 14, fontWeight: '700', marginTop: 12, marginBottom: 4 },
   detailText: { color: '#FFF', fontSize: 14, marginBottom: 8 },
-  messageTrainerButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 24 },
+  messageTrainerButtonWrap: { padding: 16, paddingTop: 0, borderTopWidth: 1, borderTopColor: '#062731' },
+  messageTrainerButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   messageTrainerButtonText: { color: '#041527', fontSize: 16, fontWeight: '700' },
 });

@@ -31,7 +31,19 @@
     },
     "plugins": [
       ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }],
-      "expo-camera"
+      "expo-camera",
+      [
+        "expo-image-picker",
+        {
+          "colors": {
+            "cropToolbarColor": "#f0f4f8",
+            "cropToolbarIconColor": "#041527",
+            "cropToolbarActionTextColor": "#041527",
+            "cropBackButtonIconColor": "#041527",
+            "cropBackgroundColor": "#ffffff"
+          }
+        }
+      ]
     ],
     "web": { "favicon": "./assets/favicon.png" }
   }

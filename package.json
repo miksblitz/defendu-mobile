@@ -16,9 +16,10 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@thinksys/react-native-mediapipe": "^0.0.19",
     "@vercel/node": "^3.0.0",
     "expo": "~54.0.33",
-    "@thinksys/react-native-mediapipe": "^0.0.19",
+    "expo-av": "~16.0.8",
     "expo-build-properties": "~1.0.10",
     "expo-camera": "~17.0.10",
     "expo-document-picker": "~14.0.3",

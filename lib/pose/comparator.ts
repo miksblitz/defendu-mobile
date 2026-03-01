@@ -1,10 +1,13 @@
 /**
  * Compare user pose sequence to reference: frame-by-frame mean distance.
  * Lower distance = better match. Use a threshold to decide correct vs wrong rep.
+ * With focus (punching/kicking), only the relevant landmarks are compared.
  */
 
 import type { PoseFrame, PoseSequence } from './types';
+import type { PoseFocus } from './types';
 import { normalizeFrame } from './normalizer';
+import { subsetSequenceByFocus } from './poseFocus';
 
 /**
  * Mean L2 distance between two frames (same number of landmarks).
@@ -83,13 +86,50 @@ export function compareReps(
 }
 
 /** Default threshold: below this mean distance, rep is considered "correct". Tune per exercise. */
-export const DEFAULT_MATCH_THRESHOLD = 0.15;
+export const DEFAULT_MATCH_THRESHOLD = 0.20;
+
+/**
+ * Compare using only the landmarks for the given focus (punching = upper body, kicking = legs, full = all).
+ * Normalizes full frames first, then subsets so only the focused region is compared.
+ */
+export function compareRepsWithFocus(
+  userFrames: PoseFrame[],
+  referenceFrames: PoseFrame[],
+  focus?: PoseFocus
+): number {
+  if (focus && focus !== 'full') {
+    const userNorm = userFrames.map(normalizeFrame);
+    const refNorm = referenceFrames.map(normalizeFrame);
+    const userSub = subsetSequenceByFocus(userNorm, focus);
+    const refSub = subsetSequenceByFocus(refNorm, focus);
+    return compareReps(userSub, refSub);
+  }
+  return compareReps(userFrames, referenceFrames);
+}
 
 export function isRepMatch(
   userFrames: PoseFrame[],
   referenceFrames: PoseFrame[],
-  threshold: number = DEFAULT_MATCH_THRESHOLD
+  threshold: number = DEFAULT_MATCH_THRESHOLD,
+  focus?: PoseFocus
 ): boolean {
-  const distance = compareReps(userFrames, referenceFrames);
+  const distance = compareRepsWithFocus(userFrames, referenceFrames, focus);
   return distance < threshold;
+}
+
+/**
+ * Match user rep against multiple reference sequences (e.g. from a dataset).
+ * Returns true if the user matches any reference above the threshold.
+ */
+export function isRepMatchAny(
+  userFrames: PoseFrame[],
+  referenceSequences: PoseSequence[],
+  threshold: number = DEFAULT_MATCH_THRESHOLD,
+  focus?: PoseFocus
+): boolean {
+  if (referenceSequences.length === 0) return false;
+  for (const ref of referenceSequences) {
+    if (ref.length > 0 && isRepMatch(userFrames, ref, threshold, focus)) return true;
+  }
+  return false;
 }

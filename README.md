@@ -239,4 +239,12 @@ Keep this running. The dev build on the phone will use this Metro bundler for JS
 
 - **Expo Go:** Not supported (native camera/pose libraries are not in Expo Go).
 - **Dev build:** Supported. Install the app with `npx expo run:android` (or `run:ios`), then open a module that has **“Try with pose”** and allow camera when prompted.
+- To **get reference data from a technique video** (so the app can mark correct vs wrong reps): run the extraction script, upload the JSON, and set `referencePoseSequenceUrl` on the module—see **scripts/README.md**.
 - For more detail (reference poses, practice mode, rep count), see **docs/POSE_ESTIMATION_IMPLEMENTATION.md**.
+- **Step-by-step: train for basic jabs (mobile camera)** — see **docs/TRAINING_POSE_JABS.md** (how to know the reference is loaded, and how to get the app to recognize a simple jab).
+
+**Nothing happens when I do the pose (no green, no “Try again”)?**  
+Reps are detected from your **hip movement**: hips go **down** (e.g. squat) then **up** (stand). (1) Make sure your **full body** is in frame and the camera can see your **hips**. (2) Do a clear **down–up** motion (squat and stand, or similar) so the app can count one rep. (3) If you see **“Rep detected — no match”** (red), the rep was counted but didn’t match the reference: try moving more like the reference video, or we can loosen the match threshold in `lib/pose/comparator.ts` (`DEFAULT_MATCH_THRESHOLD`, try `0.22` or `0.25`). (4) If the module has no reference yet (practice mode), every detected rep should count as correct; if it still does nothing, the rep detector isn’t firing—ensure good lighting and full body in frame.
+
+**Pose works on emulator but not on physical device (`--device`)?**  
+Without `--device`, the app runs on the **Android emulator** (x86 build, virtual camera). With `npx expo run:android --device` it runs on a **physical phone** (arm build, real camera). Those are different builds and runtimes. If pose only works on the emulator, try: (1) On the phone, ensure **Camera** permission is allowed for the app (Settings → Apps → Defendu → Permissions). (2) Unplug the device, run `npx expo run:android` so it builds and runs on the emulator, then run `npx expo run:android --device` so it builds again for the device and installs there—this ensures a fresh device build. (3) If it still fails, connect the phone via USB, open “Try with pose” on the device, and run `adb logcat` on the PC to see the real native error (look for “MediaPipe”, “TsMediapipe”, or “camera”).

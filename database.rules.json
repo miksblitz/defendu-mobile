@@ -1,0 +1,88 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin') || (auth.uid !== null && data.child('role').val() === 'trainer' && data.child('trainerApproved').val() === true)",
+        ".write": "$uid === auth.uid || (!data.exists() && $uid === auth.uid) || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      },
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+    "skillProfiles": {
+      "$uid": {
+        ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "userProgress": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "recommendations": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+      }
+    },
+    "TrainerApplication": {
+      "$uid": {
+        ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin') || (auth.uid !== null && root.child('users').child($uid).child('role').val() === 'trainer' && root.child('users').child($uid).child('trainerApproved').val() === true)",
+        ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      },
+      ".read": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+    "modules": {
+      "$moduleId": {
+        ".read": "auth.uid !== null && (data.child('trainerId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || (data.child('status').val() === 'approved' && root.child('users').child(auth.uid).exists()))",
+        ".write": "auth.uid !== null && (data.child('trainerId').val() === auth.uid || (!data.exists() && root.child('users').child(auth.uid).child('role').val() === 'trainer' && root.child('users').child(auth.uid).child('trainerApproved').val() === true) || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      },
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+    "userChats": {
+      "$userId": {
+        ".read": "auth.uid === $userId",
+        "$chatId": {
+          ".read": "auth.uid === $userId",
+          ".write": "auth.uid !== null && (auth.uid === $userId || root.child('chats').child($chatId).child('participants').child(auth.uid).exists())"
+        }
+      }
+    },
+    "chats": {
+      "$chatId": {
+        ".read": "auth.uid !== null && (!data.exists() || data.child('participants').child(auth.uid).exists())",
+        ".write": "auth.uid !== null && (data.child('participants').child(auth.uid).exists() || (!data.exists() && newData.child('participants').child(auth.uid).exists()))"
+      }
+    },
+    "userBlockedUsers": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "trainerModules": {
+      "$uid": {
+        "$moduleId": {
+          ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')",
+          ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+        },
+        ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      },
+      ".read": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+    "moduleReviews": {
+      "$moduleId": {
+        "$userId": {
+          ".read": "auth.uid !== null",
+          ".write": "auth.uid === $userId"
+        },
+        ".read": "auth.uid !== null"
+      }
+    }
+  }
+}

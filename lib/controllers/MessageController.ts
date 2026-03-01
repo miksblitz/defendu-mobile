@@ -1,4 +1,4 @@
-import { ref, get, set, update, push, onValue, off } from 'firebase/database';
+import { ref, get, set, update, push, remove, onValue, off } from 'firebase/database';
 import { db } from '../config/firebaseConfig';
 
 export interface MessageAttachment {
@@ -205,5 +205,24 @@ export const MessageController = {
     const [uid1, uid2] = chatId.split('_');
     await update(ref(db, `userChats/${uid1}/${chatId}`), { lastMessage });
     await update(ref(db, `userChats/${uid2}/${chatId}`), { lastMessage });
+  },
+
+  /** Remove this conversation from the current user's list. Messages remain for the other user. */
+  async deleteConversationForUser(currentUserId: string, chatId: string): Promise<void> {
+    await remove(ref(db, `userChats/${currentUserId}/${chatId}`));
+  },
+
+  /** Block a user (add to blocked list) and remove the conversation from our list. */
+  async blockUser(currentUserId: string, otherUserId: string): Promise<void> {
+    const chatId = getChatId(currentUserId, otherUserId);
+    await set(ref(db, `userBlockedUsers/${currentUserId}/${otherUserId}`), true);
+    await remove(ref(db, `userChats/${currentUserId}/${chatId}`));
+  },
+
+  async getBlockedUserIds(currentUserId: string): Promise<string[]> {
+    const refBlocked = ref(db, `userBlockedUsers/${currentUserId}`);
+    const snapshot = await get(refBlocked);
+    if (!snapshot.exists()) return [];
+    return Object.keys(snapshot.val());
   },
 };

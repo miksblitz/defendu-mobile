@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  Linking,
 } from 'react-native';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
@@ -26,13 +27,18 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
   const [loading, setLoading] = useState(true);
   const [selectedTrainer, setSelectedTrainer] = useState<TrainerWithData | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const list = await AuthController.getApprovedTrainers();
+        const [user, list] = await Promise.all([
+          AuthController.getCurrentUser(),
+          AuthController.getApprovedTrainers(),
+        ]);
         if (cancelled) return;
+        if (user) setCurrentUserUid(user.uid);
         const withData: TrainerWithData[] = [];
         for (const t of list) {
           const appData = await AuthController.getTrainerApplicationData(t.uid);
@@ -58,6 +64,16 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
   const fullName = (t: User) => [t.firstName, t.lastName].filter(Boolean).join(' ') || t.username || t.email || 'Trainer';
 
   const yearLabel = (n: string) => (n === '1' ? 'year' : 'years');
+
+  const hasSocialLinks = (app: TrainerApplication | null | undefined) =>
+    !!(app?.facebookLink?.trim() || app?.instagramLink?.trim() || app?.otherLink?.trim());
+
+  const openLink = (url: string) => {
+    const u = url.trim();
+    if (!u) return;
+    const toOpen = u.startsWith('http') ? u : `https://${u}`;
+    Linking.openURL(toOpen).catch(() => {});
+  };
 
   if (loading) {
     return (
@@ -126,7 +142,12 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                     )}
                   </View>
                 </View>
-                <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator>
+                <ScrollView
+                  style={styles.modalScroll}
+                  contentContainerStyle={styles.modalScrollContent}
+                  showsVerticalScrollIndicator={true}
+                  bounces={true}
+                >
                   <Text style={styles.detailName}>{fullName(selectedTrainer)}</Text>
                   {selectedTrainer.applicationData?.defenseStyles?.length ? (
                     <>
@@ -140,20 +161,34 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                       <Text style={styles.detailText}>{selectedTrainer.applicationData.currentRank}</Text>
                     </>
                   ) : null}
-                  {selectedTrainer.applicationData?.yearsOfExperience ? (
-                    <>
-                      <Text style={styles.detailLabel}>Experience</Text>
-                      <Text style={styles.detailText}>{selectedTrainer.applicationData.yearsOfExperience} {yearLabel(selectedTrainer.applicationData.yearsOfExperience)}</Text>
-                    </>
+                  {hasSocialLinks(selectedTrainer.applicationData) ? (
+                    <View style={styles.detailSocialBlock}>
+                      <Text style={styles.detailLabel}>Social media</Text>
+                      {selectedTrainer.applicationData?.facebookLink?.trim() ? (
+                        <TouchableOpacity onPress={() => openLink(selectedTrainer.applicationData!.facebookLink!)} style={styles.detailSocialLink} activeOpacity={0.7}>
+                          <Text style={styles.detailSocialLinkText}>Facebook</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {selectedTrainer.applicationData?.instagramLink?.trim() ? (
+                        <TouchableOpacity onPress={() => openLink(selectedTrainer.applicationData!.instagramLink!)} style={styles.detailSocialLink} activeOpacity={0.7}>
+                          <Text style={styles.detailSocialLinkText}>Instagram</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {selectedTrainer.applicationData?.otherLink?.trim() ? (
+                        <TouchableOpacity onPress={() => openLink(selectedTrainer.applicationData!.otherLink!)} style={styles.detailSocialLink} activeOpacity={0.7}>
+                          <Text style={styles.detailSocialLinkText}>Other link</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
                   ) : null}
                   {selectedTrainer.applicationData?.aboutMe ? (
-                    <>
+                    <View style={styles.detailAboutBlock}>
                       <Text style={styles.detailLabel}>About</Text>
-                      <Text style={styles.detailText}>{selectedTrainer.applicationData.aboutMe}</Text>
-                    </>
+                      <Text style={styles.detailAboutText}>{selectedTrainer.applicationData.aboutMe}</Text>
+                    </View>
                   ) : null}
                 </ScrollView>
-                {onMessageTrainer && selectedTrainer && (
+                {onMessageTrainer && selectedTrainer && selectedTrainer.uid !== currentUserUid && (
                   <View style={styles.messageTrainerButtonWrap}>
                     <TouchableOpacity
                       style={styles.messageTrainerButton}
@@ -198,8 +233,8 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#062731' },
   modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
   modalClose: { color: '#FFF', fontSize: 24 },
-  modalScroll: { padding: 16, paddingTop: 8, flexGrow: 1, maxHeight: 320 },
-  modalScrollContent: { paddingBottom: 24 },
+  modalScroll: { flexGrow: 1, maxHeight: 400 },
+  modalScrollContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32 },
   detailCoverWrap: { width: '100%', height: 140, backgroundColor: '#062731', position: 'relative' },
   detailCoverPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
   detailCoverPlaceholder: { width: '100%', height: '100%', backgroundColor: '#062731' },
@@ -222,7 +257,17 @@ const styles = StyleSheet.create({
   detailAvatarLetter: { color: '#041527', fontSize: 36, fontWeight: '700' },
   detailName: { color: '#FFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16, marginTop: 48 },
   detailLabel: { color: '#07bbc0', fontSize: 14, fontWeight: '700', marginTop: 12, marginBottom: 4 },
-  detailText: { color: '#FFF', fontSize: 14, marginBottom: 8 },
+  detailText: { color: '#FFF', fontSize: 14, marginBottom: 8, lineHeight: 20 },
+  detailSocialBlock: { marginTop: 4, marginBottom: 16 },
+  detailSocialLink: { marginBottom: 8 },
+  detailSocialLinkText: { color: '#07bbc0', fontSize: 15, fontWeight: '600' },
+  detailAboutBlock: { marginTop: 4, marginBottom: 16 },
+  detailAboutText: {
+    color: 'rgba(255, 255, 255, 0.95)',
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 8,
+  },
   messageTrainerButtonWrap: { padding: 16, paddingTop: 0, borderTopWidth: 1, borderTopColor: '#062731' },
   messageTrainerButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   messageTrainerButtonText: { color: '#041527', fontSize: 16, fontWeight: '700' },

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   Platform,
   StatusBar,
   Image,
+  Modal,
+  Pressable,
 } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -34,6 +36,13 @@ const NAV_ITEMS: { key: NavScreen; label: string; icon: number | 'messages' }[] 
   { key: 'messages', label: 'Messages', icon: 'messages' },
 ];
 const ICON_COLOR = '#07bbc0';
+const BG_DARK = '#011f36';
+const BG_PANEL = '#041527';
+const BORDER = '#062731';
+const TEXT_WHITE = '#FFF';
+const TEXT_MUTED = '#6b8693';
+const ACCENT = '#07bbc0';
+const ACCENT_DARK = '#041527';
 
 function MessagesIcon() {
   return (
@@ -55,6 +64,7 @@ export default function NavPanel({
 }: NavPanelProps) {
   const slideAnim = useRef(new Animated.Value(-PANEL_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
+  const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
 
   useEffect(() => {
     Animated.parallel([
@@ -76,9 +86,12 @@ export default function NavPanel({
     onNavigate(screen);
   };
 
-  const handleLogout = () => {
+  const handleLogoutPress = () => setLogoutConfirmVisible(true);
+  const handleLogoutCancel = () => setLogoutConfirmVisible(false);
+  const handleLogoutConfirm = () => {
+    setLogoutConfirmVisible(false);
     onClose();
-    onLogout();
+    onLogout?.();
   };
 
   return (
@@ -131,12 +144,43 @@ export default function NavPanel({
             I fear not the man who has practiced 10,000 kicks once, but I fear the man who has practiced one kick 10,000 times.
           </Text>
           <Text style={styles.quoteAttribution}>— Bruce Lee</Text>
+          <View style={styles.logoutRow}>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogoutPress} activeOpacity={0.7}>
+              <Image source={require('../assets/images/logouticon.png')} style={styles.logoutIcon} resizeMode="contain" />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={styles.logoutSpacer} />
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7}>
-          <Image source={require('../assets/images/logouticon.png')} style={styles.logoutIcon} resizeMode="contain" />
-        </TouchableOpacity>
       </Animated.View>
+
+      <Modal
+        visible={logoutConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleLogoutCancel}
+      >
+        <Pressable style={styles.logoutModalOverlay} onPress={handleLogoutCancel}>
+          <Pressable style={styles.logoutModalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.logoutModalTitle}>Log out</Text>
+            <Text style={styles.logoutModalMessage}>Are you sure you want to log out?</Text>
+            <View style={styles.logoutModalActions}>
+              <TouchableOpacity
+                style={styles.logoutModalBtnCancel}
+                onPress={handleLogoutCancel}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.logoutModalBtnCancelText}>No</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.logoutModalBtnConfirm}
+                onPress={handleLogoutConfirm}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.logoutModalBtnConfirmText}>Yes</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -203,11 +247,14 @@ const styles = StyleSheet.create({
     color: '#07bbc0',
     fontWeight: '700',
   },
-  logoutSpacer: { flex: 1, minHeight: 16 },
+  logoutRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
   logoutButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 0,
   },
   logoutIcon: {
     width: 24,
@@ -241,7 +288,7 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 20,
     paddingVertical: 20,
-    paddingBottom: 24 + ANDROID_STATUS_PADDING,
+    paddingBottom: 16 + ANDROID_STATUS_PADDING,
     borderTopWidth: 1,
     borderTopColor: 'rgba(7, 187, 192, 0.2)',
     borderLeftWidth: 3,
@@ -268,6 +315,70 @@ const styles = StyleSheet.create({
     color: '#07bbc0',
     marginTop: 14,
     letterSpacing: 1.5,
+  },
+  logoutModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 14, 28, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  logoutModalCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: BG_PANEL,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 24,
+    alignItems: 'center',
+  },
+  logoutModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: TEXT_WHITE,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  logoutModalMessage: {
+    fontSize: 15,
+    color: TEXT_MUTED,
+    lineHeight: 22,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  logoutModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  logoutModalBtnCancel: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: BORDER,
+    backgroundColor: BG_DARK,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  logoutModalBtnCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: TEXT_MUTED,
+  },
+  logoutModalBtnConfirm: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: ACCENT,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  logoutModalBtnConfirmText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: ACCENT_DARK,
   },
 });
 

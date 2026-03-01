@@ -11,6 +11,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
@@ -127,10 +128,11 @@ export default function LoginScreen({ onForgotPassword, onRegister, onLoginSucce
               activeOpacity={0.7}
               disabled={loading}
             >
-              <Image
-                source={require('../assets/images/showpasswordicon.png')}
+              <Ionicons
+                name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={22}
+                color="#FFF"
                 style={styles.eyeIcon}
-                resizeMode="contain"
               />
             </TouchableOpacity>
           </View>
@@ -237,11 +239,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     padding: 4,
   },
-  eyeIcon: {
-    width: 20,
-    height: 20,
-    tintColor: '#FFF',
-  },
+  eyeIcon: {},
   forgotPasswordContainer: {
     alignItems: 'flex-end',
     marginBottom: 24,

@@ -43,6 +43,10 @@ def download_video(url: str) -> str:
     return path
 
 
+# Max time for pose extraction (seconds). Must be less than gunicorn --timeout (300).
+SUBPROCESS_TIMEOUT = 240
+
+
 def extract_pose(video_path: str, output_path: str, focus: str) -> None:
     """Run the reference pose extraction script; writes JSON to output_path."""
     if not EXTRACT_SCRIPT.is_file():
@@ -61,6 +65,7 @@ def extract_pose(video_path: str, output_path: str, focus: str) -> None:
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        timeout=SUBPROCESS_TIMEOUT,
     )
 
 
@@ -123,6 +128,7 @@ def extract():
         if not video_url or not module_id:
             return jsonify({"error": "videoUrl and moduleId are required"}), 400
 
+        print(f"[Extract] Started for module_id={module_id} focus={focus}", flush=True)
         video_path = None
         out_path = None
         try:
@@ -133,6 +139,7 @@ def extract():
             with open(out_path) as f:
                 payload = json.load(f)
             url = upload_to_firebase_and_update_module(module_id, payload)
+            print(f"[Extract] Done module_id={module_id} url={url[:80]}...", flush=True)
             return jsonify({"referencePoseSequenceUrl": url})
         finally:
             if video_path and os.path.exists(video_path):
@@ -145,6 +152,8 @@ def extract():
                     os.unlink(out_path)
                 except OSError:
                     pass
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Pose extraction timed out (video may be too long). Try a shorter clip."}), 422
     except subprocess.CalledProcessError as e:
         return jsonify({"error": "Pose extraction failed", "detail": (e.stderr or e.stdout or str(e))[:500]}), 422
     except FileNotFoundError as e:

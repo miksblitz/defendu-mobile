@@ -92,6 +92,16 @@ def upload_to_firebase_and_update_module(module_id: str, payload: dict) -> str:
     return url
 
 
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "service": "Defendu pose extraction",
+        "status": "running",
+        "health": "/health",
+        "extract": "POST /extract with { videoUrl, moduleId, focus }",
+    })
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})

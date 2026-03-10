@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -112,56 +113,57 @@ def health():
     return jsonify({"status": "ok"})
 
 
+def _run_extraction(video_url: str, module_id: str, focus: str) -> None:
+    """Background thread: download -> extract -> upload to Firebase. Logs each step."""
+    video_path = None
+    out_path = None
+    try:
+        print(f"[Extract] Background started module_id={module_id}", flush=True)
+        video_path = download_video(video_url)
+        print(f"[Extract] Video downloaded", flush=True)
+        fd, out_path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        extract_pose(video_path, out_path, focus)
+        print(f"[Extract] Pose extraction finished", flush=True)
+        with open(out_path) as f:
+            payload = json.load(f)
+        print(f"[Extract] Uploading to Firebase...", flush=True)
+        url = upload_to_firebase_and_update_module(module_id, payload)
+        print(f"[Extract] Done module_id={module_id} referencePoseSequenceUrl set", flush=True)
+    except Exception as e:
+        print(f"[Extract] Error: {type(e).__name__}: {e}", flush=True)
+    finally:
+        if video_path and os.path.exists(video_path):
+            try:
+                os.unlink(video_path)
+            except OSError:
+                pass
+        if out_path and os.path.exists(out_path):
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+
+
 @app.route("/extract", methods=["POST"])
 def extract():
     """
     Request body: { "videoUrl": string, "moduleId": string, "focus": "punching"|"kicking"|"full" }
-    Downloads video, runs pose extraction, uploads JSON to Storage, updates module.
+    Returns 202 immediately; runs download + pose extraction + Firebase update in a background thread.
     """
-    try:
-        body = request.get_json(force=True, silent=True) or {}
-        video_url = (body.get("videoUrl") or "").strip()
-        module_id = (body.get("moduleId") or "").strip()
-        focus = (body.get("focus") or "full").lower()
-        if focus not in ("punching", "kicking", "full"):
-            focus = "full"
-        if not video_url or not module_id:
-            return jsonify({"error": "videoUrl and moduleId are required"}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    video_url = (body.get("videoUrl") or "").strip()
+    module_id = (body.get("moduleId") or "").strip()
+    focus = (body.get("focus") or "full").lower()
+    if focus not in ("punching", "kicking", "full"):
+        focus = "full"
+    if not video_url or not module_id:
+        return jsonify({"error": "videoUrl and moduleId are required"}), 400
 
-        print(f"[Extract] Started for module_id={module_id} focus={focus}", flush=True)
-        video_path = None
-        out_path = None
-        try:
-            video_path = download_video(video_url)
-            fd, out_path = tempfile.mkstemp(suffix=".json")
-            os.close(fd)
-            extract_pose(video_path, out_path, focus)
-            with open(out_path) as f:
-                payload = json.load(f)
-            url = upload_to_firebase_and_update_module(module_id, payload)
-            print(f"[Extract] Done module_id={module_id} url={url[:80]}...", flush=True)
-            return jsonify({"referencePoseSequenceUrl": url})
-        finally:
-            if video_path and os.path.exists(video_path):
-                try:
-                    os.unlink(video_path)
-                except OSError:
-                    pass
-            if out_path and os.path.exists(out_path):
-                try:
-                    os.unlink(out_path)
-                except OSError:
-                    pass
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "Pose extraction timed out (video may be too long). Try a shorter clip."}), 422
-    except subprocess.CalledProcessError as e:
-        return jsonify({"error": "Pose extraction failed", "detail": (e.stderr or e.stdout or str(e))[:500]}), 422
-    except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 500
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 500
-    except Exception as e:
-        return jsonify({"error": "Server error", "detail": str(e)[:500]}), 500
+    print(f"[Extract] Accepted for module_id={module_id} focus={focus} (running in background)", flush=True)
+    thread = threading.Thread(target=_run_extraction, args=(video_url, module_id, focus), daemon=True)
+    thread.start()
+    return jsonify({"message": "Pose reference is being generated. It may take 1–2 minutes.", "moduleId": module_id}), 202
 
 
 if __name__ == "__main__":

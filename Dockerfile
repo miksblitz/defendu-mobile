@@ -1,5 +1,5 @@
 # Pose extraction service for Defendu (Render Docker)
-# Expects repo root = defendu-mobile (so pose-service/ and scripts/ are here)
+# When Render build context = repo root (parent of defendu-mobile), use defendu-mobile/ prefix.
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -10,11 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pose-service/requirements.txt .
+COPY defendu-mobile/pose-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY pose-service/ pose-service/
-COPY scripts/ scripts/
+COPY defendu-mobile/pose-service/ pose-service/
+COPY defendu-mobile/scripts/ scripts/
 
 ENV PORT=10000
 EXPOSE $PORT

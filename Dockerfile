@@ -19,5 +19,5 @@ COPY scripts/ scripts/
 ENV PORT=10000
 EXPOSE $PORT
 
-# Render sets PORT at runtime
-CMD ["sh", "-c", "gunicorn -w 1 -b 0.0.0.0:${PORT:-10000} pose-service.app:app"]
+# Render sets PORT at runtime. --timeout 300 so /extract can finish (pose extraction can take 1–2 min).
+CMD ["sh", "-c", "gunicorn -w 1 -b 0.0.0.0:${PORT:-10000} --timeout 300 pose-service.app:app"]

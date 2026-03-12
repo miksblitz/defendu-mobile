@@ -5,10 +5,9 @@ Trainers upload only the technique video. When a module is saved with techniqueV
 the app calls POST /extract with { videoUrl, moduleId, focus }. This service:
   1. Downloads the video
   2. Runs MediaPipe pose extraction (same as the mobile app)
-  3. Uploads the JSON to Firebase Storage
-  4. Updates the module in Realtime Database with referencePoseSequenceUrl
+  3. Writes the pose reference (sequence + focus) directly to the module in Realtime Database
 
-Deploy to Render (or any Python host). Set env:
+No Firebase Storage / Blaze plan required. Set env:
   FIREBASE_SERVICE_ACCOUNT_JSON  - full JSON string of the service account key
   FIREBASE_DATABASE_URL           - Realtime Database URL (e.g. https://...firebasedatabase.app)
 """
@@ -70,10 +69,10 @@ def extract_pose(video_path: str, output_path: str, focus: str) -> None:
     )
 
 
-def upload_to_firebase_and_update_module(module_id: str, payload: dict) -> str:
-    """Upload JSON to Firebase Storage and update module.referencePoseSequenceUrl. Returns the public URL."""
+def update_module_with_pose_reference(module_id: str, payload: dict, focus: str) -> None:
+    """Write pose reference directly to Realtime Database (no Storage / Blaze required)."""
     import firebase_admin
-    from firebase_admin import credentials, db, storage
+    from firebase_admin import credentials, db
 
     if not firebase_admin._apps:
         cred_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
@@ -82,22 +81,17 @@ def upload_to_firebase_and_update_module(module_id: str, payload: dict) -> str:
             raise ValueError("FIREBASE_SERVICE_ACCOUNT_JSON and FIREBASE_DATABASE_URL must be set")
         cred_dict = json.loads(cred_json)
         cred = credentials.Certificate(cred_dict)
-        # Newer Firebase projects use .firebasestorage.app; older use .appspot.com
-        project_id = cred_dict.get("project_id") or ""
-        bucket_name = os.environ.get("FIREBASE_STORAGE_BUCKET") or (project_id + ".firebasestorage.app")
-        firebase_admin.initialize_app(cred, {"databaseURL": database_url, "storageBucket": bucket_name})
-    bucket = storage.bucket()
-    blob = bucket.blob(f"pose-refs/{module_id}.json")
-    blob.upload_from_string(
-        json.dumps(payload, separators=(",", ":")),
-        content_type="application/json",
-    )
-    blob.make_public()
-    url = blob.public_url
-    # Update Realtime Database
+        firebase_admin.initialize_app(cred, {"databaseURL": database_url})
     ref = db.reference("modules").child(module_id)
-    ref.update({"referencePoseSequenceUrl": url})
-    return url
+    # Store sequence (and optionally sequences) + focus on the module so the app can use them without a URL
+    sequences = payload.get("sequences")
+    sequence = payload.get("sequence")
+    if sequences and len(sequences) > 0:
+        ref.update({"referencePoseSequences": sequences, "referencePoseFocus": focus})
+    elif sequence and len(sequence) > 0:
+        ref.update({"referencePoseSequence": sequence, "referencePoseFocus": focus})
+    else:
+        raise ValueError("Payload has no sequence or sequences")
 
 
 @app.route("/", methods=["GET"])
@@ -129,9 +123,10 @@ def _run_extraction(video_url: str, module_id: str, focus: str) -> None:
         print(f"[Extract] Pose extraction finished", flush=True)
         with open(out_path) as f:
             payload = json.load(f)
-        print(f"[Extract] Uploading to Firebase Storage and updating modules/{module_id}...", flush=True)
-        url = upload_to_firebase_and_update_module(module_id, payload)
-        print(f"[Extract] Done module_id={module_id} referencePoseSequenceUrl={url!r}", flush=True)
+        focus_from_payload = (payload.get("focus") or focus) if isinstance(payload, dict) else focus
+        print(f"[Extract] Writing pose reference to Realtime Database modules/{module_id}...", flush=True)
+        update_module_with_pose_reference(module_id, payload, focus_from_payload)
+        print(f"[Extract] Done module_id={module_id} reference saved to DB", flush=True)
     except Exception as e:
         print(f"[Extract] Error: {type(e).__name__}: {e}", flush=True)
         import traceback

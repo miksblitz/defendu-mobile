@@ -12,6 +12,10 @@ export interface Module {
   techniqueVideoLink?: string;
   /** Optional URL to precomputed reference pose sequence JSON (one rep) for "Try with pose". */
   referencePoseSequenceUrl?: string;
+  /** Optional: reference pose stored directly in DB (no Storage/Blaze). Prefer over URL when set. */
+  referencePoseSequence?: unknown;
+  referencePoseSequences?: unknown[];
+  referencePoseFocus?: 'punching' | 'kicking' | 'full';
   videoDuration?: number;
   thumbnailUrl?: string;
   intensityLevel?: number;

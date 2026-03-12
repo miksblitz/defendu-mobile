@@ -47,7 +47,7 @@ This gets **referencePoseSequenceUrl** set automatically when a trainer publishe
    |-----|--------|
    | `FIREBASE_SERVICE_ACCOUNT_JSON` | Paste the **entire** contents of the JSON file from Step 1 (one line is fine). |
    | `FIREBASE_DATABASE_URL` | Your Realtime Database URL from Step 2. |
-   | `FIREBASE_STORAGE_BUCKET` | Your Storage bucket (Firebase Console → Storage). If you see "The specified bucket does not exist", set this to the exact bucket name, e.g. `defendu-e7970.firebasestorage.app`. |
+   | ~~`FIREBASE_STORAGE_BUCKET`~~ | **Not needed.** The pose reference is stored in Realtime Database only (no Firebase Storage / Blaze plan). |
 
    For **FIREBASE_SERVICE_ACCOUNT_JSON**: open the downloaded JSON, select all, copy, and paste into the value field. It should start with `{"type":"service_account",...}`.
 

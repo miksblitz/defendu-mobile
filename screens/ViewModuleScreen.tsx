@@ -181,9 +181,31 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   };
 
   useEffect(() => {
-    if (step !== 'tryItPose' || !module?.referencePoseSequenceUrl) {
+    if (step !== 'tryItPose' || !module) {
       setReferencePoseSequence(null);
       setReferencePoseFocus(DEFAULT_POSE_FOCUS);
+      return;
+    }
+    // Prefer reference stored in DB (no Storage/Blaze); fall back to URL
+    const dbSequences = module.referencePoseSequences;
+    const dbSequence = module.referencePoseSequence;
+    const dbFocus = module.referencePoseFocus;
+    if (Array.isArray(dbSequences) && dbSequences.length > 0) {
+      setReferencePoseFocus(dbFocus === 'punching' || dbFocus === 'kicking' || dbFocus === 'full' ? dbFocus : DEFAULT_POSE_FOCUS);
+      setReferencePoseSequence(dbSequences as PoseSequence[]);
+      setReferencePoseLoading(false);
+      return;
+    }
+    if (Array.isArray(dbSequence) && dbSequence.length > 0) {
+      setReferencePoseFocus(dbFocus === 'punching' || dbFocus === 'kicking' || dbFocus === 'full' ? dbFocus : DEFAULT_POSE_FOCUS);
+      setReferencePoseSequence(dbSequence as PoseSequence);
+      setReferencePoseLoading(false);
+      return;
+    }
+    if (!module.referencePoseSequenceUrl) {
+      setReferencePoseSequence(null);
+      setReferencePoseFocus(DEFAULT_POSE_FOCUS);
+      setReferencePoseLoading(false);
       return;
     }
     let cancelled = false;
@@ -211,7 +233,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
         if (!cancelled) setReferencePoseLoading(false);
       });
     return () => { cancelled = true; };
-  }, [step, module?.referencePoseSequenceUrl]);
+  }, [step, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus]);
 
   const handleSaveProgress = async () => {
     if (moduleId) {
@@ -266,8 +288,10 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const reviewCount = reviews.length;
 
   // Pose step (full-screen camera)
+  const hasReferenceInDb = Array.isArray(module.referencePoseSequence) && module.referencePoseSequence.length > 0
+    || Array.isArray(module.referencePoseSequences) && module.referencePoseSequences!.length > 0;
   const canGeneratePoseRef =
-    (module.techniqueVideoUrl ?? module.techniqueVideoLink) && !module.referencePoseSequenceUrl;
+    (module.techniqueVideoUrl ?? module.techniqueVideoLink) && !module.referencePoseSequenceUrl && !hasReferenceInDb;
   const handleGeneratePoseReference = () => {
     const videoUrl = module.techniqueVideoUrl ?? module.techniqueVideoLink;
     if (!videoUrl) return;

@@ -82,7 +82,9 @@ def upload_to_firebase_and_update_module(module_id: str, payload: dict) -> str:
             raise ValueError("FIREBASE_SERVICE_ACCOUNT_JSON and FIREBASE_DATABASE_URL must be set")
         cred_dict = json.loads(cred_json)
         cred = credentials.Certificate(cred_dict)
-        bucket_name = os.environ.get("FIREBASE_STORAGE_BUCKET") or (cred_dict.get("project_id") + ".appspot.com")
+        # Newer Firebase projects use .firebasestorage.app; older use .appspot.com
+        project_id = cred_dict.get("project_id") or ""
+        bucket_name = os.environ.get("FIREBASE_STORAGE_BUCKET") or (project_id + ".firebasestorage.app")
         firebase_admin.initialize_app(cred, {"databaseURL": database_url, "storageBucket": bucket_name})
     bucket = storage.bucket()
     blob = bucket.blob(f"pose-refs/{module_id}.json")
@@ -118,7 +120,7 @@ def _run_extraction(video_url: str, module_id: str, focus: str) -> None:
     video_path = None
     out_path = None
     try:
-        print(f"[Extract] Background started module_id={module_id}", flush=True)
+        print(f"[Extract] Background started module_id={module_id} focus={focus}", flush=True)
         video_path = download_video(video_url)
         print(f"[Extract] Video downloaded", flush=True)
         fd, out_path = tempfile.mkstemp(suffix=".json")
@@ -127,11 +129,13 @@ def _run_extraction(video_url: str, module_id: str, focus: str) -> None:
         print(f"[Extract] Pose extraction finished", flush=True)
         with open(out_path) as f:
             payload = json.load(f)
-        print(f"[Extract] Uploading to Firebase...", flush=True)
+        print(f"[Extract] Uploading to Firebase Storage and updating modules/{module_id}...", flush=True)
         url = upload_to_firebase_and_update_module(module_id, payload)
-        print(f"[Extract] Done module_id={module_id} referencePoseSequenceUrl set", flush=True)
+        print(f"[Extract] Done module_id={module_id} referencePoseSequenceUrl={url!r}", flush=True)
     except Exception as e:
         print(f"[Extract] Error: {type(e).__name__}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
     finally:
         if video_path and os.path.exists(video_path):
             try:

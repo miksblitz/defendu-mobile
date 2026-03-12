@@ -416,7 +416,10 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         certificationChecked,
       };
       showToast('Saving module to database...');
-      await AuthController.saveModule(moduleData, false);
+      const moduleId = await AuthController.saveModule(moduleData, false);
+      if (techniqueVideoUrl) {
+        AuthController.triggerPoseExtraction(techniqueVideoUrl, moduleId, category).catch(() => {});
+      }
       // Reset form after success
       setModuleTitle('');
       setDescription('');
@@ -435,7 +438,11 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       setTrainingDuration('');
       setCertificationChecked(false);
       setStep(1);
-      showToast('Module successfully submitted. Please wait for approval.');
+      showToast(
+        techniqueVideoUrl
+          ? 'Module submitted. Pose reference is being generated from your video for "Try with pose".'
+          : 'Module successfully submitted. Please wait for approval.'
+      );
       setTimeout(() => onSuccess(), 1200);
     } catch (error: any) {
       showToast(error?.message || 'Failed to publish module');

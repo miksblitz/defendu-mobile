@@ -4,10 +4,12 @@
  * With focus (punching/kicking), only the relevant landmarks are compared.
  */
 
-import type { PoseFrame, PoseSequence } from './types';
+import type { PoseFrame, PoseSequence, PoseFeedbackItem } from './types';
 import type { PoseFocus } from './types';
 import { normalizeFrame } from './normalizer';
 import { subsetSequenceByFocus } from './poseFocus';
+import { getJabFeedback } from './jabFeedback';
+import { detectJabPhases } from './phaseDetection';
 
 /**
  * Mean L2 distance between two frames (same number of landmarks).
@@ -132,4 +134,58 @@ export function isRepMatchAny(
     if (ref.length > 0 && isRepMatch(userFrames, ref, threshold, focus)) return true;
   }
   return false;
+}
+
+/**
+ * Compare rep and get rule-based feedback when focus is punching (jab/strike).
+ * Returns { match, feedback }. Use when you want to show "why" the rep failed.
+ */
+export function compareRepWithFeedback(
+  userFrames: PoseFrame[],
+  referenceFrames: PoseFrame[],
+  threshold: number = DEFAULT_MATCH_THRESHOLD,
+  focus?: PoseFocus
+): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
+  const distance = compareRepsWithFocus(userFrames, referenceFrames, focus);
+  const match = distance < threshold;
+  let feedback: PoseFeedbackItem[] = [];
+  if (!match && focus === 'punching' && userFrames.length > 0 && referenceFrames.length > 0) {
+    const refBounds = detectJabPhases(referenceFrames);
+    feedback = getJabFeedback(userFrames, referenceFrames, refBounds);
+  }
+  return { match, distance, feedback };
+}
+
+/**
+ * Like isRepMatchAny but returns feedback when no reference matches (punching focus).
+ */
+export function compareRepWithFeedbackAny(
+  userFrames: PoseFrame[],
+  referenceSequences: PoseSequence[],
+  threshold: number = DEFAULT_MATCH_THRESHOLD,
+  focus?: PoseFocus
+): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
+  if (referenceSequences.length === 0) {
+    return { match: false, distance: Infinity, feedback: [] };
+  }
+  let bestDistance = Infinity;
+  let bestRef: PoseFrame[] = referenceSequences[0]!;
+  for (const ref of referenceSequences) {
+    if (ref.length > 0) {
+      const d = compareRepsWithFocus(userFrames, ref, focus);
+      if (d < threshold) {
+        return { match: true, distance: d, feedback: [] };
+      }
+      if (d < bestDistance) {
+        bestDistance = d;
+        bestRef = ref;
+      }
+    }
+  }
+  let feedback: PoseFeedbackItem[] = [];
+  if (focus === 'punching' && userFrames.length > 0 && bestRef.length > 0) {
+    const refBounds = detectJabPhases(bestRef);
+    feedback = getJabFeedback(userFrames, bestRef, refBounds);
+  }
+  return { match: false, distance: bestDistance, feedback };
 }

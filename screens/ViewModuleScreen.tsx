@@ -266,6 +266,19 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const reviewCount = reviews.length;
 
   // Pose step (full-screen camera)
+  const canGeneratePoseRef =
+    (module.techniqueVideoUrl ?? module.techniqueVideoLink) && !module.referencePoseSequenceUrl;
+  const handleGeneratePoseReference = () => {
+    const videoUrl = module.techniqueVideoUrl ?? module.techniqueVideoLink;
+    if (!videoUrl) return;
+    AuthController.triggerPoseExtraction(videoUrl, module.moduleId, module.category ?? '');
+    Alert.alert(
+      'Generating pose reference',
+      'The reference is being generated from your technique video (usually 1–2 minutes). Go back, then open "Try with pose" again in a couple of minutes.',
+      [{ text: 'OK' }]
+    );
+  };
+
   if (step === 'tryItPose') {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -274,13 +287,21 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
             requiredReps={getRequiredReps(module.repRange)}
             correctReps={poseCorrectReps}
             isCurrentRepCorrect={poseCurrentRepCorrect}
-            onBack={() => setStep('video')}
+            onBack={async () => {
+              setStep('video');
+              // Refetch module so we pick up referencePoseSequenceUrl if it was just set
+              try {
+                const data = await AuthController.getModuleByIdForUser(moduleId);
+                if (data) setModule(data);
+              } catch (_) {}
+            }}
             onCorrectRepsUpdate={(count, lastCorrect) => {
               setPoseCorrectReps(count);
               setPoseCurrentRepCorrect(lastCorrect);
             }}
             referenceSequence={referencePoseLoading ? null : referencePoseSequence}
             poseFocus={referencePoseFocus}
+            onGenerateReference={canGeneratePoseRef ? handleGeneratePoseReference : undefined}
           />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity

@@ -16,6 +16,7 @@ import {
   Platform,
   StatusBar,
   TextInput,
+  RefreshControl,
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
@@ -214,36 +215,46 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadDashboardData = React.useCallback(async () => {
+    await AuthController.getCurrentUser();
+    try {
+      const [list, recs, progress] = await Promise.all([
+        AuthController.getApprovedModules(),
+        AuthController.getRecommendations(),
+        AuthController.getUserProgress(),
+      ]);
+      setModules(list);
+      setCompletionTimestamps(progress.completionTimestamps ?? {});
+      if (recs?.recommendedModuleIds?.length) {
+        const recommended = await AuthController.getModulesByIds(recs.recommendedModuleIds);
+        const notCompleted = recommended.filter((m) => !progress.completedModuleIds.includes(m.moduleId));
+        setRecommendedModules(notCompleted);
+      } else {
+        setRecommendedModules([]);
+      }
+    } catch (e) {
+      setModules([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      await AuthController.getCurrentUser();
+    (async () => {
+      await loadDashboardData();
       if (cancelled) return;
-      try {
-        const [list, recs, progress] = await Promise.all([
-          AuthController.getApprovedModules(),
-          AuthController.getRecommendations(),
-          AuthController.getUserProgress(),
-        ]);
-        if (cancelled) return;
-        setModules(list);
-        setCompletionTimestamps(progress.completionTimestamps ?? {});
-        if (recs?.recommendedModuleIds?.length) {
-          const recommended = await AuthController.getModulesByIds(recs.recommendedModuleIds);
-          const notCompleted = recommended.filter((m) => !progress.completedModuleIds.includes(m.moduleId));
-          setRecommendedModules(notCompleted);
-        } else {
-          setRecommendedModules([]);
-        }
-      } catch (e) {
-        if (!cancelled) setModules([]);
-      }
-      if (!cancelled) setLoading(false);
-    }
-    load();
+    })();
     return () => { cancelled = true; };
-  }, [refreshKey]);
+  }, [refreshKey, loadDashboardData]);
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await loadDashboardData();
+  }, [loadDashboardData]);
 
   const todayIndex = (new Date().getDay() + 6) % 7;
   const dayCounts = getDayCountsThisWeek(completionTimestamps);
@@ -364,7 +375,19 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
 
   return (
     <View style={styles.safeArea}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#07bbc0"
+            colors={['#07bbc0']}
+          />
+        }
+      >
         {recommendedModules.length > 0 && (
           <View style={styles.recommendationsSection}>
             <Text style={styles.recommendationsTitle}>Recommended for you</Text>

@@ -13,8 +13,9 @@ import {
 import { useCameraPermissions } from 'expo-camera';
 import type { PoseFrame, PoseSequence, PoseFocus } from '../lib/pose/types';
 import { thinksysLandmarksToFrame } from '../lib/pose/mediapipeLandmarks';
-import { isRepMatch, isRepMatchAny, DEFAULT_MATCH_THRESHOLD } from '../lib/pose/comparator';
+import { compareRepWithFeedback, compareRepWithFeedbackAny, DEFAULT_MATCH_THRESHOLD } from '../lib/pose/comparator';
 import { createRepDetector } from '../lib/pose/repDetector';
+import type { PoseFeedbackItem } from '../lib/pose/types';
 
 type SwitchCameraFn = (() => void) | null;
 
@@ -30,6 +31,8 @@ export interface PoseCameraViewProps {
   poseFocus?: PoseFocus;
   /** Optional: match threshold for comparison (default 0.20). */
   matchThreshold?: number;
+  /** When in practice mode, if set, show a button to trigger pose reference generation from the technique video. */
+  onGenerateReference?: () => void;
 }
 
 const POSE_THROTTLE_MS = 100;
@@ -47,6 +50,7 @@ export default function PoseCameraView({
   referenceSequence,
   poseFocus = 'full',
   matchThreshold = DEFAULT_MATCH_THRESHOLD,
+  onGenerateReference,
 }: PoseCameraViewProps) {
   const [ready, setReady] = useState(false);
   const [MediaPipeView, setMediaPipeView] = useState<React.ComponentType<{ width: number; height: number; onLandmark: (data: unknown) => void; [key: string]: unknown }> | null>(null);
@@ -68,6 +72,7 @@ export default function PoseCameraView({
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [successCount, setSuccessCount] = useState(0);
   const [showWrongOverlay, setShowWrongOverlay] = useState(false);
+  const [lastFeedback, setLastFeedback] = useState<PoseFeedbackItem[]>([]);
   const successFadeAnim = useRef(new Animated.Value(0)).current;
   const wrongFadeAnim = useRef(new Animated.Value(0)).current;
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -135,8 +140,20 @@ export default function PoseCameraView({
         : (ref as PoseSequence).length >= MIN_FRAMES_FOR_REP
     );
     const focus = poseFocusRef.current;
-    const match = !hasReference
-      || (isArray ? isRepMatchAny(segment, ref as PoseSequence[], threshold, focus) : isRepMatch(segment, ref as PoseSequence, threshold, focus));
+
+    let match: boolean;
+    let feedback: PoseFeedbackItem[] = [];
+    if (!hasReference) {
+      match = true;
+    } else if (isArray) {
+      const result = compareRepWithFeedbackAny(segment, ref as PoseSequence[], threshold, focus);
+      match = result.match;
+      feedback = result.feedback;
+    } else {
+      const result = compareRepWithFeedback(segment, ref as PoseSequence, threshold, focus);
+      match = result.match;
+      feedback = result.feedback;
+    }
 
     if (match) {
       onCorrectRepsUpdateRef.current(currentCount + 1, true);
@@ -149,6 +166,7 @@ export default function PoseCameraView({
         useNativeDriver: true,
       }).start(() => setShowSuccessOverlay(false));
     } else {
+      setLastFeedback(feedback);
       onCorrectRepsUpdateRef.current(currentCount, false);
       setShowWrongOverlay(true);
       wrongFadeAnim.setValue(1);
@@ -287,7 +305,20 @@ export default function PoseCameraView({
           pointerEvents="none"
         >
           <Text style={styles.wrongText}>Rep detected</Text>
-          <Text style={styles.wrongSubtext}>No match — try again or get closer to reference</Text>
+          <Text style={styles.wrongSubtext}>
+            {lastFeedback.length > 0
+              ? 'Try again:'
+              : 'No match — try again or get closer to reference'}
+          </Text>
+          {lastFeedback.length > 0 && (
+            <View style={styles.feedbackList}>
+              {lastFeedback.slice(0, 4).map((item) => (
+                <Text key={item.id} style={styles.feedbackItem}>
+                  • {item.message}
+                </Text>
+              ))}
+            </View>
+          )}
         </Animated.View>
       )}
       <View style={styles.overlay}>
@@ -298,7 +329,14 @@ export default function PoseCameraView({
           {poseFocus === 'punching' ? 'Punch or strike: arm extends then returns' : poseFocus === 'kicking' ? 'Kick: leg up then back down' : 'Do a clear down–up movement (e.g. squat) so your hips go lower then back up'}
         </Text>
         {practiceMode && (
-          <Text style={styles.practiceModeLabel}>Practice mode (no reference yet)</Text>
+          <>
+            <Text style={styles.practiceModeLabel}>Practice mode (no reference yet)</Text>
+            {onGenerateReference ? (
+              <TouchableOpacity style={styles.generateRefButton} onPress={onGenerateReference} activeOpacity={0.8}>
+                <Text style={styles.generateRefButtonText}>Generate pose reference from video</Text>
+              </TouchableOpacity>
+            ) : null}
+          </>
         )}
         {!practiceMode && referenceSequence && (
           <Text style={styles.referenceLoadedLabel}>
@@ -374,9 +412,31 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  feedbackList: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    alignItems: 'flex-start',
+    alignSelf: 'stretch',
+  },
+  feedbackItem: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.95)',
+    marginBottom: 4,
+    textAlign: 'left',
+  },
   overlayTitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginBottom: 4 },
   overlayHint: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 8 },
   practiceModeLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 8 },
+  generateRefButton: {
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(7, 187, 192, 0.25)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+  },
+  generateRefButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   referenceLoadedLabel: { color: 'rgba(34,197,94,0.95)', fontSize: 12, marginBottom: 4 },
   repBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   repText: { color: '#FFF', fontSize: 22, fontWeight: '700' },

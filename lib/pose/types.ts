@@ -29,3 +29,25 @@ export type PoseFocus = 'punching' | 'kicking' | 'full';
 
 /** Default focus when not specified in reference JSON. */
 export const DEFAULT_POSE_FOCUS: PoseFocus = 'full';
+
+/** Phases of a jab (or generic strike) for sequence comparison and feedback. */
+export type JabPhase = 'guard' | 'extension' | 'impact' | 'recoil';
+
+/** Bounds of a phase within a sequence: [startIndex, endIndex] (inclusive). */
+export type PhaseBounds = { phase: JabPhase; start: number; end: number };
+
+/** One rule-based feedback message (e.g. "Front hand not fully extended"). */
+export type PoseFeedbackItem = {
+  id: string;
+  message: string;
+  phase?: JabPhase;
+  severity?: 'hint' | 'warning' | 'error';
+};
+
+/** Result of rule-based comparison: pass/fail and specific feedback. */
+export type RuleBasedFeedbackResult = {
+  passed: boolean;
+  feedback: PoseFeedbackItem[];
+  /** Optional overall distance for compatibility with threshold-based logic. */
+  distance?: number;
+};

@@ -163,3 +163,39 @@ The app already loads `module.referencePoseSequenceUrl` when the user enters “
 | How do I make it stricter or looser? | Change `DEFAULT_MATCH_THRESHOLD` in `lib/pose/comparator.ts`, or add per-module threshold later. |
 
 **Full training steps (videos, extract, write to DB, test in app):** See **docs/TRAINING_POSE.md**.
+
+---
+
+## 4. Migrate inline pose data to referencePoseData (faster dashboard)
+
+If some modules have **referencePoseSequence** or **referencePoseSequences** stored **inline** on the module document, the dashboard loads slowly because Firebase returns full documents. Move that data into **referencePoseData/{moduleId}** so module docs stay small.
+
+**One-time migration script:**
+
+1. Get a Firebase **service account key**: Firebase Console → Project settings → Service accounts → Generate new private key. Save the JSON (e.g. `firebase-service-account.json`) somewhere safe (do not commit it).
+2. Set the database URL (Realtime Database URL from Firebase Console):
+   ```bash
+   set FIREBASE_DATABASE_URL=https://defendu-e7970-default-rtdb.asia-southeast1.firebasedatabase.app
+   ```
+   (Use your project’s URL; replace region if different.)
+3. Run with credentials:
+   ```bash
+   node scripts/migrate_pose_data_to_reference.js --credentials path/to/firebase-service-account.json
+   ```
+   Or set `GOOGLE_APPLICATION_CREDENTIALS` to the key path and run:
+   ```bash
+   set GOOGLE_APPLICATION_CREDENTIALS=path\to\firebase-service-account.json
+   node scripts/migrate_pose_data_to_reference.js
+   ```
+4. Use **--dry-run** first to see which modules would be migrated without writing:
+   ```bash
+   node scripts/migrate_pose_data_to_reference.js --credentials path/to/key.json --dry-run
+   ```
+
+The script, for each module that has inline pose data:
+
+- Writes **referencePoseData/{moduleId}** with `{ sequences, focus }`.
+- Sets **hasReferencePose: true** (and **referencePoseFocus**) on the module.
+- **Removes** **referencePoseSequence** and **referencePoseSequences** from the module doc.
+
+After migration, the app still loads ref from **referencePoseData/{moduleId}** when the user opens “Try with pose”; the dashboard just stops pulling that heavy data when listing modules.

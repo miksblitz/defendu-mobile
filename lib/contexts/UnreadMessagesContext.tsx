@@ -36,10 +36,17 @@ export function UnreadMessagesProvider({ children }: { children: ReactNode }) {
       setUserChats({});
       return undefined;
     }
-    const unsub = MessageController.subscribeUserChats(uid, (snapshot) => {
-      setUserChats(snapshot || {});
-    });
-    return () => unsub();
+    // Defer subscription so dashboard modules/progress load first; badge updates shortly after.
+    let unsub: (() => void) | undefined;
+    const id = setTimeout(() => {
+      unsub = MessageController.subscribeUserChats(uid, (snapshot) => {
+        setUserChats(snapshot || {});
+      });
+    }, 400);
+    return () => {
+      clearTimeout(id);
+      unsub?.();
+    };
   }, [uid]);
 
   useEffect(() => {

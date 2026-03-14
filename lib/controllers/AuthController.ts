@@ -249,8 +249,8 @@ export interface ModuleItem {
   status?: string;
 }
 
-/** Max approved modules to fetch in one request (keeps dashboard load fast). */
-const APPROVED_MODULES_LIMIT = 80;
+/** Max approved modules to fetch in one request. Lower = faster dashboard load (Firebase returns full docs). */
+const APPROVED_MODULES_LIMIT = 40;
 
 function processModulesList(data: Record<string, Record<string, unknown>>): ModuleItem[] {
   const modules: ModuleItem[] = [];
@@ -293,6 +293,11 @@ function processModulesList(data: Record<string, Record<string, unknown>>): Modu
   return modules;
 }
 
+/**
+ * Fetches approved modules for the dashboard. Firebase returns full documents;
+ * keep module docs slim (no inline referencePoseSequence/referencePoseSequences—
+ * use referencePoseData/{moduleId} or referencePoseSequenceUrl) for faster load.
+ */
 export async function getApprovedModules(): Promise<ModuleItem[]> {
   try {
     const currentUser = await getCurrentUser();
@@ -576,12 +581,8 @@ export async function getModulesByIds(moduleIds: string[]): Promise<Module[]> {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) return [];
-    const modules: Module[] = [];
-    for (const moduleId of moduleIds) {
-      const m = await getModuleByIdForUser(moduleId);
-      if (m) modules.push(m);
-    }
-    return modules;
+    const results = await Promise.all(moduleIds.map((id) => getModuleByIdForUser(id)));
+    return results.filter((m): m is Module => m != null);
   } catch (e) {
     console.error('getModulesByIds:', e);
     return [];
@@ -596,9 +597,18 @@ export async function getReferencePoseData(moduleId: string): Promise<{ sequence
     const refDataRef = ref(db, `referencePoseData/${moduleId}`);
     const snap = await get(refDataRef);
     if (!snap.exists()) return null;
-    const data = snap.val() as { sequences?: unknown[]; focus?: string };
-    const sequences = Array.isArray(data?.sequences) ? data.sequences : null;
-    if (!sequences || sequences.length === 0) return null;
+    const data = snap.val() as { sequences?: unknown[] | Record<string, unknown>; focus?: string };
+    const raw = data?.sequences;
+    let sequences: unknown[] = [];
+    if (Array.isArray(raw)) {
+      sequences = raw;
+    } else if (raw && typeof raw === 'object') {
+      const keys = Object.keys(raw)
+        .filter((k) => /^\d+$/.test(k))
+        .sort((a, b) => Number(a) - Number(b));
+      sequences = keys.map((k) => (raw as Record<string, unknown>)[k]);
+    }
+    if (sequences.length === 0) return null;
     return { sequences, focus: data?.focus ?? 'full' };
   } catch (e) {
     console.error('getReferencePoseData:', e);

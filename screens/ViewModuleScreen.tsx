@@ -7,6 +7,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -244,10 +245,18 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
     const goToPoseScreen = () => setStep('tryItPose');
 
-    // 1) Ref stored in referencePoseData/{moduleId}
-    if (module.hasReferencePose && moduleId) {
+    // 1) Ref stored in referencePoseData/{moduleId} — only fetch when still on loading step (avoid re-fetch loop)
+    if (module.hasReferencePose && moduleId && step === 'tryItPoseLoading') {
       setReferencePoseLoading(true);
       let cancelled = false;
+      const REF_POSE_TIMEOUT_MS = 15000;
+      const timeoutId = setTimeout(() => {
+        if (cancelled) return;
+        cancelled = true;
+        setReferencePoseSequence(null);
+        setReferencePoseLoading(false);
+        setStep('tryItPose');
+      }, REF_POSE_TIMEOUT_MS);
       AuthController.getReferencePoseData(moduleId)
         .then((data) => {
           if (cancelled) return;
@@ -260,40 +269,49 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
           }
         })
         .catch(() => { if (!cancelled) setReferencePoseSequence(null); })
-        .finally(() => { if (!cancelled) { setReferencePoseLoading(false); goToPoseScreen(); } });
-      return () => { cancelled = true; };
+        .finally(() => {
+          if (cancelled) return;
+          clearTimeout(timeoutId);
+          setReferencePoseLoading(false);
+          goToPoseScreen();
+        });
+      return () => { cancelled = true; clearTimeout(timeoutId); };
     }
 
-    // 2) Inline on module (legacy)
-    try {
-      const dbSequences = toPoseSequenceArray(module.referencePoseSequences);
-      if (dbSequences && dbSequences.length > 0) {
-        setReferencePoseFocus(focusVal);
-        setReferencePoseSequence(dbSequences);
+    // 2) Inline on module (legacy) — only when still on loading step
+    if (step === 'tryItPoseLoading') {
+      try {
+        const dbSequences = toPoseSequenceArray(module.referencePoseSequences);
+        if (dbSequences && dbSequences.length > 0) {
+          setReferencePoseFocus(focusVal);
+          setReferencePoseSequence(dbSequences);
+          goToPoseScreen();
+          return;
+        }
+        const dbSequence = toPoseSequence(module.referencePoseSequence);
+        if (dbSequence && dbSequence.length > 0) {
+          setReferencePoseFocus(focusVal);
+          setReferencePoseSequence(dbSequence);
+          goToPoseScreen();
+          return;
+        }
+      } catch (_) {
+        // fall through
+      }
+
+      // 3) Fetch from URL
+      if (!module.referencePoseSequenceUrl) {
+        setReferencePoseSequence(null);
+        setReferencePoseFocus(DEFAULT_POSE_FOCUS);
         goToPoseScreen();
         return;
       }
-      const dbSequence = toPoseSequence(module.referencePoseSequence);
-      if (dbSequence && dbSequence.length > 0) {
-        setReferencePoseFocus(focusVal);
-        setReferencePoseSequence(dbSequence);
-        goToPoseScreen();
-        return;
-      }
-    } catch (_) {
-      // fall through
     }
 
-    // 3) Fetch from URL
-    if (!module.referencePoseSequenceUrl) {
-      setReferencePoseSequence(null);
-      setReferencePoseFocus(DEFAULT_POSE_FOCUS);
-      goToPoseScreen();
-      return;
-    }
-    let cancelled = false;
-    setReferencePoseLoading(true);
-    fetch(module.referencePoseSequenceUrl)
+    if (step === 'tryItPoseLoading' && module.referencePoseSequenceUrl) {
+      let cancelled = false;
+      setReferencePoseLoading(true);
+      fetch(module.referencePoseSequenceUrl)
       .then((r) => r.json())
       .then((data: { sequence?: PoseSequence; sequences?: PoseSequence[]; focus?: PoseFocus } | PoseSequence) => {
         if (cancelled) return;
@@ -316,7 +334,8 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
         if (!cancelled) setReferencePoseLoading(false);
         if (!cancelled) goToPoseScreen();
       });
-    return () => { cancelled = true; };
+      return () => { cancelled = true; };
+    }
   }, [step, moduleId, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus, module?.hasReferencePose, referencePoseSequence, referencePoseLoading]);
 
   const handleSaveProgress = async () => {
@@ -433,7 +452,13 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
           <Image source={require('../assets/images/icon-back.png')} style={styles.backButtonIcon} resizeMode="contain" />
         </TouchableOpacity>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+      >
         {step === 'intro' && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{module.moduleTitle}</Text>
@@ -502,11 +527,9 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
             <TouchableOpacity style={styles.secondaryButton} onPress={handleTryItYourself}>
               <Text style={styles.secondaryButtonText}>Try it yourself</Text>
             </TouchableOpacity>
-            {(module.techniqueVideoUrl ?? module.techniqueVideoLink) ? (
-              <TouchableOpacity style={styles.secondaryButton} onPress={handleTryWithPose}>
-                <Text style={styles.secondaryButtonText}>Try with pose</Text>
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity style={styles.secondaryButton} onPress={handleTryWithPose}>
+              <Text style={styles.secondaryButtonText}>Try with pose</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.primaryButton} onPress={handleIntroDone}>
               <Text style={styles.primaryButtonText}>Continue to Complete</Text>
             </TouchableOpacity>
@@ -583,17 +606,29 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
             </View>
 
             {reviews.length > 0 && (
-              <TouchableOpacity style={styles.showReviewsBtn} onPress={() => setShowAllReviewsModal(true)}>
+              <Pressable
+                style={({ pressed }) => [styles.showReviewsBtn, pressed && styles.buttonPressed]}
+                onPress={() => setTimeout(() => setShowAllReviewsModal(true), 0)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
                 <Text style={styles.showReviewsBtnText}>Show all reviews ({reviewCount})</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => setStep('intro')}>
+            <Pressable
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+              onPress={() => setTimeout(() => setStep('intro'), 0)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
               <Text style={styles.secondaryButtonText}>Review Module</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => setStep('video')}>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+              onPress={() => setTimeout(() => setStep('video'), 0)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
               <Text style={styles.secondaryButtonText}>Practice Again</Text>
-            </TouchableOpacity>
+            </Pressable>
             <TouchableOpacity style={styles.primaryButton} onPress={handleSaveProgress}>
               <Text style={styles.primaryButtonText}>Save Progress</Text>
             </TouchableOpacity>
@@ -645,7 +680,7 @@ const styles = StyleSheet.create({
   loadingBackButton: { position: 'absolute', top: 48, left: 16, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 8 },
   loadingBackButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 40 },
+  scrollContent: { padding: 20, paddingBottom: 60 },
   card: { backgroundColor: '#011f36', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#0a3645', marginBottom: 20 },
   cardTitle: { color: '#FFF', fontSize: 20, fontWeight: '700', marginBottom: 12 },
   thumbnail: { width: '100%', height: 180, borderRadius: 12, marginBottom: 12, backgroundColor: '#0a3645' },
@@ -665,9 +700,10 @@ const styles = StyleSheet.create({
   videoOpenButtonText: { color: '#07bbc0', fontSize: 16, fontWeight: '600', textAlign: 'center' },
   primaryButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 },
   primaryButtonText: { color: '#041527', fontSize: 16, fontWeight: '700' },
-  secondaryButton: { borderWidth: 2, borderColor: '#07bbc0', paddingVertical: 12, borderRadius: 12, alignItems: 'center', marginBottom: 12 },
+  secondaryButton: { borderWidth: 2, borderColor: '#07bbc0', paddingVertical: 12, borderRadius: 12, alignItems: 'center', marginBottom: 12, minHeight: 48, justifyContent: 'center' },
   secondaryButtonText: { color: '#07bbc0', fontSize: 16, fontWeight: '600' },
   buttonDisabled: { opacity: 0.6 },
+  buttonPressed: { opacity: 0.8 },
   tryItSubtext: { color: '#6b8693', fontSize: 14, marginBottom: 16 },
   timerBox: { alignItems: 'center', marginVertical: 24, paddingVertical: 24, backgroundColor: '#062731', borderRadius: 16 },
   timerText: { color: '#07bbc0', fontSize: 48, fontWeight: '700' },
@@ -682,7 +718,7 @@ const styles = StyleSheet.create({
   starIcon: { fontSize: 28, color: '#f0c14b' },
   rateHint: { color: '#6b8693', fontSize: 12, marginBottom: 12 },
   commentInput: { borderWidth: 1, borderColor: '#062731', borderRadius: 8, padding: 12, color: '#FFF', fontSize: 14, minHeight: 80, marginBottom: 12 },
-  showReviewsBtn: { marginBottom: 16 },
+  showReviewsBtn: { marginBottom: 16, paddingVertical: 8, minHeight: 44 },
   showReviewsBtnText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 24 },
   modalContent: { backgroundColor: '#011f36', borderRadius: 16, borderWidth: 1, borderColor: '#062731', maxHeight: '80%' },

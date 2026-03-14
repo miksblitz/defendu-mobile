@@ -1,7 +1,10 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import React, { useState, useEffect, useRef } from 'react';
-import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image } from 'react-native';
+import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image, LogBox } from 'react-native';
+
+// Suppress "Open debugger to view warnings" and similar dev prompts
+LogBox.ignoreLogs(['Open debugger', 'view warnings', 'Debugger']);
 import StartupScreen from './screens/StartupScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';

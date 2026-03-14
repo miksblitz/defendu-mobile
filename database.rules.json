@@ -86,8 +86,8 @@
       }
     },
     "referencePoseData": {
+      ".read": "auth !== null",
       "$moduleId": {
-        ".read": "auth.uid !== null",
         ".write": "false"
       }
     }

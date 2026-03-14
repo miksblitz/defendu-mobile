@@ -36,3 +36,5 @@ python scripts/extract_reference_pose.py reference/punching/lead-jab/your_video.
 - Use a **folder** of videos to get a **dataset** (multiple sequences):  
   `python scripts/extract_reference_pose.py reference/punching/lead-jab/ -o reference/punching/ref_lead_jab.json --focus punching`
 - Videos (`.mp4`, `.MOV`, etc.) in `reference/` are in `.gitignore`; JSON files can be committed if you want.
+
+**Full steps (video count, Render vs DB, write-ref, test in app):** See **docs/TRAINING_POSE.md**.

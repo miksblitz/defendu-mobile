@@ -162,7 +162,6 @@ const RULES = {
   minExtensionAtImpact: 0.04,
   maxRearHandDrop: 0.28,
   minStanceWidth: 0.2,
-  maxHeadForward: 0.3,
 };
 
 /**
@@ -229,17 +228,7 @@ export function compareJabMetrics(
         });
       }
     }
-    if (user.headBalance && reference.headBalance) {
-      const forwardDiff = Math.abs(user.headBalance.forward - reference.headBalance.forward);
-      if (forwardDiff > 0.08) {
-        feedback.push({
-          id: 'head-balance',
-          message: 'Keep head balanced over hips',
-          phase,
-          severity: 'hint',
-        });
-      }
-    }
+    // Head movement ignored for punching: we only judge body and arms.
   } else {
     // Pure rule-based (no reference)
     if (user.punchingElbowAngle != null && user.punchingElbowAngle < RULES.minElbowAngleAtImpact) {
@@ -274,14 +263,7 @@ export function compareJabMetrics(
         severity: 'hint',
       });
     }
-    if (user.headBalance && Math.abs(user.headBalance.forward) > RULES.maxHeadForward) {
-      feedback.push({
-        id: 'head-balance',
-        message: 'Keep head balanced over hips',
-        phase,
-        severity: 'hint',
-      });
-    }
+    // Head movement ignored for punching (body and arms only).
   }
 
   return feedback;

@@ -1,6 +1,6 @@
 # Pose extraction service
 
-**Optional / admin use.** The mobile app no longer calls this service on publish; pose reference is set by the training pipeline (see docs/POSE_TRAINING_MODULES.md). This service can be used by admins or the pipeline to extract pose from a video and write reference to a module. This service runs the pose-estimation pipeline and saves the reference so "Try with pose" can compare the student’s form.
+**Optional / admin use.** The mobile app no longer calls this service on publish; pose reference is set by the training pipeline. See **docs/TRAINING_POSE.md**. This service can be used by admins or the pipeline to extract pose from a video and write reference to a module.
 
 ## Flow (when invoked manually or by pipeline)
 

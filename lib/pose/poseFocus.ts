@@ -1,6 +1,6 @@
 /**
  * Pose focus: which landmarks to use for comparison and rep detection.
- * - punching: upper torso (shoulders, arms, wrists); legs ignored.
+ * - punching: body + arms only (shoulders, elbows, wrists, hips); head/nose ignored.
  * - kicking: legs (hips, knees, ankles, feet); upper body ignored.
  * - full: all 33 landmarks (default).
  * MediaPipe 33-landmark indices: 0 nose, 11/12 shoulders, 13/14 elbows, 15/16 wrists,
@@ -10,9 +10,9 @@
 import type { PoseFocus } from './types';
 import type { PoseFrame } from './types';
 
-/** Landmark indices per focus. Order preserved for consistent comparison. */
+/** Landmark indices per focus. Head (nose) excluded for punching so we only judge body and arms. */
 export const LANDMARK_INDICES_BY_FOCUS: Record<PoseFocus, number[]> = {
-  punching: [0, 11, 12, 13, 14, 15, 16, 23, 24], // nose, shoulders, elbows, wrists, hips (base)
+  punching: [11, 12, 13, 14, 15, 16, 23, 24], // shoulders, elbows, wrists, hips (no nose/head)
   kicking: [23, 24, 25, 26, 27, 28, 29, 30, 31, 32], // hips, knees, ankles, feet
   full: Array.from({ length: 33 }, (_, i) => i),
 };

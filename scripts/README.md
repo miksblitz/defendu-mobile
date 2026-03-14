@@ -77,7 +77,7 @@ cd path/to/defendu-mobile
 
 Use your actual path (e.g. `cd d:\DEFENDU-MOB\defendu-mobile` on Windows). Then run the script. The video path can be relative (e.g. `lead_jab.mp4` if the file is in defendu-mobile) or absolute (e.g. `C:\Videos\lead_jab.mp4`).
 
-**Where to put your videos:** Use the single **reference/** folder: one subfolder per technique (punching, kicking, elbow-strike, defensive-moves). Put the video and the script output in the same folder (e.g. both in `reference/punching/`). See **docs/TECHNIQUE_FOLDERS.md** and **reference/README.md**. Example:
+**Where to put your videos:** Use the single **reference/** folder: one subfolder per technique (punching, kicking, elbow-strike, defensive-moves). Put the video and the script output in the same folder (e.g. both in `reference/punching/`). See **docs/TRAINING_POSE.md** and **reference/README.md**. Example:
 
 ```bash
 python scripts/extract_reference_pose.py reference/punching/lead_jab.mp4 -o reference/punching/ref_lead_jab.json --focus punching
@@ -113,7 +113,7 @@ python scripts/extract_reference_pose.py reference/punching/lead_jab.mp4 -o refe
 python scripts/extract_reference_pose.py reference/kicking/roundhouse.mp4 -o reference/kicking/ref_roundhouse.json --focus kicking
 ```
 
-**One video per technique:** Record one clip per stance (e.g. lead jab, rear jab, lead uppercut, rear hook). Put it in the right technique folder under **reference/** (punching, kicking, elbow-strike, defensive-moves) and output the JSON to the same folder. Set `referencePoseSequenceUrl` (and optional `focus` in the JSON) per module. The app does not require the entire body to match—only the focused region (upper body for punching, legs for kicking). See **docs/TECHNIQUE_FOLDERS.md** and **reference/README.md** for the full layout.
+**One video per technique:** Record one clip per stance (e.g. lead jab, rear jab, lead uppercut, rear hook). Put it in the right technique folder under **reference/** (punching, kicking, elbow-strike, defensive-moves) and output the JSON to the same folder. Set `referencePoseSequenceUrl` (and optional `focus` in the JSON) per module. The app does not require the entire body to match—only the focused region (upper body for punching, legs for kicking). See **docs/TRAINING_POSE.md** and **reference/README.md** for the full layout.
 
 **One rep = only part of the video (e.g. 5s–12s):**
 
@@ -162,8 +162,4 @@ The app already loads `module.referencePoseSequenceUrl` when the user enters “
 | How does the app know correct vs wrong? | It compares the user’s rep (sequence of pose frames) to the reference using normalized landmark distance; below threshold = correct. |
 | How do I make it stricter or looser? | Change `DEFAULT_MATCH_THRESHOLD` in `lib/pose/comparator.ts`, or add per-module threshold later. |
 
-For more detail (normalization, DTW, rep detection), see **docs/POSE_ESTIMATION_IMPLEMENTATION.md**.
-
-**Step-by-step training (start with jabs):** See **docs/TRAINING_POSE_JABS.md** for how to know your reference videos are being read and how to train so "Try with pose" recognizes a simple jab on the mobile camera.
-
-**Technique folders (one reference/ folder per type):** See **docs/TECHNIQUE_FOLDERS.md** and **reference/README.md** for the folder layout so training stays organized.
+**Full training steps (videos, extract, write to DB, test in app):** See **docs/TRAINING_POSE.md**.

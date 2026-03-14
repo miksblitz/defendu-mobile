@@ -239,10 +239,7 @@ Keep this running. The dev build on the phone will use this Metro bundler for JS
 
 - **Expo Go:** Not supported (native camera/pose libraries are not in Expo Go).
 - **Dev build:** Supported. Install the app with `npx expo run:android` (or `run:ios`), then open a module that has **“Try with pose”** and allow camera when prompted.
-- To **get reference data from a technique video** (so the app can mark correct vs wrong reps): run the extraction script, upload the JSON, and set `referencePoseSequenceUrl` on the module—see **scripts/README.md**.
-- For more detail (reference poses, practice mode, rep count), see **docs/POSE_ESTIMATION_IMPLEMENTATION.md**.
-- **Step-by-step: train for basic jabs (mobile camera)** — see **docs/TRAINING_POSE_JABS.md** (how to know the reference is loaded, and how to get the app to recognize a simple jab).
-- **Lead jab (your uploaded videos)** — see **docs/TRAINING_LEAD_JAB_STEPS.md** for end-to-end steps: extract from `reference/punching/lead-jab/`, upload JSON, set URL, test “Try with pose”.
+- To **train a pose reference** (videos → extract → write to DB or set URL) and test “Try with pose”: see **docs/TRAINING_POSE.md**. See **scripts/README.md** for the extract script usage.
 
 **Nothing happens when I do the pose (no green, no “Try again”)?**  
 Reps are detected from your **hip movement**: hips go **down** (e.g. squat) then **up** (stand). (1) Make sure your **full body** is in frame and the camera can see your **hips**. (2) Do a clear **down–up** motion (squat and stand, or similar) so the app can count one rep. (3) If you see **“Rep detected — no match”** (red), the rep was counted but didn’t match the reference: try moving more like the reference video, or we can loosen the match threshold in `lib/pose/comparator.ts` (`DEFAULT_MATCH_THRESHOLD`, try `0.22` or `0.25`). (4) If the module has no reference yet (practice mode), every detected rep should count as correct; if it still does nothing, the rep detector isn’t firing—ensure good lighting and full body in frame.

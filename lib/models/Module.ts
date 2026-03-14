@@ -9,6 +9,7 @@ export interface Module {
   introduction?: string;
   introductionVideoUrl?: string;
   techniqueVideoUrl?: string;
+  techniqueVideoUrl2?: string;
   techniqueVideoLink?: string;
   /**
    * Pose reference for "Try with pose". Set by the training pipeline (reference videos + payment, 1–2 days).
@@ -19,6 +20,9 @@ export interface Module {
   referencePoseSequence?: unknown;
   referencePoseSequences?: unknown[];
   referencePoseFocus?: 'punching' | 'kicking' | 'full';
+  /** Reference videos for pose (Try with pose): side 1 and side 2. Used to generate reference pose data. */
+  referencePoseVideoUrlSide1?: string;
+  referencePoseVideoUrlSide2?: string;
   videoDuration?: number;
   thumbnailUrl?: string;
   intensityLevel?: number;

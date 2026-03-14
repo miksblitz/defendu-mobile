@@ -75,6 +75,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
   const [introductionVideoUri, setIntroductionVideoUri] = useState<string | null>(null);
   const [introductionVideoName, setIntroductionVideoName] = useState('');
   const [techniqueVideoFile, setTechniqueVideoFile] = useState<{ uri: string; name: string } | null>(null);
+  const [techniqueVideoFile2, setTechniqueVideoFile2] = useState<{ uri: string; name: string } | null>(null);
   const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
   const [intensityLevel, setIntensityLevel] = useState(2);
   const [spaceRequirements, setSpaceRequirements] = useState<string[]>([]);
@@ -251,6 +252,56 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
     }
   }, [showToast]);
 
+  const takeTechniqueVideo2 = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow camera access to record the technique video.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'],
+        videoMaxDuration: 300,
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const uri = asset.uri;
+      const fileName = (asset as any).fileName || uri.split('/').pop() || 'technique2.mp4';
+      setTechniqueVideoFile2({ uri, name: fileName });
+      setErrors((e) => ({ ...e, video2: '' }));
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to record video.');
+    }
+  }, [showToast]);
+
+  const pickTechniqueVideo2FromGallery = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your gallery to pick a video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        videoMaxDuration: 300,
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const uri = asset.uri;
+      const fileName = (asset as any).fileName || uri.split('/').pop() || 'technique2.mp4';
+      setTechniqueVideoFile2({ uri, name: fileName });
+      setErrors((e) => ({ ...e, video2: '' }));
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to pick video.');
+    }
+  }, [showToast]);
+
   const takeThumbnailPhoto = useCallback(async () => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -313,8 +364,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       introductionType === 'text'
         ? !introduction.trim() ? 'Please fill this in or upload an introduction video' : ''
         : !introductionVideoUri ? 'Please upload an introduction video or add text' : '';
-    // Technique video is optional, so no error unless both are missing
-    const videoError = '';
+    const videoError = !techniqueVideoFile ? 'Please add technique video 1' : '';
+    const video2Error = !techniqueVideoFile2 ? 'Please add technique video 2' : '';
     const thumbnailError = !thumbnailUri ? 'Please upload a thumbnail' : '';
     const certError = !certificationChecked ? 'Please check this box to certify' : '';
     setErrors({
@@ -323,10 +374,11 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       category: catError,
       introduction: introError,
       video: videoError,
+      video2: video2Error,
       thumbnail: thumbnailError,
       certification: certError,
     });
-    const hasFieldErrors = titleError || descError || catError || introError || videoError || thumbnailError;
+    const hasFieldErrors = titleError || descError || catError || introError || videoError || video2Error || thumbnailError;
     if (hasFieldErrors || certError) {
       // Build a guiding toast listing what's missing
       const missing: string[] = [];
@@ -334,7 +386,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       if (descError) missing.push('Description');
       if (catError) missing.push('Category');
       if (introError) missing.push('Introduction');
-      if (videoError) missing.push('Technique video or link');
+      if (videoError) missing.push('Technique video 1');
+      if (video2Error) missing.push('Technique video 2');
       if (thumbnailError) missing.push('Thumbnail');
       if (certError) missing.push('Certification box (check "I certify...")');
       const message = missing.length === 1
@@ -354,13 +407,20 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       showToast('Uploading files...');
       // Upload all files in parallel for speed
       let techniqueVideoUrl: string | undefined;
+      let techniqueVideoUrl2: string | undefined;
       let introductionVideoUrl: string | undefined;
       let thumbnailUploadUrl: string | undefined;
-      const uploadTasks: Promise<{ kind: 'technique' | 'intro' | 'thumbnail'; url: string }>[] = [];
+      const uploadTasks: Promise<{ kind: 'technique' | 'technique2' | 'intro' | 'thumbnail'; url: string }>[] = [];
       if (techniqueVideoFile) {
         uploadTasks.push(
           AuthController.uploadFileToCloudinary(techniqueVideoFile.uri, 'video', techniqueVideoFile.name)
             .then((url) => ({ kind: 'technique' as const, url }))
+        );
+      }
+      if (techniqueVideoFile2) {
+        uploadTasks.push(
+          AuthController.uploadFileToCloudinary(techniqueVideoFile2.uri, 'video', techniqueVideoFile2.name)
+            .then((url) => ({ kind: 'technique2' as const, url }))
         );
       }
       if (introductionType === 'video' && introductionVideoUri) {
@@ -379,6 +439,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         const results = await Promise.all(uploadTasks);
         results.forEach((r) => {
           if (r.kind === 'technique') techniqueVideoUrl = r.url;
+          else if (r.kind === 'technique2') techniqueVideoUrl2 = r.url;
           else if (r.kind === 'intro') introductionVideoUrl = r.url;
           else if (r.kind === 'thumbnail') thumbnailUploadUrl = r.url;
         });
@@ -404,8 +465,11 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         introduction: introductionType === 'text' ? introduction.trim() : undefined,
         introductionVideoUrl: introductionType === 'video' ? introductionVideoUrl : undefined,
         techniqueVideoUrl,
+        techniqueVideoUrl2,
         techniqueVideoLink: undefined,
         thumbnailUrl: thumbnailUploadUrl || undefined,
+        referencePoseVideoUrlSide1: techniqueVideoUrl,
+        referencePoseVideoUrlSide2: techniqueVideoUrl2,
         intensityLevel,
         spaceRequirements: spaceRequirements.length ? spaceRequirements : [],
         physicalDemandTags: physicalTags.length ? physicalTags : [],
@@ -426,6 +490,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       setIntroductionVideoUri(null);
       setIntroductionVideoName('');
       setTechniqueVideoFile(null);
+      setTechniqueVideoFile2(null);
       setThumbnailUri(null);
       setIntensityLevel(2);
       setSpaceRequirements([]);
@@ -452,6 +517,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
     introductionVideoUri,
     introductionVideoName,
     techniqueVideoFile,
+    techniqueVideoFile2,
     thumbnailUri,
     intensityLevel,
     spaceRequirements,
@@ -488,11 +554,12 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           <View style={styles.stepHeader}>
             <Text style={styles.stepTitle}>
               {step === 1 && 'Title & introduction'}
-              {step === 2 && 'Technique video'}
-              {step === 3 && 'Thumbnail'}
-              {step === 4 && 'Intensity & details'}
+              {step === 2 && 'Technique video 1'}
+              {step === 3 && 'Technique video 2'}
+              {step === 4 && 'Thumbnail'}
+              {step === 5 && 'Intensity & details'}
             </Text>
-            <Text style={styles.stepCounter}>Step {step} of 4</Text>
+            <Text style={styles.stepCounter}>Step {step} of 5</Text>
           </View>
 
           <ScrollView
@@ -626,14 +693,14 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
 
           {step === 2 && (
             <>
-              <Text style={styles.intro}>Add the technique demonstration video.</Text>
-              <Text style={styles.label}>Technique video *</Text>
+              <Text style={styles.intro}>Add the first technique video (e.g. one side to camera).</Text>
+              <Text style={styles.label}>Technique video 1 *</Text>
               {techniqueVideoFile ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
                     <View style={styles.videoPlaceholder}>
                       <Text style={styles.videoPlaceholderIcon}>🎬</Text>
-                      <Text style={styles.videoPlaceholderText}>Your technique video</Text>
+                      <Text style={styles.videoPlaceholderText}>Technique video 1</Text>
                       <Text style={styles.previewHint}>Remove video below to take or choose another.</Text>
                     </View>
                   </View>
@@ -659,6 +726,40 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           )}
 
           {step === 3 && (
+            <>
+              <Text style={styles.intro}>Add the second technique video (e.g. other side to camera). Same technique, different angle.</Text>
+              <Text style={styles.label}>Technique video 2 *</Text>
+              {techniqueVideoFile2 ? (
+                <>
+                  <View style={styles.mediaPreviewWrap}>
+                    <View style={styles.videoPlaceholder}>
+                      <Text style={styles.videoPlaceholderIcon}>🎬</Text>
+                      <Text style={styles.videoPlaceholderText}>Technique video 2</Text>
+                      <Text style={styles.previewHint}>Remove video below to take or choose another.</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={() => setTechniqueVideoFile2(null)} style={styles.removeFile}>
+                    <Text style={styles.removeFileText}>Remove video</Text>
+                  </TouchableOpacity>
+                  {errors.video2 ? <Text style={styles.errorText}>{errors.video2}</Text> : null}
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity style={[styles.uploadBtn, errors.video2 ? styles.inputError : null]} onPress={takeTechniqueVideo2}>
+                    <Text style={styles.uploadBtnIcon}>📹</Text>
+                    <Text style={styles.uploadBtnText}>Take video</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.uploadBtn} onPress={pickTechniqueVideo2FromGallery}>
+                    <Text style={styles.uploadBtnIcon}>🎬</Text>
+                    <Text style={styles.uploadBtnText}>Choose from gallery</Text>
+                  </TouchableOpacity>
+                  {errors.video2 ? <Text style={styles.errorText}>{errors.video2}</Text> : null}
+                </>
+              )}
+            </>
+          )}
+
+          {step === 4 && (
             <>
               <Text style={styles.intro}>Choose a thumbnail image for your module.</Text>
               <Text style={styles.label}>Thumbnail *</Text>
@@ -689,7 +790,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
             </>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <>
               <Text style={styles.intro}>Set intensity, rep range, and confirm.</Text>
               <Text style={styles.label}>Intensity (1–5)</Text>
@@ -805,7 +906,6 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
             </>
           )}
 
-          <View style={{ height: 24 }} />
           </ScrollView>
           </Animated.View>
         </View>
@@ -815,7 +915,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
             <TouchableOpacity style={styles.backFooterBtnBalanced} onPress={() => goToStep(step - 1, 'back')}>
               <Text style={styles.backFooterBtnText}>Back</Text>
             </TouchableOpacity>
-            {step < 4 ? (
+            {step < 5 ? (
               <TouchableOpacity
                 style={styles.nextBtnBalanced}
                 onPress={() => {
@@ -828,6 +928,14 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                   setErrors((e) => ({ ...e, video: '' }));
                 }
                   if (step === 3) {
+                    if (!techniqueVideoFile2) {
+                      setErrors((e) => ({ ...e, video2: 'Take or choose technique video 2' }));
+                      showToast('Take or choose the second technique video');
+                      return;
+                    }
+                    setErrors((e) => ({ ...e, video2: '' }));
+                  }
+                  if (step === 4) {
                     if (!thumbnailUri) {
                       setErrors((e) => ({ ...e, thumbnail: 'Please upload a thumbnail' }));
                       showToast('Take a picture or pick from gallery');

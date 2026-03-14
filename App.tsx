@@ -21,7 +21,7 @@ import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import MainLayout from './components/MainLayout';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
 import { UnreadMessagesProvider } from './lib/contexts/UnreadMessagesContext';
-import { AuthController } from './lib/controllers/AuthController';
+import { AuthController, type ModuleItem } from './lib/controllers/AuthController';
 import type { User } from './lib/models/User';
 
 type Screen =
@@ -72,6 +72,7 @@ export default function App() {
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
+  const [viewModuleInitial, setViewModuleInitial] = useState<ModuleItem | null>(null);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
@@ -212,7 +213,7 @@ export default function App() {
             <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
               <DashboardScreen
                 refreshKey={dashboardRefreshKey}
-                onOpenModule={(moduleId) => { setViewModuleId(moduleId); setScreen('view-module'); }}
+                onOpenModule={(moduleId: string, initialModule?: ModuleItem) => { setViewModuleId(moduleId); setViewModuleInitial(initialModule ?? null); setScreen('view-module'); }}
               />
             </MainLayout>
           )}
@@ -220,8 +221,10 @@ export default function App() {
             <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
               <ViewModuleScreen
                 moduleId={viewModuleId}
+                initialModule={viewModuleInitial}
                 onBack={() => {
                   setViewModuleId(null);
+                  setViewModuleInitial(null);
                   setScreen('dashboard');
                   setDashboardRefreshKey((k) => k + 1);
                 }}

@@ -39,6 +39,7 @@
         ".read": "auth.uid !== null && (data.child('trainerId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || (data.child('status').val() === 'approved' && root.child('users').child(auth.uid).exists()))",
         ".write": "auth.uid !== null && (data.child('trainerId').val() === auth.uid || (!data.exists() && root.child('users').child(auth.uid).child('role').val() === 'trainer' && root.child('users').child(auth.uid).child('trainerApproved').val() === true) || root.child('users').child(auth.uid).child('role').val() === 'admin')"
       },
+      ".indexOn": ["status"],
       ".read": "auth.uid !== null",
       ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
     },

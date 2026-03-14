@@ -18,6 +18,7 @@ import {
   TextInput,
   RefreshControl,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 
@@ -82,6 +83,17 @@ function getDayCountsThisWeek(completionTimestamps: Record<string, number>): num
     if (ts >= start && ts <= end) counts[getDayIndex(ts)]++;
   }
   return counts;
+}
+
+const MODULES_CACHE_KEY = 'dashboard_modules_cache';
+
+function reviveCachedModules(raw: unknown): ModuleItem[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  return raw.map((item: Record<string, unknown>) => ({
+    ...item,
+    createdAt: item.createdAt ? new Date(item.createdAt as string | number) : new Date(),
+    updatedAt: item.updatedAt ? new Date(item.updatedAt as string | number) : new Date(),
+  })) as ModuleItem[];
 }
 
 const MODULE_CATEGORIES = [
@@ -201,7 +213,7 @@ function TrainingCategoryCard({
 
 // --- Types ---
 interface DashboardScreenProps {
-  onOpenModule: (moduleId: string) => void;
+  onOpenModule: (moduleId: string, initialModule?: ModuleItem) => void;
   /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
   refreshKey?: number;
 }
@@ -218,7 +230,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
   const [refreshing, setRefreshing] = useState(false);
 
   const loadDashboardData = React.useCallback(async () => {
-    const LOAD_TIMEOUT_MS = 15000;
+    const LOAD_TIMEOUT_MS = 10000;
     let done = false;
     const timeoutId = setTimeout(() => {
       if (done) return;
@@ -228,9 +240,24 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
     }, LOAD_TIMEOUT_MS);
 
     try {
-      const [list, recs, progress] = await Promise.all([
+      // Show cached modules immediately so the user sees the list while we fetch fresh data.
+      const cached = await AsyncStorage.getItem(MODULES_CACHE_KEY);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          const revived = reviveCachedModules(parsed);
+          if (revived.length > 0) {
+            setModules(revived);
+            setLoading(false);
+          }
+        } catch (_) {
+          // ignore invalid cache
+        }
+      }
+
+      // Load modules and progress (query only approved, so payload is smaller).
+      const [list, progress] = await Promise.all([
         AuthController.getApprovedModules(),
-        AuthController.getRecommendations(),
         AuthController.getUserProgress(),
       ]);
       if (done) return;
@@ -242,16 +269,23 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
       done = true;
       clearTimeout(timeoutId);
 
-      if (recs?.recommendedModuleIds?.length) {
-        AuthController.getModulesByIds(recs.recommendedModuleIds)
-          .then((recommended) => {
+      if (list?.length) {
+        AsyncStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(list)).catch(() => {});
+      }
+
+      // Load recommendations in background (don't block showing the module list).
+      AuthController.getRecommendations()
+        .then((recs) => {
+          if (!recs?.recommendedModuleIds?.length) {
+            setRecommendedModules([]);
+            return;
+          }
+          return AuthController.getModulesByIds(recs.recommendedModuleIds).then((recommended) => {
             const notCompleted = recommended.filter((m) => !completedIds.includes(m.moduleId));
             setRecommendedModules(notCompleted);
-          })
-          .catch(() => setRecommendedModules([]));
-      } else {
-        setRecommendedModules([]);
-      }
+          });
+        })
+        .catch(() => setRecommendedModules([]));
     } catch (e) {
       if (!done) setModules([]);
       done = true;
@@ -414,7 +448,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
             <Text style={styles.recommendationsTitle}>Recommended for you</Text>
             <Text style={styles.recommendationsSubtext}>Best suited to your profile.</Text>
             <View style={styles.moduleGrid}>
-              {recommendedModules.slice(0, 4).map((mod: Module) => renderModuleCard(mod, () => onOpenModule(mod.moduleId)))}
+              {recommendedModules.slice(0, 4).map((mod: Module) => renderModuleCard(mod, () => onOpenModule(mod.moduleId, mod)))}
             </View>
           </View>
         )}
@@ -586,7 +620,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
                         keyboardShouldPersistTaps="handled"
                         nestedScrollEnabled
                       >
-                        {items.map((mod: ModuleItem) => renderModuleCardRow(mod, () => onOpenModule(mod.moduleId)))}
+                        {items.map((mod: ModuleItem) => renderModuleCardRow(mod, () => onOpenModule(mod.moduleId, mod)))}
                       </ScrollView>
                     </View>
                   ))}

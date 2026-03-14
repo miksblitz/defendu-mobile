@@ -177,9 +177,32 @@ So: the app **does** know when you do a rep (extend then retract). When it does,
 
 ---
 
+## Debugging: "JavaScriptContextHolder.get() on a null object reference"
+
+If you see a red error screen with **`JavaScriptContextHolder.get() on a null object reference`** when opening a module (or when the app loads), it usually means **native code (e.g. pose/MediaPipe) ran before the React Native JS runtime was ready**.
+
+**What we did:** The pose camera screen is **lazy-loaded**: it is only loaded when you tap **"Try with pose"**. Opening a module (intro, video, etc.) no longer loads the pose/MediaPipe native module, so the crash should not happen when just viewing module content.
+
+**If it still happens:**
+- Reload the app (shake device → Reload, or press **R, R** in the terminal).
+- Use a **dev build** (`npx expo run:android`), not Expo Go, for pose features.
+- Ensure you’re not importing or rendering the pose camera anywhere else on the initial screen or dashboard.
+
+---
+
 ## Render: push to deploy
 
 Push your repo; if the pose-service Web Service is connected, Render auto-deploys. Wait until **Live**, then open `https://YOUR-POSE-SERVICE.onrender.com/` — you should see `write_ref` listed. Use that URL in step 5 above.
+
+### Render is slow to load (cold start)
+
+On the **free tier**, Render spins down your service after ~15 minutes of no traffic. The **first request** after that can take **30–60+ seconds** (cold start) while the instance starts.
+
+**Options:**
+
+1. **Keep-alive ping** – Use a free cron/uptime tool (e.g. [UptimeRobot](https://uptimerobot.com), [cron-job.org](https://cron-job.org)) to hit your Render URL every **10–14 minutes** (e.g. `GET https://YOUR-POSE-SERVICE.onrender.com/`). That keeps the service warm so the first real request (e.g. write-ref) is fast.
+2. **Upgrade** – A paid Render plan keeps the service always-on, so no cold start.
+3. **Accept the delay** – If you only run write-ref occasionally, waiting ~1 minute on the first hit may be fine.
 
 ---
 

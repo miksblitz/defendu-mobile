@@ -2,7 +2,7 @@
  * ViewModuleScreen
  * Displays a single training module: intro → safety protocol → introduction (video/text) → try it / pose → complete.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import {
   View,
   Text,
@@ -17,21 +17,26 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { AuthController } from '../lib/controllers/AuthController';
+import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 import type { ModuleReview } from '../lib/models/ModuleReview';
-import PoseCameraView from '../components/PoseCameraView';
 import { getRequiredReps } from '../utils/repRange';
+
+// Lazy-load pose camera so native MediaPipe bridge isn't loaded until "Try with pose".
+// Avoids "JavaScriptContextHolder.get() on a null object reference" when opening a module.
+const PoseCameraView = lazy(() => import('../components/PoseCameraView'));
 import type { PoseSequence, PoseFocus, PoseFrame } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
 
 // --- Types & props ---
-type Step = 'intro' | 'safety' | 'video' | 'tryIt' | 'tryItPose' | 'complete';
+type Step = 'intro' | 'safety' | 'video' | 'tryIt' | 'tryItPoseLoading' | 'tryItPose' | 'complete';
 
 interface ViewModuleScreenProps {
   moduleId: string;
   onBack: () => void;
+  /** Optional slim module from dashboard: show intro immediately and load full module in background. */
+  initialModule?: ModuleItem | null;
 }
 
 // --- Helpers ---
@@ -84,10 +89,12 @@ function openVideoInBrowser(url: string | undefined) {
 }
 
 // --- Component ---
-export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenProps) {
-  // State
-  const [module, setModule] = useState<Module | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function ViewModuleScreen({ moduleId, onBack, initialModule }: ViewModuleScreenProps) {
+  // State: if we have initialModule (slim from dashboard), show intro immediately; full module loads in background.
+  const [module, setModule] = useState<Module | null>(() =>
+    initialModule ? ({ ...initialModule, createdAt: initialModule.createdAt ?? new Date(), updatedAt: initialModule.updatedAt ?? new Date() } as Module) : null
+  );
+  const [loading, setLoading] = useState(!initialModule);
   const [step, setStep] = useState<Step>('intro');
   const [tryItRemainingSeconds, setTryItRemainingSeconds] = useState(0);
   const [tryItTotalSeconds, setTryItTotalSeconds] = useState(60);
@@ -106,7 +113,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const [referencePoseLoading, setReferencePoseLoading] = useState(false);
   const tryItTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Data loading
+  // Load full module: if we have initialModule we show intro immediately and fetch in background; otherwise we block on fetch.
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -118,21 +125,21 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
         const data = await AuthController.getModuleByIdForUser(moduleId);
         if (cancelled) return;
         if (!data) {
-          onBack();
+          if (!initialModule) onBack();
           return;
         }
         setModule(data);
-        setStep('intro');
+        if (!initialModule) setStep('intro');
       } catch (e) {
         console.error('ViewModule load:', e);
-        if (!cancelled) onBack();
+        if (!initialModule && !cancelled) onBack();
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     load();
     return () => { cancelled = true; };
-  }, [moduleId, onBack]);
+  }, [moduleId, onBack, initialModule]);
 
   // Handlers
   const loadReviews = async () => {
@@ -215,20 +222,29 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     setPoseCorrectReps(0);
     setPoseCurrentRepCorrect(null);
     setReferencePoseSequence(null);
-    setStep('tryItPose');
+    setReferencePoseLoading(false);
+    setStep('tryItPoseLoading');
   };
 
+  // Load pose reference only when user has tapped "Try with pose" (tryItPoseLoading). Keeps module intro/video fast.
   useEffect(() => {
-    if (step !== 'tryItPose' || !module) {
-      setReferencePoseSequence(null);
-      setReferencePoseFocus(DEFAULT_POSE_FOCUS);
+    if ((step !== 'tryItPoseLoading' && step !== 'tryItPose') || !module) {
+      if (step !== 'tryItPose' && step !== 'tryItPoseLoading') {
+        setReferencePoseSequence(null);
+        setReferencePoseFocus(DEFAULT_POSE_FOCUS);
+      }
       return;
     }
+    if (step === 'tryItPose' && (referencePoseSequence !== null || referencePoseLoading)) return;
+    if (step === 'tryItPoseLoading' && referencePoseLoading) return;
+
     const focusVal = (module.referencePoseFocus === 'punching' || module.referencePoseFocus === 'kicking' || module.referencePoseFocus === 'full')
       ? module.referencePoseFocus
       : DEFAULT_POSE_FOCUS;
 
-    // 1) Ref stored in referencePoseData/{moduleId} (keeps module doc small, no lag on list load)
+    const goToPoseScreen = () => setStep('tryItPose');
+
+    // 1) Ref stored in referencePoseData/{moduleId}
     if (module.hasReferencePose && moduleId) {
       setReferencePoseLoading(true);
       let cancelled = false;
@@ -244,24 +260,24 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
           }
         })
         .catch(() => { if (!cancelled) setReferencePoseSequence(null); })
-        .finally(() => { if (!cancelled) setReferencePoseLoading(false); });
+        .finally(() => { if (!cancelled) { setReferencePoseLoading(false); goToPoseScreen(); } });
       return () => { cancelled = true; };
     }
 
-    // 2) Inline on module (legacy; can be large and cause lag)
+    // 2) Inline on module (legacy)
     try {
       const dbSequences = toPoseSequenceArray(module.referencePoseSequences);
       if (dbSequences && dbSequences.length > 0) {
         setReferencePoseFocus(focusVal);
         setReferencePoseSequence(dbSequences);
-        setReferencePoseLoading(false);
+        goToPoseScreen();
         return;
       }
       const dbSequence = toPoseSequence(module.referencePoseSequence);
       if (dbSequence && dbSequence.length > 0) {
         setReferencePoseFocus(focusVal);
         setReferencePoseSequence(dbSequence);
-        setReferencePoseLoading(false);
+        goToPoseScreen();
         return;
       }
     } catch (_) {
@@ -272,7 +288,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     if (!module.referencePoseSequenceUrl) {
       setReferencePoseSequence(null);
       setReferencePoseFocus(DEFAULT_POSE_FOCUS);
-      setReferencePoseLoading(false);
+      goToPoseScreen();
       return;
     }
     let cancelled = false;
@@ -298,9 +314,10 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
       })
       .finally(() => {
         if (!cancelled) setReferencePoseLoading(false);
+        if (!cancelled) goToPoseScreen();
       });
     return () => { cancelled = true; };
-  }, [step, moduleId, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus, module?.hasReferencePose]);
+  }, [step, moduleId, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus, module?.hasReferencePose, referencePoseSequence, referencePoseLoading]);
 
   const handleSaveProgress = async () => {
     if (moduleId) {
@@ -335,7 +352,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
     if (step === 'intro') onBack();
     else if (step === 'safety') setStep('intro');
     else if (step === 'video') setStep('safety');
-    else if (step === 'tryIt' || step === 'tryItPose') setStep('video');
+    else if (step === 'tryIt' || step === 'tryItPose' || step === 'tryItPoseLoading') setStep('video');
     else if (step === 'complete') onBack();
   };
 
@@ -354,23 +371,47 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const averageRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
   const reviewCount = reviews.length;
 
+  if (step === 'tryItPoseLoading') {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#07bbc0" />
+          <Text style={styles.loadingText}>Loading pose reference...</Text>
+          <Text style={styles.loadingSubtext}>Setting up camera and reference</Text>
+        </View>
+        <TouchableOpacity style={styles.loadingBackButton} onPress={() => setStep('video')}>
+          <Text style={styles.loadingBackButtonText}>Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   if (step === 'tryItPose') {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
-          <PoseCameraView
-            requiredReps={getRequiredReps(module.repRange)}
-            correctReps={poseCorrectReps}
-            isCurrentRepCorrect={poseCurrentRepCorrect}
-            onBack={() => setStep('video')}
-            onCorrectRepsUpdate={(count, lastCorrect) => {
-              setPoseCorrectReps(count);
-              setPoseCurrentRepCorrect(lastCorrect);
-            }}
-            referenceSequence={referencePoseLoading ? null : referencePoseSequence}
-            poseFocus={referencePoseFocus}
-            matchThreshold={referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD}
-          />
+          <Suspense
+            fallback={
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#07bbc0" />
+                <Text style={styles.loadingText}>Setting up camera...</Text>
+              </View>
+            }
+          >
+            <PoseCameraView
+              requiredReps={getRequiredReps(module.repRange)}
+              correctReps={poseCorrectReps}
+              isCurrentRepCorrect={poseCurrentRepCorrect}
+              onBack={() => setStep('video')}
+              onCorrectRepsUpdate={(count, lastCorrect) => {
+                setPoseCorrectReps(count);
+                setPoseCurrentRepCorrect(lastCorrect);
+              }}
+              referenceSequence={referencePoseLoading ? null : referencePoseSequence}
+              poseFocus={referencePoseFocus}
+              matchThreshold={referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD}
+            />
+          </Suspense>
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity
               style={styles.continueOverlayButton}
@@ -440,7 +481,12 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
         {step === 'video' && (
           <View style={styles.card}>
             <Text style={styles.sectionLabel}>Module Introduction</Text>
-            {module.introductionType === 'video' && module.introductionVideoUrl ? (
+            {!module.introductionVideoUrl && !module.introduction ? (
+              <View style={styles.videoStepLoading}>
+                <ActivityIndicator size="small" color="#07bbc0" />
+                <Text style={styles.loadingText}>Loading introduction...</Text>
+              </View>
+            ) : module.introductionType === 'video' && module.introductionVideoUrl ? (
               <>
                 <TouchableOpacity
                   style={styles.videoOpenButton}
@@ -593,7 +639,11 @@ const styles = StyleSheet.create({
   backButton: { paddingVertical: 8, paddingRight: 16 },
   backButtonIcon: { width: 24, height: 24 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  videoStepLoading: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 24 },
   loadingText: { color: '#6b8693', fontSize: 14 },
+  loadingSubtext: { color: '#6b8693', fontSize: 12, marginTop: 4 },
+  loadingBackButton: { position: 'absolute', top: 48, left: 16, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 8 },
+  loadingBackButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
   card: { backgroundColor: '#011f36', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#0a3645', marginBottom: 20 },

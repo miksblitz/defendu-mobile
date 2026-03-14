@@ -218,25 +218,44 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
   const [refreshing, setRefreshing] = useState(false);
 
   const loadDashboardData = React.useCallback(async () => {
-    await AuthController.getCurrentUser();
+    const LOAD_TIMEOUT_MS = 15000;
+    let done = false;
+    const timeoutId = setTimeout(() => {
+      if (done) return;
+      done = true;
+      setLoading(false);
+      setRefreshing(false);
+    }, LOAD_TIMEOUT_MS);
+
     try {
       const [list, recs, progress] = await Promise.all([
         AuthController.getApprovedModules(),
         AuthController.getRecommendations(),
         AuthController.getUserProgress(),
       ]);
-      setModules(list);
-      setCompletionTimestamps(progress.completionTimestamps ?? {});
+      if (done) return;
+      const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
+      setModules(list ?? []);
+      setCompletionTimestamps(progress?.completionTimestamps ?? {});
+      setLoading(false);
+      setRefreshing(false);
+      done = true;
+      clearTimeout(timeoutId);
+
       if (recs?.recommendedModuleIds?.length) {
-        const recommended = await AuthController.getModulesByIds(recs.recommendedModuleIds);
-        const notCompleted = recommended.filter((m) => !progress.completedModuleIds.includes(m.moduleId));
-        setRecommendedModules(notCompleted);
+        AuthController.getModulesByIds(recs.recommendedModuleIds)
+          .then((recommended) => {
+            const notCompleted = recommended.filter((m) => !completedIds.includes(m.moduleId));
+            setRecommendedModules(notCompleted);
+          })
+          .catch(() => setRecommendedModules([]));
       } else {
         setRecommendedModules([]);
       }
     } catch (e) {
-      setModules([]);
-    } finally {
+      if (!done) setModules([]);
+      done = true;
+      clearTimeout(timeoutId);
       setLoading(false);
       setRefreshing(false);
     }
@@ -379,6 +398,8 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -439,8 +460,8 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
           </Text>
         </View>
         {loading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#07bbc0" />
+          <View style={[styles.loadingBox, { paddingVertical: 32, minHeight: 120 }]}>
+            <ActivityIndicator size="small" color="#07bbc0" />
             <Text style={styles.loadingText}>Loading modules...</Text>
           </View>
         ) : modules.length === 0 ? (
@@ -458,6 +479,8 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
               snapToInterval={HORIZONTAL_SNAP_INTERVAL}
               snapToAlignment="start"
               decelerationRate="fast"
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
             >
               {MODULE_CATEGORIES.map((cat, index) => {
                 const count = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(cat)).length;
@@ -480,7 +503,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
       {selectedCategory ? (
         <View style={styles.categoryOverlay} pointerEvents="box-none">
           <Animated.View style={[StyleSheet.absoluteFill, { opacity: overlayOpacity }]}>
-          <ScrollView style={styles.categoryOverlayScroll} contentContainerStyle={styles.categoryOverlayContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.categoryOverlayScroll} contentContainerStyle={styles.categoryOverlayContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
             <Animated.View
               style={[
                 styles.expandedCategoryHeroOverlay,
@@ -560,6 +583,8 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
                         horizontal
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.moduleRowScrollContent}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
                       >
                         {items.map((mod: ModuleItem) => renderModuleCardRow(mod, () => onOpenModule(mod.moduleId)))}
                       </ScrollView>

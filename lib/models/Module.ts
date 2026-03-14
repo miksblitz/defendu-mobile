@@ -20,6 +20,8 @@ export interface Module {
   referencePoseSequence?: unknown;
   referencePoseSequences?: unknown[];
   referencePoseFocus?: 'punching' | 'kicking' | 'full';
+  /** When true, app fetches ref from referencePoseData/{moduleId} instead of inline (keeps module doc small). */
+  hasReferencePose?: boolean;
   /** Reference videos for pose (Try with pose): side 1 and side 2. Used to generate reference pose data. */
   referencePoseVideoUrlSide1?: string;
   referencePoseVideoUrlSide2?: string;

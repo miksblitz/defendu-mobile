@@ -76,10 +76,10 @@ export default function App() {
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
 
-  // Splash: defendudashboard for 2s then go to startup (avoids laggy animation on startup)
+  // Splash: brief branding then startup (shorter = faster to interactive)
   useEffect(() => {
     if (screen !== 'splash') return;
-    const t = setTimeout(() => setScreen('startup'), 2000);
+    const t = setTimeout(() => setScreen('startup'), 1200);
     return () => clearTimeout(t);
   }, [screen]);
 

@@ -224,10 +224,32 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
       setReferencePoseFocus(DEFAULT_POSE_FOCUS);
       return;
     }
-    // Prefer reference stored in DB (no Storage/Blaze); fall back to URL
+    const focusVal = (module.referencePoseFocus === 'punching' || module.referencePoseFocus === 'kicking' || module.referencePoseFocus === 'full')
+      ? module.referencePoseFocus
+      : DEFAULT_POSE_FOCUS;
+
+    // 1) Ref stored in referencePoseData/{moduleId} (keeps module doc small, no lag on list load)
+    if (module.hasReferencePose && moduleId) {
+      setReferencePoseLoading(true);
+      let cancelled = false;
+      AuthController.getReferencePoseData(moduleId)
+        .then((data) => {
+          if (cancelled) return;
+          if (data?.sequences?.length) {
+            const seqs = toPoseSequenceArray(data.sequences);
+            if (seqs?.length) {
+              setReferencePoseFocus((data.focus === 'punching' || data.focus === 'kicking' || data.focus === 'full') ? data.focus : focusVal);
+              setReferencePoseSequence(seqs);
+            }
+          }
+        })
+        .catch(() => { if (!cancelled) setReferencePoseSequence(null); })
+        .finally(() => { if (!cancelled) setReferencePoseLoading(false); });
+      return () => { cancelled = true; };
+    }
+
+    // 2) Inline on module (legacy; can be large and cause lag)
     try {
-      const dbFocus = module.referencePoseFocus;
-      const focusVal = dbFocus === 'punching' || dbFocus === 'kicking' || dbFocus === 'full' ? dbFocus : DEFAULT_POSE_FOCUS;
       const dbSequences = toPoseSequenceArray(module.referencePoseSequences);
       if (dbSequences && dbSequences.length > 0) {
         setReferencePoseFocus(focusVal);
@@ -243,8 +265,10 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
         return;
       }
     } catch (_) {
-      // Bad or unexpected reference data; fall through to URL or practice mode
+      // fall through
     }
+
+    // 3) Fetch from URL
     if (!module.referencePoseSequenceUrl) {
       setReferencePoseSequence(null);
       setReferencePoseFocus(DEFAULT_POSE_FOCUS);
@@ -276,7 +300,7 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
         if (!cancelled) setReferencePoseLoading(false);
       });
     return () => { cancelled = true; };
-  }, [step, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus]);
+  }, [step, moduleId, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus, module?.hasReferencePose]);
 
   const handleSaveProgress = async () => {
     if (moduleId) {

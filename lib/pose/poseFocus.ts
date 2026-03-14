@@ -10,9 +10,9 @@
 import type { PoseFocus } from './types';
 import type { PoseFrame } from './types';
 
-/** Landmark indices per focus. Head (nose) excluded for punching so we only judge body and arms. */
+/** Landmark indices per focus. Head and lower body ignored for punching; only upper body (arms, shoulders). */
 export const LANDMARK_INDICES_BY_FOCUS: Record<PoseFocus, number[]> = {
-  punching: [11, 12, 13, 14, 15, 16, 23, 24], // shoulders, elbows, wrists, hips (no nose/head)
+  punching: [11, 12, 13, 14, 15, 16], // shoulders, elbows, wrists only (no nose/head, no hips/legs)
   kicking: [23, 24, 25, 26, 27, 28, 29, 30, 31, 32], // hips, knees, ankles, feet
   full: Array.from({ length: 33 }, (_, i) => i),
 };

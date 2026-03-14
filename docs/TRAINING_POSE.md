@@ -103,6 +103,38 @@ If you use **Option B**, you upload the JSON to Firebase Storage or a static hos
 
 ---
 
+## I have ref_lead_jab.json and videos on either side — what do I do?
+
+**Two separate things:**
+
+| What | Where it lives | What to do |
+|------|----------------|------------|
+| **2 technique videos** (side 1 + side 2) | Trainer uploads them in Publish Module (steps 2 & 3). Stored as `techniqueVideoUrl`, `techniqueVideoUrl2`, and `referencePoseVideoUrlSide1` / `referencePoseVideoUrlSide2` on the module in Firebase. | Nothing else. They’re already in the DB when the trainer publishes. |
+| **Pose reference** (the JSON that makes “Try with pose” work) | Your local file `reference/punching/ref_lead_jab.json` (from running the extract script on your videos). | **Pass it to the DB** using the script below so that module has ref data. |
+
+So: the **videos** are already on the module if the trainer added them. The **ref_lead_jab.json** is what the app uses to match pose — you need to send that JSON into Firebase for the lead-jab module.
+
+**Steps to pass ref_lead_jab.json to the DB (so Render/app can use it):**
+
+1. **Pose-service on Render** must be deployed and live (see pose-service/README.md). You need its URL, e.g. `https://your-pose-service.onrender.com`.
+
+2. **Get the lead-jab module ID:**  
+   Firebase Console → your project → **Realtime Database** → **Data** → expand **modules** → find the lead-jab module → copy its **key** (e.g. `module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773319677541`).
+
+3. **From your project folder** (where `reference/punching/ref_lead_jab.json` exists), run:
+   ```bash
+   python scripts/write_ref_to_db.py reference/punching/ref_lead_jab.json --module-id PASTE_MODULE_ID_HERE --service-url https://YOUR-POSE-SERVICE.onrender.com
+   ```
+   Replace `PASTE_MODULE_ID_HERE` with the module key and `YOUR-POSE-SERVICE.onrender.com` with your actual Render pose-service URL.
+
+4. If it succeeds, the script prints a success message. The pose-service writes the **heavy** ref data to `referencePoseData/{moduleId}` (not on the module doc) so the dashboard stays fast. The module only gets `referencePoseFocus` and `hasReferencePose`. Open the app → that module → **Try with pose** to test.
+
+**No need to upload ref_lead_jab.json to Render or Vercel.** The script sends it in one POST request to the pose-service; the service writes to Firebase. The app fetches ref from `referencePoseData/{moduleId}` when you open “Try with pose” (or from `referencePoseSequenceUrl` if you use Option B).
+
+**Why this keeps the app fast:** Storing big pose sequences on each module made the modules list slow to load. Now ref data lives under `referencePoseData/{moduleId}` and is loaded only when you open that module’s “Try with pose” step. Redeploy the pose-service after pulling this change so new training runs use the new path. For modules already trained, re-run the write-ref script once per module to move their ref into `referencePoseData` and slim the module doc.
+
+---
+
 ## Run the app and test “Try with pose”
 
 - **Pose does NOT work in Expo Go.** Use a dev build:
@@ -111,10 +143,37 @@ If you use **Option B**, you upload the JSON to Firebase Storage or a static hos
   npx expo run:android --device
   ```
 - Open a module → **Try with pose** → allow camera.
-- **Practice mode (no reference yet)** = no ref data on that module; every rep counts.
-- **Reference: N frames · punching** = ref loaded; green = match, red = no match.
 
-**If nothing happens when you move:** Do a **clear motion** (one full jab: arm out then back). Full body in frame for default focus; upper body clearly in frame for punching. Good lighting helps.
+---
+
+## How do I know the reference data was fully extracted and loaded?
+
+- **On the “Try with pose” screen**, look at the text under the camera:
+  - **“Practice mode (no reference yet)”** → Ref data did not load (module has no ref, or fetch failed). Every rep counts; no green/red. Re-run write-ref for this module and ensure Firebase has `referencePoseData/{moduleId}` (or the module has `referencePoseSequenceUrl`).
+  - **“Reference: N frames · punching”** (or “N frames (M examples) · punching”) → Ref data **is** loaded. N = frames in one reference sequence; M = number of reference videos. You should then get **green** when a rep matches and **red** when it doesn’t.
+
+- **In Firebase:** Realtime Database → **referencePoseData** → your `moduleId`. You should see `sequences` (array of pose sequences) and `focus` (e.g. `"punching"`). If it’s missing, run the write-ref script again for that module.
+
+---
+
+## How does rep detection work? When do I see green vs red?
+
+- **For punching:** A rep is counted **on extension only**. When your arm **extends** (wrist moves away from shoulder past a threshold), that’s 1 rep. Retract doesn’t count. You must retract before the next extension counts as another rep (so one full extension = 1, retract, extend again = 2).
+- **If you never see green or red:** The rep detector isn’t firing. Do a **clear extension**: punch your arm fully toward the camera. Keep **upper body in frame** and **face the camera**. Each full extension = 1 rep.
+- **Green overlay** = rep detected **and** it matched the reference (correct form). Rep count goes up.
+- **Red overlay** = rep detected **but** it did **not** match (wrong form or too different from reference). You’ll see “Wrong form” and either “No match — extend arm fully, then retract. Face the camera.” or specific feedback (e.g. “Straighten the punching arm more at extension”). The red flash lasts ~1.2 s so you can read it.
+
+So: the app **does** know when you do a rep (extend then retract). When it does, it compares you to the reference and shows green (correct) or red (wrong).
+
+---
+
+## Tips for getting a correct rep (green)
+
+1. **Face the camera** with your torso—same as the recording rules for technique videos. Don’t stand with your back or full side to the lens.
+2. **Upper body in frame** for punching: shoulders, arms, and hips visible. Camera at chest height or so.
+3. **One clear jab:** extend your lead arm fully (elbow straight), then retract. Do it at a normal speed; one rep per motion.
+4. **Good lighting** so pose landmarks are stable.
+5. **If you always get red:** Try “See what a correct rep looks like” (plays the success state). Then mimic that: full extension, then retract. If it still never turns green, the reference may be from a very different angle or body position—re-record reference videos with your body facing the camera and similar distance/framing.
 
 ---
 

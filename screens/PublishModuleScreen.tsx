@@ -694,6 +694,12 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           {step === 2 && (
             <>
               <Text style={styles.intro}>Add the first technique video (e.g. one side to camera).</Text>
+              <View style={styles.rulesBox}>
+                <Text style={styles.rulesTitle}>Recording rules</Text>
+                <Text style={styles.rulesText}>• Face the camera with your whole body—do not turn your torso or back away from the camera.</Text>
+                <Text style={styles.rulesText}>• For this side, position yourself so the camera sees your front (chest and arms toward the lens).</Text>
+                <Text style={styles.rulesText}>• One clean rep per clip. Good lighting and clear view of upper body.</Text>
+              </View>
               <Text style={styles.label}>Technique video 1 *</Text>
               {techniqueVideoFile ? (
                 <>
@@ -728,6 +734,12 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           {step === 3 && (
             <>
               <Text style={styles.intro}>Add the second technique video (e.g. other side to camera). Same technique, different angle.</Text>
+              <View style={styles.rulesBox}>
+                <Text style={styles.rulesTitle}>Recording rules</Text>
+                <Text style={styles.rulesText}>• Face the camera with your whole body—do not turn your torso or back away from the camera.</Text>
+                <Text style={styles.rulesText}>• For this side, position yourself so the camera sees your front (chest and arms toward the lens).</Text>
+                <Text style={styles.rulesText}>• One clean rep. Same technique as video 1, just the other side/orientation.</Text>
+              </View>
               <Text style={styles.label}>Technique video 2 *</Text>
               {techniqueVideoFile2 ? (
                 <>
@@ -1066,6 +1078,16 @@ const styles = StyleSheet.create({
   videoPlaceholderText: { fontSize: 16, color: '#FFF', fontWeight: '600', marginBottom: 4 },
   imagePreview: { width: '100%', height: '100%' },
   previewHint: { fontSize: 12, color: '#8fa3b0', marginBottom: 8 },
+  rulesBox: {
+    backgroundColor: 'rgba(7, 187, 192, 0.12)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.35)',
+    padding: 14,
+    marginBottom: 20,
+  },
+  rulesTitle: { fontSize: 13, fontWeight: '700', color: '#07bbc0', marginBottom: 8 },
+  rulesText: { fontSize: 13, color: '#b0c4d0', lineHeight: 20, marginBottom: 4 },
   uploadBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, borderWidth: 2, borderColor: '#07bbc0', backgroundColor: '#011f36', marginBottom: 8 },
   uploadBtnIcon: { fontSize: 20, marginRight: 8 },
   uploadBtnText: { color: '#07bbc0', fontSize: 15, fontWeight: '600' },

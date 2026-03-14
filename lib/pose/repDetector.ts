@@ -26,9 +26,9 @@ const COOLDOWN_MS = 1000;
 const HIP_Y_DOWN = 0.50;
 const HIP_Y_UP = 0.46;
 
-// Punching: wrist-to-shoulder distance (extension threshold)
-const ARM_EXTEND_THRESHOLD = 0.25;
-const ARM_RETRACT_THRESHOLD = 0.18;
+// Punching: wrist-to-shoulder distance (extension threshold). Slightly lenient so clear punches are detected.
+const ARM_EXTEND_THRESHOLD = 0.22;
+const ARM_RETRACT_THRESHOLD = 0.20;
 
 // Kicking: leg Y (lower = leg raised)
 const LEG_Y_UP = 0.42;
@@ -82,9 +82,15 @@ export function createRepDetector(focus: PoseFocus = 'full') {
   let cooldownUntil = 0;
 
   if (focus === 'punching') {
+    // Count 1 rep per extension only (retract doesn't count). Must retract before next extension counts.
+    let hasRetractedSinceRep = true;
     return function tick(frame: PoseFrame, now: number): RepDetectorResult {
       if (phase === 'cooldown') {
-        if (now >= cooldownUntil) phase = 'idle';
+        const ext = armExtension(frame);
+        if (ext != null && ext < ARM_RETRACT_THRESHOLD) hasRetractedSinceRep = true;
+        if (now >= cooldownUntil && hasRetractedSinceRep) {
+          phase = 'idle';
+        }
         return { done: false };
       }
       const ext = armExtension(frame);
@@ -99,16 +105,12 @@ export function createRepDetector(focus: PoseFocus = 'full') {
       }
       if (phase === 'extended') {
         segment.push(frame);
-        if (ext < ARM_RETRACT_THRESHOLD) phase = 'retracted';
-        return { done: false };
-      }
-      if (phase === 'retracted') {
-        segment.push(frame);
         if (segment.length >= MIN_REP_FRAMES) {
           const out = [...segment];
           segment = [];
           phase = 'cooldown';
           cooldownUntil = now + COOLDOWN_MS;
+          hasRetractedSinceRep = false;
           return { done: true, segment: out };
         }
         return { done: false };

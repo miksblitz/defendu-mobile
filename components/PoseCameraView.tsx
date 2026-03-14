@@ -37,7 +37,7 @@ const POSE_THROTTLE_MS = 100;
 const MIN_FRAMES_FOR_REP = 5;
 const MAX_BUFFER_FRAMES = 120;
 const SUCCESS_OVERLAY_MS = 1800;
-const WRONG_OVERLAY_MS = 800;
+const WRONG_OVERLAY_MS = 1200;
 /** Short success beep when rep is correct (no asset file needed). */
 async function playSuccessSound() {
   try {
@@ -328,11 +328,11 @@ export default function PoseCameraView({
           style={[styles.wrongOverlay, { opacity: wrongFadeAnim }]}
           pointerEvents="none"
         >
-          <Text style={styles.wrongText}>Rep detected</Text>
+          <Text style={styles.wrongText}>Wrong form</Text>
           <Text style={styles.wrongSubtext}>
             {lastFeedback.length > 0
               ? 'Try again:'
-              : 'No match — try again or get closer to reference'}
+              : 'No match — extend arm fully toward camera. Face the camera.'}
           </Text>
           {lastFeedback.length > 0 && (
             <View style={styles.feedbackList}>
@@ -347,10 +347,10 @@ export default function PoseCameraView({
       )}
       <View style={styles.overlay}>
         <Text style={styles.overlayTitle}>
-          {poseFocus === 'punching' ? 'Upper body in frame — extend arm then retract' : poseFocus === 'kicking' ? 'Legs in frame — raise leg then lower' : 'Full body in frame — reps count automatically'}
+          {poseFocus === 'punching' ? 'Upper body in frame — each full extension = 1 rep' : poseFocus === 'kicking' ? 'Legs in frame — raise leg then lower' : 'Full body in frame — reps count automatically'}
         </Text>
         <Text style={styles.overlayHint}>
-          {poseFocus === 'punching' ? 'Punch or strike: arm extends then returns' : poseFocus === 'kicking' ? 'Kick: leg up then back down' : 'Do a clear down–up movement (e.g. squat) so your hips go lower then back up'}
+          {poseFocus === 'punching' ? 'Punch: extend arm fully — each extension counts as 1 rep' : poseFocus === 'kicking' ? 'Kick: leg up then back down' : 'Do a clear down–up movement (e.g. squat) so your hips go lower then back up'}
         </Text>
         {practiceMode && (
           <Text style={styles.practiceModeLabel}>Practice mode (no reference yet)</Text>

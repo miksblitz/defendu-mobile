@@ -263,9 +263,10 @@ export async function getApprovedModules(): Promise<ModuleItem[]> {
     for (const id in data) {
       const item = data[id];
       if (!item || item.status !== 'approved') continue;
+      const { referencePoseSequences: _s, referencePoseSequence: _s2, ...rest } = item;
       modules.push({
         moduleId: id,
-        ...item,
+        ...rest,
         createdAt: item.createdAt ? new Date(item.createdAt as number) : new Date(),
         updatedAt: item.updatedAt ? new Date(item.updatedAt as number) : new Date(),
       } as ModuleItem);
@@ -530,6 +531,24 @@ export async function getModulesByIds(moduleIds: string[]): Promise<Module[]> {
   } catch (e) {
     console.error('getModulesByIds:', e);
     return [];
+  }
+}
+
+/** Fetch reference pose data from referencePoseData/{moduleId} (keeps module doc small). */
+export async function getReferencePoseData(moduleId: string): Promise<{ sequences: unknown[]; focus: string } | null> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return null;
+    const refDataRef = ref(db, `referencePoseData/${moduleId}`);
+    const snap = await get(refDataRef);
+    if (!snap.exists()) return null;
+    const data = snap.val() as { sequences?: unknown[]; focus?: string };
+    const sequences = Array.isArray(data?.sequences) ? data.sequences : null;
+    if (!sequences || sequences.length === 0) return null;
+    return { sequences, focus: data?.focus ?? 'full' };
+  } catch (e) {
+    console.error('getReferencePoseData:', e);
+    return null;
   }
 }
 
@@ -897,6 +916,7 @@ export const AuthController = {
   getUserProgress,
   recordModuleCompletion,
   getModulesByIds,
+  getReferencePoseData,
   getModuleByIdForUser,
   getModuleReviews,
   submitModuleReview,

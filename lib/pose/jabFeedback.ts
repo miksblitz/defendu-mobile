@@ -207,28 +207,7 @@ export function compareJabMetrics(
         });
       }
     }
-    if (user.stanceWidth != null && reference.stanceWidth != null) {
-      if (user.stanceWidth < reference.stanceWidth * 0.75) {
-        feedback.push({
-          id: 'feet-too-close',
-          message: 'Feet too close together',
-          phase,
-          severity: 'hint',
-        });
-      }
-    }
-    if (user.shoulderRotation != null && reference.shoulderRotation != null) {
-      const rotDiff = Math.abs(user.shoulderRotation - reference.shoulderRotation);
-      if (rotDiff > 25) {
-        feedback.push({
-          id: 'rotate-shoulder-more',
-          message: 'Rotate shoulder more into the punch',
-          phase,
-          severity: 'hint',
-        });
-      }
-    }
-    // Head movement ignored for punching: we only judge body and arms.
+    // Lower body (stance) and head/shoulder rotation ignored for punching—only arms and guard matter.
   } else {
     // Pure rule-based (no reference)
     if (user.punchingElbowAngle != null && user.punchingElbowAngle < RULES.minElbowAngleAtImpact) {
@@ -255,15 +234,7 @@ export function compareJabMetrics(
         severity: 'warning',
       });
     }
-    if (user.stanceWidth != null && user.stanceWidth < RULES.minStanceWidth) {
-      feedback.push({
-        id: 'feet-too-close',
-        message: 'Feet too close together',
-        phase,
-        severity: 'hint',
-      });
-    }
-    // Head movement ignored for punching (body and arms only).
+    // Lower body (stance) and head/rotation ignored for punching.
   }
 
   return feedback;

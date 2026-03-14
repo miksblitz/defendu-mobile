@@ -70,7 +70,11 @@ def extract_pose(video_path: str, output_path: str, focus: str) -> None:
 
 
 def update_module_with_pose_reference(module_id: str, payload: dict, focus: str) -> None:
-    """Write pose reference directly to Realtime Database (no Storage / Blaze required)."""
+    """
+    Write pose reference to a separate path so the module document stays small.
+    Heavy data goes to referencePoseData/{moduleId}; the module only gets referencePoseFocus and hasReferencePose.
+    This avoids slow dashboard loads when fetching the modules list.
+    """
     import firebase_admin
     from firebase_admin import credentials, db
 
@@ -82,16 +86,31 @@ def update_module_with_pose_reference(module_id: str, payload: dict, focus: str)
         cred_dict = json.loads(cred_json)
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred, {"databaseURL": database_url})
-    ref = db.reference("modules").child(module_id)
-    # Store sequence (and optionally sequences) + focus on the module so the app can use them without a URL
+
     sequences = payload.get("sequences")
     sequence = payload.get("sequence")
     if sequences and len(sequences) > 0:
-        ref.update({"referencePoseSequences": sequences, "referencePoseFocus": focus})
+        data = {"sequences": sequences, "focus": focus}
     elif sequence and len(sequence) > 0:
-        ref.update({"referencePoseSequence": sequence, "referencePoseFocus": focus})
+        data = {"sequences": [sequence], "focus": focus}
     else:
         raise ValueError("Payload has no sequence or sequences")
+
+    # Write heavy data to a separate path (not on the module document)
+    ref_data = db.reference("referencePoseData").child(module_id)
+    ref_data.set(data)
+
+    # On the module, only store light fields so get(modules) stays fast; remove heavy keys if present
+    ref_module = db.reference("modules").child(module_id)
+    ref_module.update({"referencePoseFocus": focus, "hasReferencePose": True})
+    try:
+        ref_module.child("referencePoseSequences").delete()
+    except Exception:
+        pass
+    try:
+        ref_module.child("referencePoseSequence").delete()
+    except Exception:
+        pass
 
 
 @app.route("/", methods=["GET"])

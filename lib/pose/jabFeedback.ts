@@ -155,18 +155,14 @@ export function computeJabMetrics(frame: PoseFrame): JabMetrics {
   };
 }
 
-/** Default rule thresholds (tunable). */
+/** Final-form only, very lenient: ~50% right is enough. Process doesn't matter. */
 const RULES = {
-  /** At impact, elbow should be nearly straight (e.g. > 160°) */
-  minElbowAngleAtImpact: 155,
-  /** Full extension: wrist–shoulder distance above this (normalized) */
-  minExtensionAtImpact: 0.22,
-  /** Rear hand should stay near guard (not drop too far below shoulder) */
-  maxRearHandDrop: 0.12,
-  /** Stance width relative to body: minimum (feet not too close) */
-  minStanceWidth: 0.4,
-  /** Max head forward lean (balance) */
-  maxHeadForward: 0.15,
+  minElbowAngleAtImpact: 120,
+  /** Extension: only fail if arm is almost not extended (very low bar) */
+  minExtensionAtImpact: 0.04,
+  maxRearHandDrop: 0.28,
+  minStanceWidth: 0.2,
+  maxHeadForward: 0.3,
 };
 
 /**
@@ -192,8 +188,8 @@ export function compareJabMetrics(
         });
       }
     }
-    if (user.punchingExtension != null && reference.punchingExtension != null) {
-      if (user.punchingExtension < reference.punchingExtension * 0.85) {
+    if (user.punchingExtension != null) {
+      if (user.punchingExtension < RULES.minExtensionAtImpact) {
         feedback.push({
           id: 'front-hand-not-extended',
           message: 'Front hand not fully extended',
@@ -331,4 +327,26 @@ export function getJabFeedback(
   const userMetrics = computeJabMetrics(userImpactFrame);
   const refMetrics = refImpactFrame ? computeJabMetrics(refImpactFrame) : null;
   return compareJabMetrics(userMetrics, refMetrics, 'impact');
+}
+
+/** Only these feedback IDs can count as errors. Lower body never fails. */
+const UPPER_BODY_ERROR_IDS = ['front-hand-not-extended', 'elbow-not-straight', 'rear-hand-dropped'];
+
+/** Max upper-body errors allowed and still count as correct (50% leniency: allow up to 1 error). */
+const MAX_ERRORS_TO_PASS = 1;
+
+/**
+ * Judge the rep by final form only (impact). Path and lower body don't matter.
+ * Lenient: pass if at most MAX_ERRORS_TO_PASS upper-body errors (e.g. 1) so ~50% right is enough.
+ */
+export function isImpactFormAcceptable(
+  userFrames: PoseFrame[],
+  referenceFrames: PoseFrame[] | null,
+  referencePhaseBounds?: { phase: JabPhase; start: number; end: number }[]
+): { acceptable: boolean; feedback: PoseFeedbackItem[] } {
+  const feedback = getJabFeedback(userFrames, referenceFrames, referencePhaseBounds);
+  const errorCount = feedback.filter(
+    (f) => f.severity === 'error' && UPPER_BODY_ERROR_IDS.includes(f.id)
+  ).length;
+  return { acceptable: errorCount <= MAX_ERRORS_TO_PASS, feedback };
 }

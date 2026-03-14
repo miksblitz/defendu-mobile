@@ -101,6 +101,7 @@ def index():
         "status": "running",
         "health": "/health",
         "extract": "POST /extract with { videoUrl, moduleId, focus }",
+        "write_ref": "POST /write-ref with { moduleId, focus?, sequence?, sequences? } — write pre-extracted JSON to DB",
     })
 
 
@@ -163,6 +164,32 @@ def extract():
     thread = threading.Thread(target=_run_extraction, args=(video_url, module_id, focus), daemon=True)
     thread.start()
     return jsonify({"message": "Pose reference is being generated. It may take 1–2 minutes.", "moduleId": module_id}), 202
+
+
+@app.route("/write-ref", methods=["POST"])
+def write_ref():
+    """
+    Write a pre-extracted pose reference (from scripts/extract_reference_pose.py) to a module in Firebase.
+    Body: same as extract script output + moduleId, e.g.:
+      { "moduleId": "module_xxx", "focus": "punching", "sequence": [ ... ] }
+      or { "moduleId": "module_xxx", "focus": "punching", "sequences": [ [ ... ], [ ... ] ] }
+    No hosting needed: run the script locally, then POST the JSON here to write to DB.
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    module_id = (body.get("moduleId") or "").strip()
+    if not module_id:
+        return jsonify({"error": "moduleId is required"}), 400
+    focus = (body.get("focus") or "full").lower()
+    if focus not in ("punching", "kicking", "full"):
+        focus = "full"
+    payload = {k: v for k, v in body.items() if k in ("sequence", "sequences", "focus")}
+    if not payload.get("sequences") and not payload.get("sequence"):
+        return jsonify({"error": "Body must include 'sequence' or 'sequences' (pose data from extract script)"}), 400
+    try:
+        update_module_with_pose_reference(module_id, payload, focus)
+        return jsonify({"message": "Reference written to DB", "moduleId": module_id}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

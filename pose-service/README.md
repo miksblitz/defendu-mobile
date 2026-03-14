@@ -1,15 +1,12 @@
 # Pose extraction service
 
-**Trainers only upload the technique video.** This service runs the pose-estimation pipeline and saves the reference so "Try with pose" can compare the student’s form.
+**Optional / admin use.** The mobile app no longer calls this service on publish; pose reference is set by the training pipeline (see docs/POSE_TRAINING_MODULES.md). This service can be used by admins or the pipeline to extract pose from a video and write reference to a module. This service runs the pose-estimation pipeline and saves the reference so "Try with pose" can compare the student’s form.
 
-## Flow
+## Flow (when invoked manually or by pipeline)
 
-1. Trainer publishes a module and uploads the **technique video** (correct form).
-2. The app saves the module and calls this service: `POST /extract` with `{ videoUrl, moduleId, focus }`.
-3. The service downloads the video, runs MediaPipe pose extraction (same model as the app), and writes the pose reference directly to the module in Realtime Database (no Firebase Storage / Blaze required).
-4. When a student opens "Try with pose", the app loads that reference and compares their movement: green = good form, red = no match.
-
-No trainer has to deal with JSON or URLs.
+1. Call `POST /extract` with `{ videoUrl, moduleId, focus }`.
+2. The service downloads the video, runs MediaPipe pose extraction, and writes the pose reference to the module in Realtime Database.
+3. When a student opens "Try with pose", the app loads that reference and compares their movement.
 
 ## Deploy on Render
 
@@ -26,13 +23,13 @@ No trainer has to deal with JSON or URLs.
    | `FIREBASE_DATABASE_URL` | Realtime Database URL (e.g. `https://defendu-e7970-default-rtdb.asia-southeast1.firebasedatabase.app`). |
 6. **No Firebase Storage needed.** The service writes the pose reference (sequence + focus) directly to Realtime Database on the module. No Blaze plan required.
 
-7. Copy the Render service URL (e.g. `https://defendu-pose.onrender.com`) and set in the **mobile app** env:
-   - `EXPO_PUBLIC_POSE_EXTRACTION_URL=https://defendu-pose.onrender.com`
+7. The mobile app does **not** use this URL anymore; reference data is set by the training pipeline. You can still deploy this service for admin or pipeline use.
 
 ## API
 
 - **GET /health** — Returns `{ "status": "ok" }`.
-- **POST /extract** — Body: `{ "videoUrl": string, "moduleId": string, "focus"?: "punching"|"kicking"|"full" }`. Runs extraction, writes pose reference to the module in Realtime Database. Returns 202 while processing in background.
+- **POST /extract** — Body: `{ "videoUrl": string, "moduleId": string, "focus"?: "punching"|"kicking"|"full" }`. Runs extraction from one video, writes pose reference to the module in Realtime Database. Returns 202 while processing in background.
+- **POST /write-ref** — Body: same as the output of `scripts/extract_reference_pose.py` plus `moduleId`: `{ "moduleId": string, "focus"?: "punching"|"kicking"|"full", "sequence"?: [...], "sequences"?: [...] }`. Writes that reference directly to the module in DB. Use this after running the extract script locally on a folder of videos (e.g. 5–15 lead jab clips); no need to host the JSON anywhere.
 
 ## Local run
 

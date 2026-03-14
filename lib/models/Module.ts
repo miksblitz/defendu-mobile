@@ -10,9 +10,12 @@ export interface Module {
   introductionVideoUrl?: string;
   techniqueVideoUrl?: string;
   techniqueVideoLink?: string;
-  /** Optional URL to precomputed reference pose sequence JSON (one rep) for "Try with pose". */
+  /**
+   * Pose reference for "Try with pose". Set by the training pipeline (reference videos + payment, 1–2 days).
+   * URL to JSON or stored in DB (referencePoseSequence / referencePoseSequences).
+   * One module = one move evaluator (e.g. jab, hook, block); reference is produced per module.
+   */
   referencePoseSequenceUrl?: string;
-  /** Optional: reference pose stored directly in DB (no Storage/Blaze). Prefer over URL when set. */
   referencePoseSequence?: unknown;
   referencePoseSequences?: unknown[];
   referencePoseFocus?: 'punching' | 'kicking' | 'full';

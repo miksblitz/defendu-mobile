@@ -22,8 +22,9 @@ import type { Module } from '../lib/models/Module';
 import type { ModuleReview } from '../lib/models/ModuleReview';
 import PoseCameraView from '../components/PoseCameraView';
 import { getRequiredReps } from '../utils/repRange';
-import type { PoseSequence, PoseFocus } from '../lib/pose/types';
+import type { PoseSequence, PoseFocus, PoseFrame } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
+import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
 
 // --- Types & props ---
 type Step = 'intro' | 'safety' | 'video' | 'tryIt' | 'tryItPose' | 'complete';
@@ -38,6 +39,43 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/** Turn Firebase array-like (object with numeric keys) or nested frames into a real PoseSequence. */
+function frameToArray(frame: unknown): PoseFrame | null {
+  if (Array.isArray(frame) && frame.length > 0) return frame as PoseFrame;
+  if (frame && typeof frame === 'object') {
+    const keys = Object.keys(frame).filter((k) => /^\d+$/.test(k)).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    if (keys.length > 0) {
+      const arr = keys.map((k) => (frame as Record<string, unknown>)[k]);
+      if (arr.every((p) => p && typeof p === 'object' && 'x' in p)) return arr as PoseFrame;
+    }
+  }
+  return null;
+}
+
+function toPoseSequence(val: unknown): PoseSequence | null {
+  let arr: unknown[] = [];
+  if (Array.isArray(val) && val.length > 0) arr = val;
+  else if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const keys = Object.keys(val).filter((k) => /^\d+$/.test(k)).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    if (keys.length > 0) arr = keys.map((k) => (val as Record<string, unknown>)[k]);
+  }
+  if (arr.length === 0) return null;
+  const frames = arr.map(frameToArray).filter((f): f is PoseFrame => f != null);
+  return frames.length > 0 ? frames : null;
+}
+
+function toPoseSequenceArray(val: unknown): PoseSequence[] | null {
+  let arr: unknown[] = [];
+  if (Array.isArray(val) && val.length > 0) arr = val;
+  else if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const keys = Object.keys(val).filter((k) => /^\d+$/.test(k)).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    if (keys.length > 0) arr = keys.map((k) => (val as Record<string, unknown>)[k]);
+  }
+  if (arr.length === 0) return null;
+  const seqs = arr.map((s) => toPoseSequence(s)).filter((s): s is PoseSequence => s != null);
+  return seqs.length > 0 ? seqs : null;
 }
 
 function openVideoInBrowser(url: string | undefined) {
@@ -187,20 +225,25 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
       return;
     }
     // Prefer reference stored in DB (no Storage/Blaze); fall back to URL
-    const dbSequences = module.referencePoseSequences;
-    const dbSequence = module.referencePoseSequence;
-    const dbFocus = module.referencePoseFocus;
-    if (Array.isArray(dbSequences) && dbSequences.length > 0) {
-      setReferencePoseFocus(dbFocus === 'punching' || dbFocus === 'kicking' || dbFocus === 'full' ? dbFocus : DEFAULT_POSE_FOCUS);
-      setReferencePoseSequence(dbSequences as PoseSequence[]);
-      setReferencePoseLoading(false);
-      return;
-    }
-    if (Array.isArray(dbSequence) && dbSequence.length > 0) {
-      setReferencePoseFocus(dbFocus === 'punching' || dbFocus === 'kicking' || dbFocus === 'full' ? dbFocus : DEFAULT_POSE_FOCUS);
-      setReferencePoseSequence(dbSequence as PoseSequence);
-      setReferencePoseLoading(false);
-      return;
+    try {
+      const dbFocus = module.referencePoseFocus;
+      const focusVal = dbFocus === 'punching' || dbFocus === 'kicking' || dbFocus === 'full' ? dbFocus : DEFAULT_POSE_FOCUS;
+      const dbSequences = toPoseSequenceArray(module.referencePoseSequences);
+      if (dbSequences && dbSequences.length > 0) {
+        setReferencePoseFocus(focusVal);
+        setReferencePoseSequence(dbSequences);
+        setReferencePoseLoading(false);
+        return;
+      }
+      const dbSequence = toPoseSequence(module.referencePoseSequence);
+      if (dbSequence && dbSequence.length > 0) {
+        setReferencePoseFocus(focusVal);
+        setReferencePoseSequence(dbSequence);
+        setReferencePoseLoading(false);
+        return;
+      }
+    } catch (_) {
+      // Bad or unexpected reference data; fall through to URL or practice mode
     }
     if (!module.referencePoseSequenceUrl) {
       setReferencePoseSequence(null);
@@ -287,22 +330,6 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
   const averageRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
   const reviewCount = reviews.length;
 
-  // Pose step (full-screen camera)
-  const hasReferenceInDb = Array.isArray(module.referencePoseSequence) && module.referencePoseSequence.length > 0
-    || Array.isArray(module.referencePoseSequences) && module.referencePoseSequences!.length > 0;
-  const canGeneratePoseRef =
-    (module.techniqueVideoUrl ?? module.techniqueVideoLink) && !module.referencePoseSequenceUrl && !hasReferenceInDb;
-  const handleGeneratePoseReference = () => {
-    const videoUrl = module.techniqueVideoUrl ?? module.techniqueVideoLink;
-    if (!videoUrl) return;
-    AuthController.triggerPoseExtraction(videoUrl, module.moduleId, module.category ?? '');
-    Alert.alert(
-      'Generating pose reference',
-      'The reference is being generated from your technique video (usually 1–2 minutes). Go back, then open "Try with pose" again in a couple of minutes.',
-      [{ text: 'OK' }]
-    );
-  };
-
   if (step === 'tryItPose') {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -311,21 +338,14 @@ export default function ViewModuleScreen({ moduleId, onBack }: ViewModuleScreenP
             requiredReps={getRequiredReps(module.repRange)}
             correctReps={poseCorrectReps}
             isCurrentRepCorrect={poseCurrentRepCorrect}
-            onBack={async () => {
-              setStep('video');
-              // Refetch module so we pick up referencePoseSequenceUrl if it was just set
-              try {
-                const data = await AuthController.getModuleByIdForUser(moduleId);
-                if (data) setModule(data);
-              } catch (_) {}
-            }}
+            onBack={() => setStep('video')}
             onCorrectRepsUpdate={(count, lastCorrect) => {
               setPoseCorrectReps(count);
               setPoseCurrentRepCorrect(lastCorrect);
             }}
             referenceSequence={referencePoseLoading ? null : referencePoseSequence}
             poseFocus={referencePoseFocus}
-            onGenerateReference={canGeneratePoseRef ? handleGeneratePoseReference : undefined}
+            matchThreshold={referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD}
           />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity

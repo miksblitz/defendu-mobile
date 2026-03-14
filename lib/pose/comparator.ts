@@ -8,7 +8,7 @@ import type { PoseFrame, PoseSequence, PoseFeedbackItem } from './types';
 import type { PoseFocus } from './types';
 import { normalizeFrame } from './normalizer';
 import { subsetSequenceByFocus } from './poseFocus';
-import { getJabFeedback } from './jabFeedback';
+import { getJabFeedback, isImpactFormAcceptable } from './jabFeedback';
 import { detectJabPhases } from './phaseDetection';
 
 /**
@@ -89,6 +89,8 @@ export function compareReps(
 
 /** Default threshold: below this mean distance, rep is considered "correct". Tune per exercise. */
 export const DEFAULT_MATCH_THRESHOLD = 0.20;
+/** Looser threshold for punching (upper-body only); camera angle and timing vary more. */
+export const PUNCHING_MATCH_THRESHOLD = 0.42;
 
 /**
  * Compare using only the landmarks for the given focus (punching = upper body, kicking = legs, full = all).
@@ -138,7 +140,8 @@ export function isRepMatchAny(
 
 /**
  * Compare rep and get rule-based feedback when focus is punching (jab/strike).
- * Returns { match, feedback }. Use when you want to show "why" the rep failed.
+ * For punching we judge mainly by final form (impact): path is flexible.
+ * Match if impact form has no critical errors, OR full-sequence distance is below threshold.
  */
 export function compareRepWithFeedback(
   userFrames: PoseFrame[],
@@ -147,17 +150,22 @@ export function compareRepWithFeedback(
   focus?: PoseFocus
 ): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
   const distance = compareRepsWithFocus(userFrames, referenceFrames, focus);
-  const match = distance < threshold;
+  let match: boolean;
   let feedback: PoseFeedbackItem[] = [];
-  if (!match && focus === 'punching' && userFrames.length > 0 && referenceFrames.length > 0) {
+  if (focus === 'punching' && userFrames.length > 0 && referenceFrames.length > 0) {
     const refBounds = detectJabPhases(referenceFrames);
-    feedback = getJabFeedback(userFrames, referenceFrames, refBounds);
+    const impactCheck = isImpactFormAcceptable(userFrames, referenceFrames, refBounds);
+    match = impactCheck.acceptable; // Judge by finish only; path doesn't matter
+    if (!match) feedback = impactCheck.feedback;
+  } else {
+    match = distance < threshold;
   }
   return { match, distance, feedback };
 }
 
 /**
  * Like isRepMatchAny but returns feedback when no reference matches (punching focus).
+ * For punching, match if impact form is acceptable on any reference (path flexible).
  */
 export function compareRepWithFeedbackAny(
   userFrames: PoseFrame[],
@@ -185,7 +193,11 @@ export function compareRepWithFeedbackAny(
   let feedback: PoseFeedbackItem[] = [];
   if (focus === 'punching' && userFrames.length > 0 && bestRef.length > 0) {
     const refBounds = detectJabPhases(bestRef);
-    feedback = getJabFeedback(userFrames, bestRef, refBounds);
+    const impactCheck = isImpactFormAcceptable(userFrames, bestRef, refBounds);
+    if (impactCheck.acceptable) {
+      return { match: true, distance: bestDistance, feedback: [] };
+    }
+    feedback = impactCheck.feedback;
   }
   return { match: false, distance: bestDistance, feedback };
 }

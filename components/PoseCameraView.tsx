@@ -31,8 +31,6 @@ export interface PoseCameraViewProps {
   poseFocus?: PoseFocus;
   /** Optional: match threshold for comparison (default 0.20). */
   matchThreshold?: number;
-  /** When in practice mode, if set, show a button to trigger pose reference generation from the technique video. */
-  onGenerateReference?: () => void;
 }
 
 const POSE_THROTTLE_MS = 100;
@@ -40,6 +38,19 @@ const MIN_FRAMES_FOR_REP = 5;
 const MAX_BUFFER_FRAMES = 120;
 const SUCCESS_OVERLAY_MS = 1800;
 const WRONG_OVERLAY_MS = 800;
+/** Short success beep when rep is correct (no asset file needed). */
+async function playSuccessSound() {
+  try {
+    const { Audio } = await import('expo-av');
+    const { sound } = await Audio.Sound.createAsync({
+      uri: 'https://assets.mixkit.co/active_storage/sfx/2570-success.mp3',
+    });
+    await sound.playAsync();
+    sound.setOnPlaybackStatusUpdate((s) => {
+      if (s.isLoaded && s.didJustFinishNotify) sound.unloadAsync().catch(() => {});
+    });
+  } catch (_) {}
+}
 
 export default function PoseCameraView({
   requiredReps,
@@ -50,7 +61,6 @@ export default function PoseCameraView({
   referenceSequence,
   poseFocus = 'full',
   matchThreshold = DEFAULT_MATCH_THRESHOLD,
-  onGenerateReference,
 }: PoseCameraViewProps) {
   const [ready, setReady] = useState(false);
   const [MediaPipeView, setMediaPipeView] = useState<React.ComponentType<{ width: number; height: number; onLandmark: (data: unknown) => void; [key: string]: unknown }> | null>(null);
@@ -160,6 +170,7 @@ export default function PoseCameraView({
       setSuccessCount(currentCount + 1);
       setShowSuccessOverlay(true);
       successFadeAnim.setValue(1);
+      playSuccessSound();
       Animated.timing(successFadeAnim, {
         toValue: 0,
         duration: SUCCESS_OVERLAY_MS,
@@ -194,6 +205,18 @@ export default function PoseCameraView({
       // ignore if native module not ready
     }
   }, [switchCameraFn]);
+
+  const handlePreviewSuccess = useCallback(() => {
+    playSuccessSound();
+    setSuccessCount(correctReps + 1);
+    setShowSuccessOverlay(true);
+    successFadeAnim.setValue(1);
+    Animated.timing(successFadeAnim, {
+      toValue: 0,
+      duration: SUCCESS_OVERLAY_MS,
+      useNativeDriver: true,
+    }).start(() => setShowSuccessOverlay(false));
+  }, [correctReps, successFadeAnim]);
 
   if (!ready || error) {
     return (
@@ -297,6 +320,7 @@ export default function PoseCameraView({
         >
           <Text style={styles.successNumber}>{successCount}</Text>
           <Text style={styles.successSubtext}>Correct rep!</Text>
+          <Text style={styles.successRepCounted}>Rep counted — keep going!</Text>
         </Animated.View>
       )}
       {showWrongOverlay && (
@@ -329,26 +353,27 @@ export default function PoseCameraView({
           {poseFocus === 'punching' ? 'Punch or strike: arm extends then returns' : poseFocus === 'kicking' ? 'Kick: leg up then back down' : 'Do a clear down–up movement (e.g. squat) so your hips go lower then back up'}
         </Text>
         {practiceMode && (
-          <>
-            <Text style={styles.practiceModeLabel}>Practice mode (no reference yet)</Text>
-            {onGenerateReference ? (
-              <TouchableOpacity style={styles.generateRefButton} onPress={onGenerateReference} activeOpacity={0.8}>
-                <Text style={styles.generateRefButtonText}>Generate pose reference from video</Text>
-              </TouchableOpacity>
-            ) : null}
-          </>
+          <Text style={styles.practiceModeLabel}>Practice mode (no reference yet)</Text>
         )}
-        {!practiceMode && referenceSequence && (
-          <Text style={styles.referenceLoadedLabel}>
-            Reference loaded ({poseFocus}) — {Array.isArray(referenceSequence) && Array.isArray(referenceSequence[0]) ? `${(referenceSequence as PoseSequence[]).length} examples` : '1 sequence'}
-          </Text>
-        )}
+        {!practiceMode && referenceSequence && (() => {
+          const seq = Array.isArray(referenceSequence) ? referenceSequence[0] : referenceSequence;
+          const frameCount = seq?.length ?? 0;
+          const multi = Array.isArray(referenceSequence) && (referenceSequence as PoseSequence[]).length > 1;
+          return (
+            <Text style={styles.referenceLoadedLabel}>
+              Reference: {frameCount} frames{multi ? ` (${(referenceSequence as PoseSequence[]).length} examples)` : ''} · {poseFocus}
+            </Text>
+          );
+        })()}
         <View style={styles.repBox}>
           <Text style={styles.repText}>
             {correctReps} / {requiredReps}
           </Text>
         </View>
         <View style={styles.buttonRow}>
+          <TouchableOpacity style={styles.previewSuccessButton} onPress={handlePreviewSuccess}>
+            <Text style={styles.previewSuccessButtonText}>See what a correct rep looks like</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.switchCameraButton} onPress={handleSwitchCamera}>
             <Text style={styles.switchCameraButtonText}>Switch camera</Text>
           </TouchableOpacity>
@@ -394,6 +419,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.95)',
     marginTop: 8,
   },
+  successRepCounted: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 6,
+  },
   wrongOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(239, 68, 68, 0.85)',
@@ -427,16 +458,6 @@ const styles = StyleSheet.create({
   overlayTitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginBottom: 4 },
   overlayHint: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 8 },
   practiceModeLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 8 },
-  generateRefButton: {
-    marginTop: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(7, 187, 192, 0.25)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#07bbc0',
-  },
-  generateRefButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   referenceLoadedLabel: { color: 'rgba(34,197,94,0.95)', fontSize: 12, marginBottom: 4 },
   repBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   repText: { color: '#FFF', fontSize: 22, fontWeight: '700' },
@@ -449,6 +470,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   switchCameraButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
+  previewSuccessButton: {
+    borderWidth: 2,
+    borderColor: 'rgba(34, 197, 94, 0.9)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
+  previewSuccessButtonText: { color: 'rgba(34, 197, 94, 0.95)', fontSize: 13, fontWeight: '600' },
   backButton: {
     position: 'absolute',
     top: Platform.OS === 'android' ? 24 : 50,

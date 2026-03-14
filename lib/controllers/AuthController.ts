@@ -796,45 +796,6 @@ export async function saveModule(
   return moduleId;
 }
 
-/** Map module category to pose focus for reference extraction (punching / kicking / full). */
-function categoryToPoseFocus(category: string): 'punching' | 'kicking' | 'full' {
-  const c = (category || '').toLowerCase();
-  if (c.includes('punch') || c.includes('palm') || c.includes('elbow')) return 'punching';
-  if (c.includes('kick') || c.includes('knee')) return 'kicking';
-  return 'full';
-}
-
-/**
- * Trigger backend pose extraction for a module's technique video.
- * The trainer only uploads the video; this asks the service to extract pose data
- * and set referencePoseSequenceUrl on the module so "Try with pose" can compare.
- * Fire-and-forget; does not throw. Call after saveModule when techniqueVideoUrl exists.
- */
-export async function triggerPoseExtraction(
-  videoUrl: string,
-  moduleId: string,
-  category: string
-): Promise<void> {
-  const baseUrl = process.env.EXPO_PUBLIC_POSE_EXTRACTION_URL?.trim();
-  if (!baseUrl) {
-    console.warn('[PoseExtraction] EXPO_PUBLIC_POSE_EXTRACTION_URL is not set. Add it to .env and restart Metro.');
-    return;
-  }
-  const focus = categoryToPoseFocus(category);
-  try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/extract`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoUrl, moduleId, focus }),
-    });
-    if (!res.ok) {
-      console.warn('[PoseExtraction]', res.status, await res.text());
-    }
-  } catch (e) {
-    console.warn('[PoseExtraction]', e);
-  }
-}
-
 /** Seed test modules (approved trainers only). Writes approved modules under current trainer. */
 export async function seedTestModules(): Promise<{ added: number }> {
   const currentUser = await getCurrentUser();
@@ -942,7 +903,6 @@ export const AuthController = {
   updateTrainerProfile,
   submitTrainerApplication,
   saveModule,
-  triggerPoseExtraction,
   seedTestModules,
   uploadFileToCloudinary,
 };

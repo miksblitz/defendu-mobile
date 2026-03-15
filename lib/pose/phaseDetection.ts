@@ -1,33 +1,34 @@
 /**
  * Detect jab phases (guard, extension, impact, recoil) in a pose sequence.
  * Used to compare user motion phase-by-phase and to give targeted feedback.
- * MediaPipe 33-landmark: 11/12 shoulders, 13/14 elbows, 15/16 wrists.
+ * MediaPipe 33-landmark: 11/12 shoulders, 15/16 wrists. MoveNet 17: 5/6 shoulders, 9/10 wrists.
  */
 
 import type { PoseFrame, PoseSequence, JabPhase, PhaseBounds } from './types';
 
-const LEFT_SHOULDER = 11;
-const RIGHT_SHOULDER = 12;
-const LEFT_ELBOW = 13;
-const RIGHT_ELBOW = 14;
-const LEFT_WRIST = 15;
-const RIGHT_WRIST = 16;
+const MEDIAPIPE = { ls: 11, rs: 12, lw: 15, rw: 16 };
+const MOVENET_17 = { ls: 5, rs: 6, lw: 9, rw: 10 };
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
-/** Wrist-to-shoulder distance for left and right arm (normalized 0–1). */
+function validPoint(p: { x: number; y: number } | undefined): boolean {
+  return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
+}
+
+/** Wrist-to-shoulder distance for left and right arm. Supports 33 (MediaPipe) or 17 (MoveNet) landmarks. Uses only arm landmarks. */
 export function armExtensionDistances(frame: PoseFrame): { left: number; right: number } | null {
-  if (frame.length <= Math.max(LEFT_WRIST, RIGHT_WRIST)) return null;
-  const ls = frame[LEFT_SHOULDER];
-  const rs = frame[RIGHT_SHOULDER];
-  const lw = frame[LEFT_WRIST];
-  const rw = frame[RIGHT_WRIST];
-  if (!ls || !rs || !lw || !rw) return null;
+  const idx = frame.length >= 17 ? (frame.length <= 17 ? MOVENET_17 : MEDIAPIPE) : null;
+  if (!idx || frame.length <= Math.max(idx.lw, idx.rw)) return null;
+  const ls = frame[idx.ls];
+  const rs = frame[idx.rs];
+  const lw = frame[idx.lw];
+  const rw = frame[idx.rw];
+  if (!validPoint(ls) || !validPoint(rs) || !validPoint(lw) || !validPoint(rw)) return null;
   return {
-    left: dist(lw, ls),
-    right: dist(rw, rs),
+    left: dist(lw!, ls!),
+    right: dist(rw!, rs!),
   };
 }
 

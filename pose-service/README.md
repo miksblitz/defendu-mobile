@@ -8,9 +8,9 @@
 2. The service downloads the video, runs MediaPipe pose extraction, and writes the pose reference to the module in Realtime Database.
 3. When a student opens "Try with pose", the app loads that reference and compares their movement.
 
-## Deploy on Render
+## Deploy (e.g. any host)
 
-1. **New Web Service** → connect this repo (or the `defendu-mobile` folder).
+1. **Web Service** → connect this repo (or the `defendu-mobile` folder).
 2. **Root directory:** `defendu-mobile` (so `pose-service` and `scripts` are both available).
 3. **Build command:** `pip install -r pose-service/requirements.txt`
 4. **Start command:** `gunicorn -w 1 -b 0.0.0.0:$PORT pose-service.app:app`  

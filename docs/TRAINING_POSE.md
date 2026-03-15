@@ -6,21 +6,16 @@ Everything for training a pose reference (e.g. lead jab) and using “Try with p
 
 ## Reference folder layout
 
-Put all reference videos and extracted JSON in **reference/** — one subfolder per technique:
+Put jab videos and output in **reference/jab/**:
 
 ```
 reference/
-  punching/         → jabs, hooks, uppercuts (videos + ref_*.json)
-  kicking/          → front kick, roundhouse, etc.
-  elbow-strike/     → elbow strikes
-  defensive-moves/  → blocks, parries, slips
+  jab/   → jab videos + reference.json
 ```
 
-Example: lead jab videos go in `reference/punching/lead-jab/`. See **reference/README.md** for more.
-
-**To train the lead jab:** Put 5–15 videos in `reference/punching/lead-jab/`, then run:
-`python scripts/extract_reference_pose.py reference/punching/lead-jab -o reference/punching/ref_lead_jab.json --focus punching`
-Then follow **Once training is finished** below to send the ref to the app.
+**To train jab:** Put 5–15 jab videos in `reference/jab/`, then run:
+`python scripts/jab.py reference/jab -o reference/jab/reference.json`
+Then host the JSON or send it to your pose-service (see below).
 
 ---
 
@@ -40,7 +35,7 @@ Most modules are performed **sideways** to the camera (profile view), not facing
 
 **In the app:** When publishing a module, trainers can optionally add **Reference video – Side 1** and **Reference video – Side 2** (Step 5). Those videos are uploaded and stored on the module as `referencePoseVideoUrlSide1` and `referencePoseVideoUrlSide2`. Pose extraction (and writing ref to DB) can be run later using those URLs (e.g. via pose-service or scripts).
 
-**Recommendation for trainers:** Send **at least 2 reference videos** for sideways techniques (e.g. jab, cross, hooks):
+**Recommendation for trainers:** Send **at least 2 reference videos** for sideways techniques (e.g. jab):
 
 1. **One with the performer’s left side to the camera** (camera on their left).
 2. **One with the performer’s right side to the camera** (camera on their right, so they’re facing the opposite direction).
@@ -57,12 +52,10 @@ Both are still sideways to the camera — just mirror views. That way the app ha
 
 ---
 
-## Where does the output go? (Render vs DB)
+## Where does the output go?
 
-| Option | What you do |
-|--------|-------------|
-| **A — Write to DB** | Run extract script locally → POST the JSON to your **pose-service on Render** (`/write-ref`) → service writes to Firebase. No hosting the JSON. **Recommended.** |
-| **B — Host JSON** | Run extract script → upload JSON to Render Static Site or Firebase Storage → set **referencePoseSequenceUrl** on the module in Firebase. |
+- **Host JSON:** Upload `reference/jab/reference.json` to Firebase Storage or any public URL, then set **referencePoseSequenceUrl** on the module in Firebase.
+- **Write to DB (optional):** If you run a pose-service (see pose-service/README.md), POST the JSON to `/write-ref` so the service writes to `referencePoseData/{moduleId}`.
 
 ---
 

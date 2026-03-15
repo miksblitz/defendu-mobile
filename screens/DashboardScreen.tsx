@@ -21,14 +21,16 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 
 // --- Constants ---
-/** Training category hero images (copy your 5 images to assets/images/training/ with these names). */
+/** Training category hero images (assets/images/training/). */
 const CATEGORY_IMAGES: Record<string, ReturnType<typeof require>> = {
   'Punching': require('../assets/images/training/punching.png'),
   'Kicking': require('../assets/images/training/kicking.png'),
   'Elbow Strikes': require('../assets/images/training/elbow-strikes.png'),
-  'Palm Strikes': require('../assets/images/training/palm-strikes.png'),
+  'Knee Strikes': require('../assets/images/training/palm-strikes.png'),
   'Defensive Moves': require('../assets/images/training/defensive-moves.png'),
 };
 
@@ -96,16 +98,11 @@ function reviveCachedModules(raw: unknown): ModuleItem[] {
   })) as ModuleItem[];
 }
 
-const MODULE_CATEGORIES = [
-  'Punching',
-  'Kicking',
-  'Elbow Strikes',
-  'Palm Strikes',
-  'Defensive Moves',
-] as const;
+const MODULE_CATEGORIES = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes', 'Defensive Moves'] as const;
 
 function normalizeCategory(cat: string | undefined): string {
-  return (cat ?? '').trim().toLowerCase();
+  const s = (cat ?? '').trim().toLowerCase();
+  return s === 'jab' ? 'punching' : s;
 }
 
 /** Animated category card for horizontal strip: hero image, gradient, glow border, press scale, slide-in. */
@@ -216,10 +213,14 @@ interface DashboardScreenProps {
   onOpenModule: (moduleId: string, initialModule?: ModuleItem) => void;
   /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
   refreshKey?: number;
+  /** Shown once when landing on dashboard (e.g. after publishing a module). */
+  initialToastMessage?: string | null;
+  onClearInitialToast?: () => void;
 }
 
 // --- Component ---
-export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: DashboardScreenProps) {
+export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialToastMessage, onClearInitialToast }: DashboardScreenProps) {
+  const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
@@ -303,6 +304,13 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
     })();
     return () => { cancelled = true; };
   }, [refreshKey, loadDashboardData]);
+
+  useEffect(() => {
+    if (initialToastMessage && onClearInitialToast) {
+      showToast(initialToastMessage);
+      onClearInitialToast();
+    }
+  }, [initialToastMessage, onClearInitialToast, showToast]);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -631,6 +639,7 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0 }: Dashbo
           </Animated.View>
         </View>
       ) : null}
+      <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
     </View>
   );
 }
@@ -643,6 +652,16 @@ const styles = StyleSheet.create({
   recommendationsSection: { marginBottom: 24 },
   recommendationsTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', marginBottom: 4 },
   recommendationsSubtext: { fontSize: 13, color: '#6b8693', marginBottom: 12 },
+  jabTesterCard: {
+    backgroundColor: 'rgba(7, 187, 192, 0.15)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+  },
+  jabTesterTitle: { fontSize: 17, fontWeight: '700', color: '#07bbc0', marginBottom: 4 },
+  jabTesterSubtext: { fontSize: 13, color: 'rgba(255,255,255,0.8)' },
   weeklyGoalContainer: { backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#062731' },
   weeklyGoalLogo: { width: '100%', maxWidth: 200, height: 44, alignSelf: 'center', marginBottom: 16 },
   weeklyGoalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },

@@ -77,6 +77,7 @@ export default function App() {
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
   const [viewModuleInitial, setViewModuleInitial] = useState<ModuleItem | null>(null);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
 
@@ -216,6 +217,8 @@ export default function App() {
             <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
               <DashboardScreen
                 refreshKey={dashboardRefreshKey}
+                initialToastMessage={dashboardToastMessage}
+                onClearInitialToast={() => setDashboardToastMessage(null)}
                 onOpenModule={(moduleId: string, initialModule?: ModuleItem) => { setViewModuleId(moduleId); setViewModuleInitial(initialModule ?? null); setScreen('view-module'); }}
               />
             </MainLayout>
@@ -286,7 +289,10 @@ export default function App() {
           {screen === 'publish-module' && (
             <PublishModuleScreen
               onBack={() => setScreen('trainer')}
-              onSuccess={() => setScreen('dashboard')}
+              onSuccess={(toastMessage) => {
+                if (toastMessage) setDashboardToastMessage(toastMessage);
+                setScreen('dashboard');
+              }}
             />
           )}
         </UnreadMessagesProvider>

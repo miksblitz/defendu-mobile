@@ -2,7 +2,7 @@
  * ViewModuleScreen
  * Displays a single training module: intro → safety protocol → introduction (video/text) → try it / pose → complete.
  */
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   View,
   Text,
@@ -112,9 +112,11 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
   const [referencePoseSequence, setReferencePoseSequence] = useState<PoseSequence | PoseSequence[] | null>(null);
   const [referencePoseFocus, setReferencePoseFocus] = useState<PoseFocus>(DEFAULT_POSE_FOCUS);
   const [referencePoseLoading, setReferencePoseLoading] = useState(false);
+  const [poseLoadingProgress, setPoseLoadingProgress] = useState(0);
   const tryItTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const poseRampRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load full module: if we have initialModule we show intro immediately and fetch in background; otherwise we block on fetch.
+  // Load full module from Firebase.
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -224,8 +226,29 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     setPoseCurrentRepCorrect(null);
     setReferencePoseSequence(null);
     setReferencePoseLoading(false);
+    setPoseLoadingProgress(0);
     setStep('tryItPoseLoading');
   };
+
+  const rampProgressThenOpen = useCallback(() => {
+    if (poseRampRef.current) {
+      clearInterval(poseRampRef.current);
+      poseRampRef.current = null;
+    }
+    const RAMP_MS = 60;
+    const RAMP_STEP = 2;
+    poseRampRef.current = setInterval(() => {
+      setPoseLoadingProgress((p) => {
+        const next = Math.min(p + RAMP_STEP, 100);
+        if (next >= 100) {
+          if (poseRampRef.current) clearInterval(poseRampRef.current);
+          poseRampRef.current = null;
+          setTimeout(() => setStep('tryItPose'), 400);
+        }
+        return next;
+      });
+    }, RAMP_MS);
+  }, []);
 
   // Load pose reference only when user has tapped "Try with pose" (tryItPoseLoading). Keeps module intro/video fast.
   useEffect(() => {
@@ -243,19 +266,19 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
       ? module.referencePoseFocus
       : DEFAULT_POSE_FOCUS;
 
-    const goToPoseScreen = () => setStep('tryItPose');
+    const goToPoseScreen = rampProgressThenOpen;
 
     // 1) Ref stored in referencePoseData/{moduleId} — only fetch when still on loading step (avoid re-fetch loop)
     if (module.hasReferencePose && moduleId && step === 'tryItPoseLoading') {
       setReferencePoseLoading(true);
       let cancelled = false;
-      const REF_POSE_TIMEOUT_MS = 15000;
+      const REF_POSE_TIMEOUT_MS = 8000;
       const timeoutId = setTimeout(() => {
         if (cancelled) return;
         cancelled = true;
         setReferencePoseSequence(null);
         setReferencePoseLoading(false);
-        setStep('tryItPose');
+        goToPoseScreen();
       }, REF_POSE_TIMEOUT_MS);
       AuthController.getReferencePoseData(moduleId)
         .then((data) => {
@@ -267,10 +290,12 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
               setReferencePoseSequence(seqs);
             }
           }
+          clearTimeout(timeoutId);
+          setReferencePoseLoading(false);
+          goToPoseScreen();
         })
-        .catch(() => { if (!cancelled) setReferencePoseSequence(null); })
-        .finally(() => {
-          if (cancelled) return;
+        .catch(() => {
+          if (!cancelled) setReferencePoseSequence(null);
           clearTimeout(timeoutId);
           setReferencePoseLoading(false);
           goToPoseScreen();
@@ -336,7 +361,27 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
       });
       return () => { cancelled = true; };
     }
-  }, [step, moduleId, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus, module?.hasReferencePose, referencePoseSequence, referencePoseLoading]);
+  }, [step, moduleId, module?.referencePoseSequenceUrl, module?.referencePoseSequence, module?.referencePoseSequences, module?.referencePoseFocus, module?.hasReferencePose]);
+
+  // Animate progress (0 → 85%) slowly while fetching/unpacking reference so user sees steady activity.
+  useEffect(() => {
+    if (step !== 'tryItPoseLoading') return;
+    const PROGRESS_INTERVAL_MS = 140;
+    const PROGRESS_STEP = 1;
+    const PROGRESS_CAP = 85;
+    const tid = setInterval(() => {
+      setPoseLoadingProgress((p) => (p >= PROGRESS_CAP ? p : Math.min(p + PROGRESS_STEP, PROGRESS_CAP)));
+    }, PROGRESS_INTERVAL_MS);
+    return () => clearInterval(tid);
+  }, [step]);
+
+  // Clear ramp interval if user leaves loading step (e.g. taps Back).
+  useEffect(() => {
+    if (step !== 'tryItPoseLoading' && poseRampRef.current) {
+      clearInterval(poseRampRef.current);
+      poseRampRef.current = null;
+    }
+  }, [step]);
 
   const handleSaveProgress = async () => {
     if (moduleId) {
@@ -395,17 +440,35 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#07bbc0" />
-          <Text style={styles.loadingText}>Loading pose reference...</Text>
-          <Text style={styles.loadingSubtext}>Setting up camera and reference</Text>
+          <Text style={styles.loadingText}>Preparing pose reference...</Text>
+          <Text style={styles.loadingSubtext}>Getting reference and setting up camera</Text>
+          <View style={styles.progressBarTrack}>
+            <View style={[styles.progressBarFill, { width: `${poseLoadingProgress}%` }]} />
+          </View>
+          <Text style={styles.progressPercent}>{poseLoadingProgress}%</Text>
         </View>
-        <TouchableOpacity style={styles.loadingBackButton} onPress={() => setStep('video')}>
+        <TouchableOpacity
+          style={styles.loadingBackButton}
+          onPress={() => setStep('video')}
+        >
           <Text style={styles.loadingBackButtonText}>Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.loadingBackButton, styles.skipRefButton]}
+          onPress={() => {
+            setReferencePoseSequence(null);
+            setReferencePoseLoading(false);
+            rampProgressThenOpen();
+          }}
+        >
+          <Text style={styles.loadingBackButtonText}>Continue without reference</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
-  if (step === 'tryItPose') {
+  if (step === 'tryItPose' && module) {
+    const categoryKey = module.category && String(module.category).trim() ? module.category : 'Punching';
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
@@ -429,6 +492,9 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
               referenceSequence={referencePoseLoading ? null : referencePoseSequence}
               poseFocus={referencePoseFocus}
               matchThreshold={referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD}
+              poseVariant="default"
+              moduleId={moduleId ?? undefined}
+              category={categoryKey}
             />
           </Suspense>
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
@@ -506,24 +572,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
         {step === 'video' && (
           <View style={styles.card}>
             <Text style={styles.sectionLabel}>Module Introduction</Text>
-            {!module.introductionVideoUrl && !module.introduction ? (
-              <View style={styles.videoStepLoading}>
-                <ActivityIndicator size="small" color="#07bbc0" />
-                <Text style={styles.loadingText}>Loading introduction...</Text>
-              </View>
-            ) : module.introductionType === 'video' && module.introductionVideoUrl ? (
-              <>
-                <TouchableOpacity
-                  style={styles.videoOpenButton}
-                  onPress={() => openVideoInBrowser(module.introductionVideoUrl)}
-                >
-                  <Text style={styles.videoOpenButtonText}>Open video in browser</Text>
-                </TouchableOpacity>
-                {module.introduction ? <Text style={styles.introText}>{module.introduction}</Text> : null}
-              </>
-            ) : (
-              module.introduction ? <Text style={styles.introText}>{module.introduction}</Text> : null
-            )}
+            {module.introduction ? <Text style={styles.introText}>{module.introduction}</Text> : null}
             <TouchableOpacity style={styles.secondaryButton} onPress={handleTryItYourself}>
               <Text style={styles.secondaryButtonText}>Try it yourself</Text>
             </TouchableOpacity>
@@ -677,7 +726,11 @@ const styles = StyleSheet.create({
   videoStepLoading: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 24 },
   loadingText: { color: '#6b8693', fontSize: 14 },
   loadingSubtext: { color: '#6b8693', fontSize: 12, marginTop: 4 },
+  progressBarTrack: { width: '80%', maxWidth: 280, height: 8, backgroundColor: '#062731', borderRadius: 4, marginTop: 20, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#07bbc0', borderRadius: 4 },
+  progressPercent: { color: '#07bbc0', fontSize: 24, fontWeight: '700', marginTop: 8 },
   loadingBackButton: { position: 'absolute', top: 48, left: 16, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 8 },
+  skipRefButton: { top: 'auto', left: 20, right: 20, bottom: 32, alignItems: 'center', backgroundColor: 'rgba(7, 187, 192, 0.9)' },
   loadingBackButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 60 },

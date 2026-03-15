@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "main": "index.tsx",
   "scripts": {
-    "migrate-pose-data": "node scripts/migrate_pose_data_to_reference.js",
     "start": "expo start --tunnel",
     "start:lan": "expo start",
     "start:no-tunnel": "expo start",

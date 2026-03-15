@@ -1,12 +1,13 @@
 /**
  * Auto-detect one rep from pose stream. Behavior depends on focus:
  * - full: hip down then up (squat-style).
- * - punching: arm extension (wrist far from shoulder) then retract.
+ * - punching: arm extension (wrist far from same-side shoulder) then retract; body angle ignored.
  * - kicking: leg up (knee/ankle Y low) then back down.
  */
 
 import type { PoseFrame } from './types';
 import type { PoseFocus } from './types';
+import { armExtensionDistances } from './phaseDetection';
 
 const LEFT_HIP = 23;
 const RIGHT_HIP = 24;
@@ -26,9 +27,9 @@ const COOLDOWN_MS = 1000;
 const HIP_Y_DOWN = 0.50;
 const HIP_Y_UP = 0.46;
 
-// Punching: wrist-to-shoulder distance (extension threshold). Slightly lenient so clear punches are detected.
-const ARM_EXTEND_THRESHOLD = 0.22;
-const ARM_RETRACT_THRESHOLD = 0.20;
+// Punching: wrist-to-same-shoulder distance (per-arm, so body facing doesn't matter).
+const ARM_EXTEND_THRESHOLD = 0.20;
+const ARM_RETRACT_THRESHOLD = 0.15;
 
 // Kicking: leg Y (lower = leg raised)
 const LEG_Y_UP = 0.42;
@@ -48,20 +49,11 @@ function midHipY(frame: PoseFrame): number | null {
   return (l.y + r.y) / 2;
 }
 
-function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
-  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-}
-
-/** Max wrist-to-mid-shoulder distance (arm extension). */
+/** Max of left/right wrist-to-same-shoulder distance (arm extension). Body angle independent. */
 function armExtension(frame: PoseFrame): number | null {
-  if (frame.length <= Math.max(LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_WRIST, RIGHT_WRIST)) return null;
-  const ls = frame[LEFT_SHOULDER];
-  const rs = frame[RIGHT_SHOULDER];
-  const lw = frame[LEFT_WRIST];
-  const rw = frame[RIGHT_WRIST];
-  if (!ls || !rs || !lw || !rw) return null;
-  const mid = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
-  return Math.max(dist(lw, mid), dist(rw, mid));
+  const d = armExtensionDistances(frame);
+  if (!d) return null;
+  return Math.max(d.left, d.right);
 }
 
 /** Min knee/ankle Y (leg raised = lower Y). */
@@ -190,3 +182,7 @@ export function createRepDetector(focus: PoseFocus = 'full') {
     return { done: false };
   };
 }
+
+/** Re-export jab rep detectors (implemented in modules/punching/jab). */
+export { createLeadJabRepDetector, createOrthodoxJabRepDetector } from './modules/punching/jab/jabRepDetector';
+

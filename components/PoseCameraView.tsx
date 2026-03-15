@@ -14,8 +14,11 @@ import { useCameraPermissions } from 'expo-camera';
 import type { PoseFrame, PoseSequence, PoseFocus } from '../lib/pose/types';
 import { thinksysLandmarksToFrame } from '../lib/pose/mediapipeLandmarks';
 import { compareRepWithFeedback, compareRepWithFeedbackAny, DEFAULT_MATCH_THRESHOLD } from '../lib/pose/comparator';
-import { createRepDetector } from '../lib/pose/repDetector';
+import { createRepDetector, createLeadJabRepDetector } from '../lib/pose/repDetector';
+import { getModulePosePipeline } from '../lib/pose/modules/registry';
 import type { PoseFeedbackItem } from '../lib/pose/types';
+import { armExtensionDistances } from '../lib/pose/phaseDetection';
+import { leadArm } from '../lib/pose/jabFeedback';
 
 type SwitchCameraFn = (() => void) | null;
 
@@ -31,6 +34,12 @@ export interface PoseCameraViewProps {
   poseFocus?: PoseFocus;
   /** Optional: match threshold for comparison (default 0.20). */
   matchThreshold?: number;
+  /** When 'lead-jab', use lead-jab rep logic (left extended sideways, right contracted wrist-up); no reference. */
+  poseVariant?: 'default' | 'lead-jab';
+  /** If set, use per-module pipeline from lib/pose/modules/<category>/<moduleId>/ when available. */
+  moduleId?: string;
+  /** Module category (e.g. Punching, Kicking) for pipeline lookup. */
+  category?: string;
 }
 
 const POSE_THROTTLE_MS = 100;
@@ -38,6 +47,20 @@ const MIN_FRAMES_FOR_REP = 5;
 const MAX_BUFFER_FRAMES = 120;
 const SUCCESS_OVERLAY_MS = 1800;
 const WRONG_OVERLAY_MS = 1200;
+const ARM_STATE_THROTTLE_MS = 180;
+/** Hand only: wrist–shoulder distance. Need clear sustained move to show extending/contracting (reduces jitter). */
+const ARM_TREND_THRESHOLD = 0.018;
+/** Smooth over this many samples (recent avg vs older avg). */
+const ARM_SMOOTH_WINDOW = 3;
+/** Require this many consecutive same-direction updates before changing state (hysteresis). */
+const ARM_STATE_CONFIRM_COUNT = 2;
+
+export type ArmMotionState = 'extending' | 'contracting' | 'neutral';
+export type RealtimeArmState = {
+  left: ArmMotionState;
+  right: ArmMotionState;
+  lead: 'left' | 'right' | null;
+};
 /** Short success beep when rep is correct (no asset file needed). */
 async function playSuccessSound() {
   try {
@@ -61,7 +84,11 @@ export default function PoseCameraView({
   referenceSequence,
   poseFocus = 'full',
   matchThreshold = DEFAULT_MATCH_THRESHOLD,
+  poseVariant = 'default',
+  moduleId,
+  category,
 }: PoseCameraViewProps) {
+  const pipeline = moduleId && category ? getModulePosePipeline(moduleId, category) : null;
   const [ready, setReady] = useState(false);
   const [MediaPipeView, setMediaPipeView] = useState<React.ComponentType<{ width: number; height: number; onLandmark: (data: unknown) => void; [key: string]: unknown }> | null>(null);
   const [switchCameraFn, setSwitchCameraFn] = useState<SwitchCameraFn>(null);
@@ -69,22 +96,64 @@ export default function PoseCameraView({
   const [permission, requestPermission] = useCameraPermissions();
   const frameBufferRef = useRef<PoseFrame[]>([]);
   const lastPoseTimeRef = useRef<number>(0);
-  const repDetectorRef = useRef(createRepDetector(poseFocus));
+  const repDetectorRef = useRef(
+    pipeline
+      ? pipeline.createRepDetector()
+      : poseVariant === 'lead-jab'
+        ? createLeadJabRepDetector()
+        : createRepDetector(poseFocus)
+  );
   useEffect(() => {
-    repDetectorRef.current = createRepDetector(poseFocus);
-  }, [poseFocus]);
+    repDetectorRef.current = pipeline
+      ? pipeline.createRepDetector()
+      : poseVariant === 'lead-jab'
+        ? createLeadJabRepDetector()
+        : createRepDetector(poseFocus);
+  }, [poseFocus, poseVariant, pipeline]);
   const onCorrectRepsUpdateRef = useRef(onCorrectRepsUpdate);
   const correctRepsRef = useRef(correctReps);
   const referenceSequenceRef = useRef(referenceSequence);
-  const matchThresholdRef = useRef(matchThreshold);
-  const poseFocusRef = useRef(poseFocus);
-  poseFocusRef.current = poseFocus;
+  const matchThresholdRef = useRef(pipeline ? pipeline.defaultMatchThreshold : matchThreshold);
+  const poseFocusRef = useRef(pipeline ? pipeline.poseFocus : poseFocus);
+  const poseVariantRef = useRef(poseVariant);
+  const pipelineRef = useRef(pipeline);
+  poseFocusRef.current = pipeline ? pipeline.poseFocus : poseFocus;
+  poseVariantRef.current = poseVariant;
+  pipelineRef.current = pipeline;
+  matchThresholdRef.current = pipeline ? pipeline.defaultMatchThreshold : matchThreshold;
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [successCount, setSuccessCount] = useState(0);
   const [showWrongOverlay, setShowWrongOverlay] = useState(false);
   const [lastFeedback, setLastFeedback] = useState<PoseFeedbackItem[]>([]);
+  const [realtimeArmState, setRealtimeArmState] = useState<RealtimeArmState>({
+    left: 'neutral',
+    right: 'neutral',
+    lead: null,
+  });
+  const [lastRepArm, setLastRepArm] = useState<'left' | 'right' | null>(null);
+  const [extensionValues, setExtensionValues] = useState<{ left: number; right: number } | null>(null);
+  const [poseStatus, setPoseStatus] = useState<{ landmarkCount: number; hasArmData: boolean } | null>(null);
+  const poseStatusTimeRef = useRef<number>(0);
   const successFadeAnim = useRef(new Animated.Value(0)).current;
   const wrongFadeAnim = useRef(new Animated.Value(0)).current;
+  const lastSuccessCountRef = useRef(0);
+  const lastExtRef = useRef<{ left: number; right: number }>({ left: 0, right: 0 });
+  const lastArmStateTimeRef = useRef<number>(0);
+  const extHistoryRef = useRef<{ left: number; right: number }[]>([]);
+  const zeroLandmarksLoggedRef = useRef(false);
+  const EXT_HISTORY_MAX = 10;
+  const armStateStableRef = useRef<{
+    left: ArmMotionState;
+    right: ArmMotionState;
+    pendingLeft: { trend: ArmMotionState; count: number };
+    pendingRight: { trend: ArmMotionState; count: number };
+  }>({
+    left: 'neutral',
+    right: 'neutral',
+    pendingLeft: { trend: 'neutral', count: 0 },
+    pendingRight: { trend: 'neutral', count: 0 },
+  });
+  const POSE_STATUS_THROTTLE_MS = 500;
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
   onCorrectRepsUpdateRef.current = onCorrectRepsUpdate;
@@ -138,36 +207,76 @@ export default function PoseCameraView({
     const result = repDetectorRef.current(frame, now);
     if (!result.done) return;
     const segment = result.segment;
-    if (segment.length < MIN_FRAMES_FOR_REP) return;
+    const variant = poseVariantRef.current;
+    const pl = pipelineRef.current;
+    const minFrames = pl ? pl.minFramesForRep : variant === 'lead-jab' ? 3 : MIN_FRAMES_FOR_REP;
+    if (segment.length < minFrames) return;
 
     const ref = referenceSequenceRef.current;
     const threshold = matchThresholdRef.current;
     const currentCount = correctRepsRef.current;
-    const isArray = Array.isArray(ref) && ref.length > 0 && Array.isArray(ref[0]);
-    const hasReference = ref != null && (
-      isArray
-        ? (ref as PoseSequence[]).some((seq) => seq.length >= MIN_FRAMES_FOR_REP)
-        : (ref as PoseSequence).length >= MIN_FRAMES_FOR_REP
-    );
-    const focus = poseFocusRef.current;
+    const isLeadJab = variant === 'lead-jab';
 
     let match: boolean;
     let feedback: PoseFeedbackItem[] = [];
-    if (!hasReference) {
+    if (pl) {
+      const focus = pl.poseFocus;
+      const isArray = Array.isArray(ref) && ref.length > 0 && Array.isArray(ref[0]);
+      const hasReference = ref != null && (
+        isArray
+          ? (ref as PoseSequence[]).some((seq) => seq.length >= minFrames)
+          : (ref as PoseSequence).length >= minFrames
+      );
+      if (!hasReference) {
+        match = true;
+        setLastRepArm('left');
+      } else if (isArray) {
+        const res = pl.compareRepWithFeedbackAny(segment, ref as PoseSequence[], threshold, focus);
+        match = res.match;
+        feedback = res.feedback;
+        const midFrame = segment[Math.floor(segment.length / 2)];
+        const arm = midFrame ? leadArm(midFrame) : null;
+        setLastRepArm(arm === 1 ? 'left' : arm === 0 ? 'right' : null);
+      } else {
+        const res = pl.compareRepWithFeedback(segment, ref as PoseSequence, threshold, focus);
+        match = res.match;
+        feedback = res.feedback;
+        const midFrame = segment[Math.floor(segment.length / 2)];
+        const arm = midFrame ? leadArm(midFrame) : null;
+        setLastRepArm(arm === 1 ? 'left' : arm === 0 ? 'right' : null);
+      }
+    } else if (isLeadJab) {
       match = true;
-    } else if (isArray) {
-      const result = compareRepWithFeedbackAny(segment, ref as PoseSequence[], threshold, focus);
-      match = result.match;
-      feedback = result.feedback;
+      setLastRepArm('left');
     } else {
-      const result = compareRepWithFeedback(segment, ref as PoseSequence, threshold, focus);
-      match = result.match;
-      feedback = result.feedback;
+      const isArray = Array.isArray(ref) && ref.length > 0 && Array.isArray(ref[0]);
+      const hasReference = ref != null && (
+        isArray
+          ? (ref as PoseSequence[]).some((seq) => seq.length >= MIN_FRAMES_FOR_REP)
+          : (ref as PoseSequence).length >= MIN_FRAMES_FOR_REP
+      );
+      const focus = poseFocusRef.current;
+      if (!hasReference) {
+        match = true;
+      } else if (isArray) {
+        const result = compareRepWithFeedbackAny(segment, ref as PoseSequence[], threshold, focus);
+        match = result.match;
+        feedback = result.feedback;
+      } else {
+        const result = compareRepWithFeedback(segment, ref as PoseSequence, threshold, focus);
+        match = result.match;
+        feedback = result.feedback;
+      }
+      const midFrame = segment[Math.floor(segment.length / 2)];
+      const arm = midFrame ? leadArm(midFrame) : null;
+      setLastRepArm(arm === 1 ? 'left' : arm === 0 ? 'right' : null);
     }
 
     if (match) {
-      onCorrectRepsUpdateRef.current(currentCount + 1, true);
-      setSuccessCount(currentCount + 1);
+      const newCount = currentCount + 1;
+      lastSuccessCountRef.current = newCount;
+      onCorrectRepsUpdateRef.current(newCount, true);
+      setSuccessCount(newCount);
       setShowSuccessOverlay(true);
       successFadeAnim.setValue(1);
       playSuccessSound();
@@ -192,31 +301,86 @@ export default function PoseCameraView({
   const handleLandmark = useCallback(
     (data: unknown) => {
       const frame = thinksysLandmarksToFrame(data);
-      if (frame.length > 0) pushFrame(frame);
+      const now = Date.now();
+
+      if (frame.length > 0) {
+        pushFrame(frame);
+        const ext = armExtensionDistances(frame);
+
+        // Throttled pose status so user always sees if pose/arms are detected
+        if (now - poseStatusTimeRef.current >= POSE_STATUS_THROTTLE_MS) {
+          poseStatusTimeRef.current = now;
+          setPoseStatus({ landmarkCount: frame.length, hasArmData: !!ext });
+        }
+
+        // Hand-only state: wrist–shoulder distance, smoothed + hysteresis so it doesn’t flip randomly
+        if (ext) {
+          if (now - lastArmStateTimeRef.current >= ARM_STATE_THROTTLE_MS) {
+            lastArmStateTimeRef.current = now;
+            const history = extHistoryRef.current;
+            history.push({ left: ext.left, right: ext.right });
+            if (history.length > EXT_HISTORY_MAX) history.shift();
+            lastExtRef.current = { left: ext.left, right: ext.right };
+            setExtensionValues({ left: ext.left, right: ext.right });
+
+            const stable = armStateStableRef.current;
+            const need = ARM_SMOOTH_WINDOW * 2;
+            const rawTrend = (delta: number): ArmMotionState =>
+              delta > ARM_TREND_THRESHOLD ? 'extending' : delta < -ARM_TREND_THRESHOLD ? 'contracting' : 'neutral';
+
+            const applyHysteresis = (
+              raw: ArmMotionState,
+              pending: { trend: ArmMotionState; count: number },
+              displayed: ArmMotionState
+            ): ArmMotionState => {
+              if (raw === 'neutral') {
+                pending.trend = 'neutral';
+                pending.count = 0;
+                return displayed;
+              }
+              if (raw === pending.trend) {
+                pending.count = Math.min(pending.count + 1, ARM_STATE_CONFIRM_COUNT);
+                return pending.count >= ARM_STATE_CONFIRM_COUNT ? raw : displayed;
+              }
+              pending.trend = raw;
+              pending.count = 1;
+              return displayed;
+            };
+
+            let leftState: ArmMotionState = stable.left;
+            let rightState: ArmMotionState = stable.right;
+
+            if (history.length >= need) {
+              const w = ARM_SMOOTH_WINDOW;
+              const recentL = history.slice(-w).reduce((s, h) => s + h.left, 0) / w;
+              const olderL = history.slice(-w * 2, -w).reduce((s, h) => s + h.left, 0) / w;
+              const recentR = history.slice(-w).reduce((s, h) => s + h.right, 0) / w;
+              const olderR = history.slice(-w * 2, -w).reduce((s, h) => s + h.right, 0) / w;
+              const rawL = rawTrend(recentL - olderL);
+              const rawR = rawTrend(recentR - olderR);
+              leftState = applyHysteresis(rawL, stable.pendingLeft, stable.left);
+              rightState = applyHysteresis(rawR, stable.pendingRight, stable.right);
+              stable.left = leftState;
+              stable.right = rightState;
+            }
+
+            const lead: 'left' | 'right' | null =
+              ext.left > 0.05 || ext.right > 0.05 ? (ext.right >= ext.left ? 'right' : 'left') : null;
+            setRealtimeArmState({ left: leftState, right: rightState, lead });
+          }
+        }
+      } else if (now - poseStatusTimeRef.current >= POSE_STATUS_THROTTLE_MS) {
+        poseStatusTimeRef.current = now;
+        setPoseStatus({ landmarkCount: 0, hasArmData: false });
+        if (__DEV__ && !zeroLandmarksLoggedRef.current && data !== undefined) {
+          zeroLandmarksLoggedRef.current = true;
+          const hint = data == null ? 'null' : Array.isArray(data) ? `array(${(data as unknown[]).length})` : typeof data === 'object' ? `object keys: ${Object.keys(data as object).join(',')}` : typeof data;
+          console.warn('[Pose] 0 landmarks. Native payload:', hint);
+        }
+      }
     },
     [pushFrame]
   );
-
-  const handleSwitchCamera = useCallback(() => {
-    try {
-      const fn = typeof switchCameraFn === 'function' ? switchCameraFn() : null;
-      if (typeof fn === 'function') fn();
-    } catch (_) {
-      // ignore if native module not ready
-    }
-  }, [switchCameraFn]);
-
-  const handlePreviewSuccess = useCallback(() => {
-    playSuccessSound();
-    setSuccessCount(correctReps + 1);
-    setShowSuccessOverlay(true);
-    successFadeAnim.setValue(1);
-    Animated.timing(successFadeAnim, {
-      toValue: 0,
-      duration: SUCCESS_OVERLAY_MS,
-      useNativeDriver: true,
-    }).start(() => setShowSuccessOverlay(false));
-  }, [correctReps, successFadeAnim]);
 
   if (!ready || error) {
     return (
@@ -318,7 +482,7 @@ export default function PoseCameraView({
           ]}
           pointerEvents="none"
         >
-          <Text style={styles.successNumber}>{successCount}</Text>
+          <Text style={styles.successNumber}>{lastSuccessCountRef.current || successCount}</Text>
           <Text style={styles.successSubtext}>Correct rep!</Text>
           <Text style={styles.successRepCounted}>Rep counted — keep going!</Text>
         </Animated.View>
@@ -346,15 +510,50 @@ export default function PoseCameraView({
         </Animated.View>
       )}
       <View style={styles.overlay}>
+        {/* Hand state: wrist–shoulder only, smoothed + hysteresis */}
+        {(poseFocus === 'punching' || poseFocus === 'full') && (
+          <View style={styles.armStateBox}>
+            <Text style={styles.armStateTitle}>Hand state</Text>
+            {poseStatus === null && (
+              <Text style={styles.armStateStatus}>Waiting for pose…</Text>
+            )}
+            {poseStatus !== null && !poseStatus.hasArmData && (
+              <Text style={styles.armStateStatus}>
+                {poseStatus.landmarkCount} landmarks — full body in frame, good light, 2–3 m from camera
+              </Text>
+            )}
+            {extensionValues != null && (
+              <>
+                <Text style={styles.armStateRaw}>
+                  Your left: {extensionValues.right.toFixed(3)} · Your right: {extensionValues.left.toFixed(3)}
+                </Text>
+                <Text style={styles.armStateText}>
+                  Left hand: {realtimeArmState.right} · Right hand: {realtimeArmState.left}
+                </Text>
+                {realtimeArmState.lead != null && (
+                  <Text style={styles.armStateLead}>
+                    Punching arm: {realtimeArmState.lead === 'right' ? 'Left' : 'Right'}
+                  </Text>
+                )}
+                {lastRepArm != null && (
+                  <Text style={styles.armStateLastRep}>Last rep: {lastRepArm === 'left' ? 'Left' : 'Right'} jab</Text>
+                )}
+              </>
+            )}
+          </View>
+        )}
         <Text style={styles.overlayTitle}>
-          {poseFocus === 'punching' ? 'Upper body in frame — each full extension = 1 rep' : poseFocus === 'kicking' ? 'Legs in frame — raise leg then lower' : 'Full body in frame — reps count automatically'}
+          {poseVariant === 'lead-jab'
+            ? 'Lead jab: left hand out to the side, right hand in guard (wrist up)'
+            : poseFocus === 'punching'
+              ? 'Upper body in frame — each full extension = 1 rep'
+              : poseFocus === 'kicking'
+                ? 'Legs in frame — raise leg then lower'
+                : 'Full body in frame — reps count automatically'}
         </Text>
         <Text style={styles.overlayHint}>
-          {poseFocus === 'punching' ? 'Punch: extend arm fully — each extension counts as 1 rep' : poseFocus === 'kicking' ? 'Kick: leg up then back down' : 'Do a clear down–up movement (e.g. squat) so your hips go lower then back up'}
+          Do a clear down–up movement so your hips go lower then back up
         </Text>
-        {practiceMode && (
-          <Text style={styles.practiceModeLabel}>Practice mode (no reference yet)</Text>
-        )}
         {!practiceMode && referenceSequence && (() => {
           const seq = Array.isArray(referenceSequence) ? referenceSequence[0] : referenceSequence;
           const frameCount = seq?.length ?? 0;
@@ -369,14 +568,6 @@ export default function PoseCameraView({
           <Text style={styles.repText}>
             {correctReps} / {requiredReps}
           </Text>
-        </View>
-        <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.previewSuccessButton} onPress={handlePreviewSuccess}>
-            <Text style={styles.previewSuccessButtonText}>See what a correct rep looks like</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.switchCameraButton} onPress={handleSwitchCamera}>
-            <Text style={styles.switchCameraButtonText}>Switch camera</Text>
-          </TouchableOpacity>
         </View>
       </View>
       <TouchableOpacity style={styles.backButton} onPress={onBack}>
@@ -455,29 +646,25 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: 'left',
   },
+  armStateBox: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  armStateTitle: { color: '#07bbc0', fontSize: 12, fontWeight: '700', marginBottom: 4 },
+  armStateStatus: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginBottom: 6 },
+  armStateRaw: { color: 'rgba(255,255,255,0.7)', fontSize: 11, marginBottom: 4, fontVariant: ['tabular-nums'] },
+  armStateText: { color: 'rgba(255,255,255,0.95)', fontSize: 14, marginBottom: 2 },
+  armStateLead: { color: 'rgba(34,197,94,0.95)', fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  armStateLastRep: { color: 'rgba(255,255,255,0.85)', fontSize: 12 },
   overlayTitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginBottom: 4 },
   overlayHint: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 8 },
-  practiceModeLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 8 },
   referenceLoadedLabel: { color: 'rgba(34,197,94,0.95)', fontSize: 12, marginBottom: 4 },
   repBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   repText: { color: '#FFF', fontSize: 22, fontWeight: '700' },
-  buttonRow: { flexDirection: 'row', gap: 12, alignItems: 'center', justifyContent: 'center' },
-  switchCameraButton: {
-    borderWidth: 2,
-    borderColor: '#07bbc0',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-  },
-  switchCameraButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
-  previewSuccessButton: {
-    borderWidth: 2,
-    borderColor: 'rgba(34, 197, 94, 0.9)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-  },
-  previewSuccessButtonText: { color: 'rgba(34, 197, 94, 0.95)', fontSize: 13, fontWeight: '600' },
   backButton: {
     position: 'absolute',
     top: Platform.OS === 'android' ? 24 : 50,

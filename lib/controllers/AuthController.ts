@@ -16,6 +16,17 @@ import type { ModuleReview } from '../models/ModuleReview';
 import type { TrainerApplication } from '../models/TrainerApplication';
 import { SEED_TEST_MODULES } from '../seed/testModules';
 
+/** No-op: demo mode was removed. Kept so cached bundles or indirect refs do not throw. */
+export async function isDemoMode(): Promise<boolean> {
+  return false;
+}
+
+/** No-op: demo mode was removed. */
+export async function setDemoModeAndUser(): Promise<void> {}
+
+/** No-op: demo mode was removed. */
+export async function clearDemoMode(): Promise<void> {}
+
 function normalizeArray(value: unknown): string[] | undefined {
   if (!value) return undefined;
   if (Array.isArray(value)) return value;
@@ -878,8 +889,40 @@ export async function saveModule(
     status: moduleForDB.status,
     createdAt: now,
     updatedAt: now,
+    submittedAt: isDraft ? null : now,
   });
   return moduleId;
+}
+
+/** Patch media URLs on an existing module (after uploads complete). Used to keep publish flow fast: save module first, then upload and patch. */
+export async function updateModuleMedia(
+  moduleId: string,
+  media: {
+    techniqueVideoUrl?: string | null;
+    thumbnailUrl?: string | null;
+    referencePoseVideoUrlSide1?: string | null;
+    introductionVideoUrl?: string | null;
+  }
+): Promise<void> {
+  const updates: Record<string, unknown> = {
+    updatedAt: Date.now(),
+  };
+  if (media.techniqueVideoUrl !== undefined) updates.techniqueVideoUrl = media.techniqueVideoUrl;
+  if (media.thumbnailUrl !== undefined) updates.thumbnailUrl = media.thumbnailUrl;
+  if (media.referencePoseVideoUrlSide1 !== undefined) updates.referencePoseVideoUrlSide1 = media.referencePoseVideoUrlSide1;
+  if (media.introductionVideoUrl !== undefined) updates.introductionVideoUrl = media.introductionVideoUrl;
+  await update(ref(db, `modules/${moduleId}`), updates);
+}
+
+/** Remove a module (e.g. when save succeeded but upload failed, to avoid orphan). */
+export async function removeModule(moduleId: string): Promise<void> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  const modRef = ref(db, `modules/${moduleId}`);
+  const snap = await get(modRef);
+  if (snap.val()?.trainerId !== currentUser.uid) throw new Error('Not allowed to remove this module');
+  await set(modRef, null);
+  await set(ref(db, `trainerModules/${currentUser.uid}/${moduleId}`), null);
 }
 
 /** Seed test modules (approved trainers only). Writes approved modules under current trainer. */
@@ -967,6 +1010,9 @@ export const AuthController = {
   register,
   login,
   getCurrentUser,
+  isDemoMode,
+  setDemoModeAndUser,
+  clearDemoMode,
   saveSkillProfile,
   getSkillProfile,
   updateUserProfile,
@@ -990,6 +1036,8 @@ export const AuthController = {
   updateTrainerProfile,
   submitTrainerApplication,
   saveModule,
+  updateModuleMedia,
+  removeModule,
   seedTestModules,
   uploadFileToCloudinary,
 };

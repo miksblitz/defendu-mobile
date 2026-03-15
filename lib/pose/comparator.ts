@@ -8,7 +8,7 @@ import type { PoseFrame, PoseSequence, PoseFeedbackItem } from './types';
 import type { PoseFocus } from './types';
 import { normalizeFrame } from './normalizer';
 import { subsetSequenceByFocus } from './poseFocus';
-import { getJabFeedback, isImpactFormAcceptable } from './jabFeedback';
+import { getJabFeedback, isImpactFormAcceptable } from './modules/punching/jab/jabFeedback';
 import { detectJabPhases } from './phaseDetection';
 
 /**
@@ -201,3 +201,9 @@ export function compareRepWithFeedbackAny(
   }
   return { match: false, distance: bestDistance, feedback };
 }
+
+/** Re-export orthodox jab comparators (implemented in punching/jab). */
+export {
+  compareRepWithFeedbackOrthodox,
+  compareRepWithFeedbackAnyOrthodox,
+} from './modules/punching/jab/jabComparator';

@@ -21,6 +21,7 @@ import {
   Easing,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Video } from 'expo-av';
 
 // --- Constants ---
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -593,13 +594,18 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
               ) : introductionVideoUri ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
-                    <View style={styles.videoPlaceholder}>
-                      <Text style={styles.videoPlaceholderIcon}>🎬</Text>
-                      <Text style={styles.videoPlaceholderText}>Your introduction video</Text>
-                      <Text style={styles.previewHint}>Remove video below to take or choose another.</Text>
-                    </View>
+                    <Video
+                      source={{ uri: introductionVideoUri }}
+                      style={styles.videoPreview}
+                      resizeMode="contain"
+                      useNativeControls
+                    />
                   </View>
-                  <TouchableOpacity onPress={() => { setIntroductionVideoUri(null); setIntroductionVideoName(''); }} style={styles.removeFile}>
+                  <Text style={styles.previewHint}>{introductionVideoName || 'Introduction video preview'}</Text>
+                  <TouchableOpacity
+                    onPress={() => { setIntroductionVideoUri(null); setIntroductionVideoName(''); }}
+                    style={styles.removeFile}
+                  >
                     <Text style={styles.removeFileText}>Remove video</Text>
                   </TouchableOpacity>
                   {errors.introduction ? <Text style={styles.errorText}>{errors.introduction}</Text> : null}
@@ -652,12 +658,14 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
               {techniqueVideoFile ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
-                    <View style={styles.videoPlaceholder}>
-                      <Text style={styles.videoPlaceholderIcon}>🎬</Text>
-                      <Text style={styles.videoPlaceholderText}>Technique video</Text>
-                      <Text style={styles.previewHint}>Remove video below to take or choose another.</Text>
-                    </View>
+                    <Video
+                      source={{ uri: techniqueVideoFile.uri }}
+                      style={styles.videoPreview}
+                      resizeMode="contain"
+                      useNativeControls
+                    />
                   </View>
+                  <Text style={styles.previewHint}>{techniqueVideoFile.name || 'Technique video preview'}</Text>
                   <TouchableOpacity onPress={() => setTechniqueVideoFile(null)} style={styles.removeFile}>
                     <Text style={styles.removeFileText}>Remove video</Text>
                   </TouchableOpacity>
@@ -977,6 +985,7 @@ const styles = StyleSheet.create({
   videoPlaceholderIcon: { fontSize: 48, marginBottom: 8 },
   videoPlaceholderText: { fontSize: 16, color: '#FFF', fontWeight: '600', marginBottom: 4 },
   imagePreview: { width: '100%', height: '100%' },
+  videoPreview: { width: '100%', height: '100%' },
   previewHint: { fontSize: 12, color: '#8fa3b0', marginBottom: 8 },
   rulesBox: {
     backgroundColor: 'rgba(7, 187, 192, 0.12)',

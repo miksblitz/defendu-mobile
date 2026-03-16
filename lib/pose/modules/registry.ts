@@ -10,6 +10,8 @@ import { punchingDefaultPipeline } from './punching/default';
 import { orthodoxJabPipeline } from './punching/orthodox-jab';
 import { crossJabPipeline } from './punching/cross';
 import { leadHookPipeline } from './punching/lead-hook';
+import { leadUppercutPipeline } from './punching/lead-uppercut';
+import { rearUppercutPipeline } from './punching/rear-uppercut';
 import { kickingDefaultPipeline } from './kicking/default';
 import { elbowStrikesDefaultPipeline } from './elbow_strikes/default';
 import { kneeStrikesDefaultPipeline } from './knee_strikes/default';
@@ -47,6 +49,10 @@ register('defensive_moves/default', defensiveMovesDefaultPipeline);
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093', crossJabPipeline);
 // Lead Hook Test (Firebase module) – left hook, right guard.
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773562287677', leadHookPipeline);
+// Lead Uppercut Test (Firebase module) – left uppercut, right guard.
+register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773669360613', leadUppercutPipeline);
+// Rear Uppercut Test (Firebase module) – right uppercut, left guard.
+register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773673272052', rearUppercutPipeline);
 // Legacy / other modules
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773459399866', orthodoxJabPipeline);
 

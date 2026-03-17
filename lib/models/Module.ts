@@ -28,6 +28,8 @@ export interface Module {
   videoDuration?: number;
   thumbnailUrl?: string;
   intensityLevel?: number;
+  /** Optional explicit sort order from admin table (lower = earlier in list). */
+  sortOrder?: number;
   spaceRequirements?: string[];
   /** Recommended warmup exercises (e.g. ARM CIRCLES, LEG SWINGS). */
   warmupExercises?: string[];

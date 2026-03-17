@@ -325,7 +325,16 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
   const modulesInCategoryRaw = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
     : [];
-  const modulesInCategory = modulesInCategoryRaw;
+  const modulesInCategory = [...modulesInCategoryRaw].sort((a, b) => {
+    const sa = (a as any).sortOrder;
+    const sb = (b as any).sortOrder;
+    const aNum = typeof sa === 'number' ? sa : null;
+    const bNum = typeof sb === 'number' ? sb : null;
+    if (aNum != null && bNum != null) return aNum - bNum;
+    if (aNum != null) return -1;
+    if (bNum != null) return 1;
+    return 0;
+  });
 
   function top3MostCommon(values: (string | null | undefined)[]): string[] {
     const counts = new Map<string, { key: string; label: string; count: number }>();

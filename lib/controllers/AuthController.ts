@@ -259,6 +259,8 @@ export interface ModuleItem {
   warmupExercises?: string[];
   /** Optional cooldown stretches saved on the module. */
   cooldownExercises?: string[];
+  /** Optional explicit sort order from admin table (lower = earlier in list). */
+  sortOrder?: number;
   createdAt?: Date;
   updatedAt?: Date;
   status?: string;

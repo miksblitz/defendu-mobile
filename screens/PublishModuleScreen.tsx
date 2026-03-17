@@ -3,7 +3,9 @@
  * Trainers create/publish training modules: title, category, media, technique, rep range, etc.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
+import * as RN from 'react-native';
+
+const {
   View,
   Text,
   StyleSheet,
@@ -19,7 +21,7 @@ import {
   Animated,
   Dimensions,
   Easing,
-} from 'react-native';
+} = RN;
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 
@@ -37,6 +39,24 @@ const physicalDemandTags = [
 ];
 
 const spaceOptions = ['Small space', 'Medium space', 'Large space', 'Outdoor', 'Indoor'];
+
+/** Warmup options; can be filtered by category (e.g. Punching → upper body, Kicking → lower body). */
+const warmupOptionsByCategory: Record<string, string[]> = {
+  'Punching': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Kicking': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Elbow Strikes': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Knee Strikes': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Defensive Moves': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+};
+const defaultWarmupOptions = warmupOptionsByCategory['Punching'];
+
+const cooldownOptions = [
+  'Shoulder stretch',
+  'Standing sidestretch',
+  'Knee hug',
+  'Quad stretch',
+  'Standing hamstring stretch',
+];
 
 const repRangeOptions = ['4-6 reps', '8-10 reps', '12 reps', '15 reps'];
 
@@ -79,6 +99,10 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
   const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
   const [intensityLevel, setIntensityLevel] = useState(2);
   const [spaceRequirements, setSpaceRequirements] = useState<string[]>([]);
+  const [warmupExercises, setWarmupExercises] = useState<string[]>([]);
+  const [showWarmupDropdown, setShowWarmupDropdown] = useState(false);
+  const [cooldownExercises, setCooldownExercises] = useState<string[]>([]);
+  const [showCooldownDropdown, setShowCooldownDropdown] = useState(false);
   const [physicalTags, setPhysicalTags] = useState<string[]>([]);
   const [repRange, setRepRange] = useState('');
   const [showRepPicker, setShowRepPicker] = useState(false);
@@ -141,6 +165,13 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
 
   const toggleSpace = (s: string) => {
     setSpaceRequirements((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  };
+  const warmupOptions = category ? (warmupOptionsByCategory[category] ?? defaultWarmupOptions) : defaultWarmupOptions;
+  const toggleWarmup = (w: string) => {
+    setWarmupExercises((prev) => (prev.includes(w) ? prev.filter((x) => x !== w) : [...prev, w]));
+  };
+  const toggleCooldown = (c: string) => {
+    setCooldownExercises((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   };
   const togglePhysical = (t: string) => {
     setPhysicalTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
@@ -368,6 +399,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         referencePoseVideoUrlSide2: undefined as string | undefined,
         intensityLevel,
         spaceRequirements: spaceRequirements.length ? spaceRequirements : [],
+        warmupExercises: warmupExercises.length ? warmupExercises : [],
+        cooldownExercises: cooldownExercises.length ? cooldownExercises : [],
         physicalDemandTags: physicalTags.length ? physicalTags : [],
         repRange: repRange || undefined,
         difficultyLevel: difficultyLevel || undefined,
@@ -436,6 +469,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       setThumbnailUri(null);
       setIntensityLevel(2);
       setSpaceRequirements([]);
+      setWarmupExercises([]);
+      setCooldownExercises([]);
       setPhysicalTags([]);
       setRepRange('');
       setDifficultyLevel('');
@@ -461,6 +496,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
     thumbnailUri,
     intensityLevel,
     spaceRequirements,
+    warmupExercises,
+    cooldownExercises,
     physicalTags,
     repRange,
     difficultyLevel,
@@ -747,6 +784,60 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 ))}
               </View>
 
+              <Text style={styles.label}>Warmup (optional)</Text>
+              <TouchableOpacity
+                style={styles.selectBtn}
+                onPress={() => setShowWarmupDropdown(!showWarmupDropdown)}
+              >
+                <Text style={styles.selectText}>
+                  {warmupExercises.length ? `${warmupExercises.length} selected` : 'Select warmup exercises'}
+                </Text>
+                <Text style={styles.chevron}>{showWarmupDropdown ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {showWarmupDropdown && (
+                <View style={styles.pickerList}>
+                  {warmupOptions.map((w) => (
+                    <TouchableOpacity
+                      key={w}
+                      style={styles.pickerItemCheck}
+                      onPress={() => toggleWarmup(w)}
+                    >
+                      <View style={[styles.checkbox, warmupExercises.includes(w) && styles.checkboxChecked]}>
+                        {warmupExercises.includes(w) ? <Text style={styles.check}>✓</Text> : null}
+                      </View>
+                      <Text style={styles.pickerItemText}>{w}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <Text style={styles.label}>Cooldown (optional)</Text>
+              <TouchableOpacity
+                style={styles.selectBtn}
+                onPress={() => setShowCooldownDropdown(!showCooldownDropdown)}
+              >
+                <Text style={styles.selectText}>
+                  {cooldownExercises.length ? `${cooldownExercises.length} selected` : 'Select cooldown stretches'}
+                </Text>
+                <Text style={styles.chevron}>{showCooldownDropdown ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {showCooldownDropdown && (
+                <View style={styles.pickerList}>
+                  {cooldownOptions.map((c) => (
+                    <TouchableOpacity
+                      key={c}
+                      style={styles.pickerItemCheck}
+                      onPress={() => toggleCooldown(c)}
+                    >
+                      <View style={[styles.checkbox, cooldownExercises.includes(c) && styles.checkboxChecked]}>
+                        {cooldownExercises.includes(c) ? <Text style={styles.check}>✓</Text> : null}
+                      </View>
+                      <Text style={styles.pickerItemText}>{c}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
               <Text style={styles.label}>Physical demand (optional)</Text>
               <View style={styles.chipRow}>
                 {physicalDemandTags.map((t) => (
@@ -964,7 +1055,8 @@ const styles = StyleSheet.create({
   chevron: { color: '#07bbc0', fontSize: 12 },
   pickerList: { backgroundColor: '#011f36', borderRadius: 8, borderWidth: 1, borderColor: '#0a3645', marginBottom: 16 },
   pickerItem: { paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#0a3645' },
-  pickerItemText: { color: '#FFF', fontSize: 15 },
+  pickerItemCheck: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#0a3645' },
+  pickerItemText: { color: '#FFF', fontSize: 15, flex: 1 },
   intensityRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   intensityBtn: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#011f36', borderWidth: 1, borderColor: '#0a3645', justifyContent: 'center', alignItems: 'center' },
   intensityBtnActive: { backgroundColor: '#07bbc0', borderColor: '#07bbc0' },

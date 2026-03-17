@@ -29,6 +29,10 @@ export interface Module {
   thumbnailUrl?: string;
   intensityLevel?: number;
   spaceRequirements?: string[];
+  /** Recommended warmup exercises (e.g. ARM CIRCLES, LEG SWINGS). */
+  warmupExercises?: string[];
+  /** Recommended cooldown stretches (e.g. shoulder stretch, quad stretch). */
+  cooldownExercises?: string[];
   physicalDemandTags?: string[];
   repRange?: string;
   /** Overall difficulty: Basic, Intermediate, or Advanced. */

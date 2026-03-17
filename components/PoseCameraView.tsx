@@ -4,11 +4,13 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   Platform,
   ActivityIndicator,
   Dimensions,
   InteractionManager,
   Animated,
+  Easing,
 } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import type { PoseFrame, PoseSequence, PoseFocus } from '../lib/pose/types';
@@ -94,6 +96,13 @@ export default function PoseCameraView({
   const [switchCameraFn, setSwitchCameraFn] = useState<SwitchCameraFn>(null);
   const [error, setError] = useState<string | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
+  const [countdownDone, setCountdownDone] = useState(false);
+  const [countdownText, setCountdownText] = useState<string>('3');
+  const countdownOpacity = useRef(new Animated.Value(0)).current;
+  const countdownScale = useRef(new Animated.Value(0.92)).current;
+  const countdownBgOpacity = useRef(new Animated.Value(0)).current;
+  const countdownRunningRef = useRef(false);
+  const countdownDoneRef = useRef(false);
   const frameBufferRef = useRef<PoseFrame[]>([]);
   const lastPoseTimeRef = useRef<number>(0);
   const repDetectorRef = useRef(
@@ -162,6 +171,69 @@ export default function PoseCameraView({
   matchThresholdRef.current = matchThreshold;
 
   useEffect(() => {
+    countdownDoneRef.current = countdownDone;
+  }, [countdownDone]);
+
+  const showCountdownBeat = useCallback(
+    (text: string, durationMs: number) => {
+      setCountdownText(text);
+      countdownOpacity.stopAnimation();
+      countdownScale.stopAnimation();
+      countdownOpacity.setValue(0);
+      countdownScale.setValue(0.92);
+      countdownBgOpacity.setValue(1);
+      Animated.parallel([
+        Animated.timing(countdownOpacity, {
+          toValue: 1,
+          duration: 160,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.spring(countdownScale, {
+          toValue: 1,
+          speed: 18,
+          bounciness: 6,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return new Promise<void>((resolve) => setTimeout(resolve, durationMs));
+    },
+    [countdownBgOpacity, countdownOpacity, countdownScale]
+  );
+
+  const finishCountdown = useCallback(() => {
+    if (countdownDoneRef.current) return;
+    countdownDoneRef.current = true;
+    countdownRunningRef.current = false;
+    setCountdownDone(true);
+    Animated.timing(countdownBgOpacity, {
+      toValue: 0,
+      duration: 220,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [countdownBgOpacity]);
+
+  const runCountdown = useCallback(async () => {
+    if (countdownRunningRef.current || countdownDoneRef.current) return;
+    countdownRunningRef.current = true;
+    countdownDoneRef.current = false;
+    setCountdownDone(false);
+
+    await showCountdownBeat('3', 650);
+    if (countdownDoneRef.current) return;
+    await showCountdownBeat('2', 650);
+    if (countdownDoneRef.current) return;
+    await showCountdownBeat('1', 650);
+    if (countdownDoneRef.current) return;
+    await showCountdownBeat('ARE YOU READY?', 800);
+    if (countdownDoneRef.current) return;
+    await showCountdownBeat('GO!', 500);
+    if (countdownDoneRef.current) return;
+    finishCountdown();
+  }, [finishCountdown, showCountdownBeat]);
+
+  useEffect(() => {
     let cancelled = false;
     const task = InteractionManager.runAfterInteractions(() => {
       setTimeout(() => {
@@ -195,8 +267,20 @@ export default function PoseCameraView({
     if (ready && permission === null) requestPermission();
   }, [ready, permission, requestPermission]);
 
+  useEffect(() => {
+    if (!ready) return;
+    if (!MediaPipeView) return;
+    if (!permission?.granted) return;
+    runCountdown();
+    return () => {
+      countdownRunningRef.current = false;
+      countdownDoneRef.current = false;
+    };
+  }, [MediaPipeView, permission?.granted, ready, runCountdown]);
+
   const pushFrame = useCallback((frame: PoseFrame) => {
     if (frame.length === 0) return;
+    if (!countdownDoneRef.current) return;
     const now = Date.now();
     if (now - lastPoseTimeRef.current < POSE_THROTTLE_MS) return;
     lastPoseTimeRef.current = now;
@@ -300,6 +384,7 @@ export default function PoseCameraView({
 
   const handleLandmark = useCallback(
     (data: unknown) => {
+      if (!countdownDoneRef.current) return;
       const frame = thinksysLandmarksToFrame(data);
       const now = Date.now();
 
@@ -474,6 +559,25 @@ export default function PoseCameraView({
         leftAnkle={true}
         rightAnkle={true}
       />
+      {!countdownDone && (
+        <Animated.View
+          style={[styles.countdownOverlay, { opacity: countdownBgOpacity }]}
+          pointerEvents="auto"
+        >
+          <Pressable style={styles.countdownPressArea} onPress={finishCountdown}>
+            <Animated.View
+              style={[
+                styles.countdownCard,
+                { opacity: countdownOpacity, transform: [{ scale: countdownScale }] },
+              ]}
+              pointerEvents="none"
+            >
+              <Text style={styles.countdownText}>{countdownText}</Text>
+              <Text style={styles.countdownHint}>Tap to skip</Text>
+            </Animated.View>
+          </Pressable>
+        </Animated.View>
+      )}
       {showSuccessOverlay && (
         <Animated.View
           style={[
@@ -582,6 +686,44 @@ const styles = StyleSheet.create({
   placeholder: { flex: 1, padding: 24, justifyContent: 'center', alignItems: 'center' },
   title: { color: '#07bbc0', fontSize: 20, fontWeight: '700', marginBottom: 12 },
   hint: { color: '#6b8693', fontSize: 14, marginBottom: 24, textAlign: 'center' },
+  countdownOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  countdownPressArea: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+  },
+  countdownCard: {
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(4, 21, 39, 0.78)',
+  },
+  countdownText: {
+    color: '#FFF',
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textAlign: 'center',
+    fontSize: 56,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  countdownHint: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.2,
+  },
   overlay: {
     position: 'absolute',
     left: 0,

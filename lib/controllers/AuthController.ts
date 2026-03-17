@@ -255,6 +255,10 @@ export interface ModuleItem {
   videoDuration?: number;
   /** basic | intermediate | advanced – used to group modules in the app */
   difficultyLevel?: 'basic' | 'intermediate' | 'advanced';
+  /** Optional warmup exercises saved on the module. */
+  warmupExercises?: string[];
+  /** Optional cooldown stretches saved on the module. */
+  cooldownExercises?: string[];
   createdAt?: Date;
   updatedAt?: Date;
   status?: string;
@@ -648,6 +652,8 @@ export async function getModuleByIdForUser(moduleId: string): Promise<Module | n
       submittedAt: raw.submittedAt ? new Date(raw.submittedAt as number) : undefined,
       reviewedAt: raw.reviewedAt ? new Date(raw.reviewedAt as number) : undefined,
       spaceRequirements: normalizeArray(raw.spaceRequirements) ?? [],
+      warmupExercises: normalizeArray(raw.warmupExercises) ?? [],
+      cooldownExercises: normalizeArray(raw.cooldownExercises) ?? [],
       physicalDemandTags: normalizeArray(raw.physicalDemandTags) ?? [],
     } as Module;
     return module;
@@ -872,6 +878,8 @@ export async function saveModule(
     thumbnailUrl: moduleData.thumbnailUrl ?? null,
     intensityLevel: moduleData.intensityLevel ?? 2,
     spaceRequirements: moduleData.spaceRequirements ?? [],
+    warmupExercises: moduleData.warmupExercises ?? [],
+    cooldownExercises: moduleData.cooldownExercises ?? [],
     physicalDemandTags: moduleData.physicalDemandTags ?? [],
     repRange: moduleData.repRange ?? null,
     difficultyLevel: moduleData.difficultyLevel ?? null,
@@ -958,6 +966,8 @@ export async function seedTestModules(): Promise<{ added: number }> {
       thumbnailUrl: null,
       intensityLevel: 2,
       spaceRequirements: [],
+      warmupExercises: [],
+      cooldownExercises: [],
       physicalDemandTags: [],
       repRange: null,
       trainingDurationSeconds: null,

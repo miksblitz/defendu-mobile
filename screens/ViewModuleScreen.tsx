@@ -2,7 +2,7 @@
  * ViewModuleScreen
  * Displays a single training module: intro → safety protocol → introduction (video/text) → try it / pose → complete.
  */
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,10 +22,7 @@ import { AuthController, type ModuleItem } from '../lib/controllers/AuthControll
 import type { Module } from '../lib/models/Module';
 import type { ModuleReview } from '../lib/models/ModuleReview';
 import { getRequiredReps } from '../utils/repRange';
-
-// Lazy-load pose camera so native MediaPipe bridge isn't loaded until "Try with pose".
-// Avoids "JavaScriptContextHolder.get() on a null object reference" when opening a module.
-const PoseCameraView = lazy(() => import('../components/PoseCameraView'));
+import PoseCameraView from '../components/PoseCameraView';
 import type { PoseSequence, PoseFocus, PoseFrame } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
@@ -420,6 +417,8 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     else if (step === 'complete') onBack();
   };
 
+  const isPunching = module?.category === 'Punching';
+
   // Loading state
   if (loading || !module) {
     return (
@@ -472,14 +471,6 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
-          <Suspense
-            fallback={
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#07bbc0" />
-                <Text style={styles.loadingText}>Setting up camera...</Text>
-              </View>
-            }
-          >
             <PoseCameraView
               requiredReps={getRequiredReps(module.repRange)}
               correctReps={poseCorrectReps}
@@ -496,7 +487,6 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
               moduleId={moduleId ?? undefined}
               category={categoryKey}
             />
-          </Suspense>
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity
               style={styles.continueOverlayButton}
@@ -571,7 +561,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
         {step === 'video' && (
           <View style={styles.card}>
-            <Text style={styles.sectionLabel}>Module Introduction</Text>
+            <Text style={styles.sectionLabel}>{isPunching ? 'Warm up' : 'Module Introduction'}</Text>
             {module.introduction ? <Text style={styles.introText}>{module.introduction}</Text> : null}
             <TouchableOpacity style={styles.secondaryButton} onPress={handleTryItYourself}>
               <Text style={styles.secondaryButtonText}>Try it yourself</Text>
@@ -587,7 +577,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
         {step === 'tryIt' && (
           <View style={styles.card}>
-            <Text style={styles.sectionLabel}>Try it yourself</Text>
+            <Text style={styles.sectionLabel}>{isPunching ? 'Training' : 'Try it yourself'}</Text>
             <Text style={styles.tryItSubtext}>Practice for {formatTime(tryItTotalSeconds)}. Timer counts down.</Text>
             <View style={styles.timerBox}>
               <Text style={styles.timerText}>{formatTime(tryItRemainingSeconds)}</Text>
@@ -615,6 +605,20 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
         {step === 'complete' && (
           <View style={styles.card}>
+            {isPunching ? (
+              <>
+                <Text style={styles.sectionLabel}>Cool Down</Text>
+                {module.cooldownExercises && module.cooldownExercises.length > 0 ? (
+                  <View style={styles.bulletList}>
+                    {module.cooldownExercises.map((c, i) => (
+                      <Text key={i} style={styles.bulletItem}>• {c}</Text>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.introText}>Take a moment to stretch and cool down.</Text>
+                )}
+              </>
+            ) : null}
             <Text style={styles.completeTitle}>Module Complete!</Text>
             <Text style={styles.completeMessage}>You've successfully finished "{module.moduleTitle}".</Text>
 
@@ -749,6 +753,8 @@ const styles = StyleSheet.create({
   safetyItem: { color: '#6b8693', fontSize: 14, marginBottom: 10, lineHeight: 22 },
   sectionLabel: { color: '#07bbc0', fontSize: 16, fontWeight: '700', marginBottom: 12 },
   introText: { color: '#FFF', fontSize: 14, marginBottom: 16 },
+  bulletList: { marginBottom: 16 },
+  bulletItem: { color: '#b0c4d0', fontSize: 14, marginBottom: 6, lineHeight: 20 },
   videoOpenButton: { backgroundColor: '#062731', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, marginBottom: 16 },
   videoOpenButtonText: { color: '#07bbc0', fontSize: 16, fontWeight: '600', textAlign: 'center' },
   primaryButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 },

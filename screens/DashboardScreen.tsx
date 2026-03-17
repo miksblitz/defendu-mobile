@@ -15,7 +15,6 @@ import {
   Animated,
   Platform,
   StatusBar,
-  TextInput,
   RefreshControl,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -225,7 +224,6 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
   const [refreshing, setRefreshing] = useState(false);
@@ -327,31 +325,60 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
   const modulesInCategoryRaw = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
     : [];
-  const categorySearch = (categorySearchQuery ?? '').trim().toLowerCase();
-  const modulesInCategory = categorySearch
-    ? modulesInCategoryRaw.filter(
-        (m) =>
-          (m.moduleTitle ?? '').toLowerCase().includes(categorySearch) ||
-          (m.description ?? '').toLowerCase().includes(categorySearch)
-      )
-    : modulesInCategoryRaw;
+  const modulesInCategory = modulesInCategoryRaw;
 
-  function groupByDifficulty<T extends { difficultyLevel?: string | null }>(list: T[]): { level: 'basic' | 'intermediate' | 'advanced' | 'other'; label: string; items: T[] }[] {
+  function top3MostCommon(values: (string | null | undefined)[]): string[] {
+    const counts = new Map<string, { key: string; label: string; count: number }>();
+    for (const raw of values) {
+      const label = String(raw ?? '').trim();
+      if (!label) continue;
+      const key = label.toLowerCase();
+      const existing = counts.get(key);
+      if (existing) existing.count += 1;
+      else counts.set(key, { key, label, count: 1 });
+    }
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+      .slice(0, 3)
+      .map((x) => x.label);
+  }
+
+  const warmupTop3 = top3MostCommon(
+    modulesInCategory.flatMap((m) => ((m as any).warmupExercises as string[] | undefined) ?? [])
+  );
+  const cooldownTop3 = top3MostCommon(
+    modulesInCategory.flatMap((m) => ((m as any).cooldownExercises as string[] | undefined) ?? [])
+  );
+
+  function groupByDifficulty<T extends { difficultyLevel?: string | null }>(
+    list: T[],
+    category: string | null
+  ): { level: 'basic' | 'intermediate' | 'advanced' | 'cooldown' | 'other'; label: string; items: T[] }[] {
+    if (category === 'Punching') {
+      return [
+        { level: 'intermediate', label: 'Warmup', items: [] },
+        { level: 'advanced', label: 'Training', items: [...list] },
+        { level: 'cooldown', label: 'Cooldown', items: [] },
+      ];
+    }
     const basic = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'basic');
     const intermediate = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'intermediate');
     const advanced = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'advanced');
+    const cooldown = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'cooldown');
     const other = list.filter((m) => {
       const L = (m.difficultyLevel ?? '').toLowerCase();
-      return L !== 'basic' && L !== 'intermediate' && L !== 'advanced';
+      return L !== 'basic' && L !== 'intermediate' && L !== 'advanced' && L !== 'cooldown';
     });
-    const out: { level: 'basic' | 'intermediate' | 'advanced' | 'other'; label: string; items: T[] }[] = [];
-    if (basic.length) out.push({ level: 'basic', label: 'Basic', items: basic });
-    if (intermediate.length) out.push({ level: 'intermediate', label: 'Intermediate', items: intermediate });
-    if (advanced.length) out.push({ level: 'advanced', label: 'Advanced', items: advanced });
+    const out: { level: 'basic' | 'intermediate' | 'advanced' | 'cooldown' | 'other'; label: string; items: T[] }[] = [];
+    const warmupItems = [...basic, ...intermediate];
+    if (warmupItems.length) out.push({ level: 'intermediate', label: 'Warmup', items: warmupItems });
+    if (advanced.length) out.push({ level: 'advanced', label: 'Training', items: advanced });
+    if (cooldown.length) out.push({ level: 'cooldown', label: 'Cooldown', items: cooldown });
     if (other.length) out.push({ level: 'other', label: 'More', items: other });
+    if (!cooldown.length) out.push({ level: 'cooldown', label: 'Cooldown', items: [] });
     return out;
   }
-  const modulesInCategoryByLevel = groupByDifficulty(modulesInCategory);
+  const modulesInCategoryByLevel = groupByDifficulty(modulesInCategory, selectedCategory);
 
   const heroScale = useRef(new Animated.Value(0.92)).current;
   const heroOpacity = useRef(new Animated.Value(0)).current;
@@ -380,7 +407,6 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
   }, [selectedCategory, heroScale, heroOpacity, listTranslateY, listOpacity]);
 
   const handleBackFromCategory = () => {
-    setCategorySearchQuery('');
     const OVERLAY_FADE_MS = 130;
     Animated.timing(overlayOpacity, {
       toValue: 0,
@@ -429,6 +455,36 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
           <Text style={styles.moduleRowTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
           {mod.description ? <Text style={styles.moduleRowDesc} numberOfLines={1}>{mod.description}</Text> : null}
           {durationMin ? <Text style={styles.moduleRowDuration}>{durationMin}</Text> : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderModuleListCard = (mod: ModuleItem | Module, onPress: () => void, sectionLabel?: string): React.ReactNode => {
+    const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
+    return (
+      <TouchableOpacity
+        key={mod.moduleId}
+        style={styles.moduleListCard}
+        activeOpacity={0.88}
+        onPress={onPress}
+      >
+        <View style={styles.moduleListLeft}>
+          {sectionLabel ? (
+            <View style={styles.moduleListPill}>
+              <Text style={styles.moduleListPillText} numberOfLines={1}>{sectionLabel}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.moduleListTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
+          {mod.description ? <Text style={styles.moduleListDesc} numberOfLines={2}>{mod.description}</Text> : null}
+          {durationMin ? <Text style={styles.moduleListMeta}>{durationMin}</Text> : null}
+        </View>
+        <View style={styles.moduleListRight}>
+          {mod.thumbnailUrl ? (
+            <Image source={{ uri: mod.thumbnailUrl }} style={styles.moduleListImage} />
+          ) : (
+            <View style={styles.moduleListImagePlaceholder}><Text style={styles.moduleListImageIcon}>🥋</Text></View>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -579,25 +635,6 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
               </View>
             </Animated.View>
 
-            <View style={styles.categorySearchWrap}>
-              <TextInput
-                style={[styles.categorySearchInput, categorySearchQuery ? styles.categorySearchInputWithClear : null]}
-                placeholder="Search modules..."
-                placeholderTextColor="#6b8693"
-                value={categorySearchQuery}
-                onChangeText={setCategorySearchQuery}
-              />
-              {categorySearchQuery ? (
-                <TouchableOpacity
-                  style={styles.categorySearchClear}
-                  onPress={() => setCategorySearchQuery('')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.categorySearchClearText}>✕</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-
             <Animated.View
               style={[
                 styles.expandedCategoryListWrap,
@@ -610,10 +647,10 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
               {modulesInCategory.length === 0 ? (
                 <View style={styles.emptyBox}>
                   <Text style={styles.emptyTitle}>
-                    {categorySearch ? 'No modules match your search' : 'No modules in this category yet'}
+                    No modules in this category yet
                   </Text>
                   <Text style={styles.emptySubtitle}>
-                    {categorySearch ? 'Try a different search.' : 'Check back later for new content.'}
+                    Check back later for new content.
                   </Text>
                 </View>
               ) : (
@@ -621,15 +658,32 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
                   {modulesInCategoryByLevel.map(({ label, items }) => (
                     <View key={label} style={styles.difficultySection}>
                       <Text style={styles.difficultySectionTitle}>{label}</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.moduleRowScrollContent}
-                        keyboardShouldPersistTaps="handled"
-                        nestedScrollEnabled
-                      >
-                        {items.map((mod: ModuleItem) => renderModuleCardRow(mod, () => onOpenModule(mod.moduleId, mod)))}
-                      </ScrollView>
+                      {(label === 'Warmup' || label === 'Cooldown') && (
+                        <View style={styles.placeholdersColumn}>
+                          {((label === 'Warmup' ? warmupTop3 : cooldownTop3).length
+                            ? (label === 'Warmup' ? warmupTop3 : cooldownTop3)
+                            : ['—', '—', '—']
+                          ).map((t, idx) => (
+                            <View key={`${label}-${idx}`} style={styles.placeholderCard}>
+                              <View style={styles.placeholderTextWrap}>
+                                <Text style={styles.placeholderTitle} numberOfLines={1}>{t}</Text>
+                                <Text style={styles.placeholderSubtitle}>
+                                  {label === 'Warmup' ? 'Warm-up exercise' : 'Cooldown stretch'}
+                                </Text>
+                              </View>
+                              <View style={styles.placeholderImageWrap}>
+                                <Text style={styles.placeholderIcon}>🥋</Text>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                      <View style={styles.moduleListColumn}>
+                        {items.length > 0 &&
+                          items.map((mod: ModuleItem) =>
+                            renderModuleListCard(mod, () => onOpenModule(mod.moduleId, mod), label)
+                          )}
+                      </View>
                     </View>
                   ))}
                 </>
@@ -637,6 +691,18 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
             </Animated.View>
           </ScrollView>
           </Animated.View>
+          {modulesInCategory.length > 0 && (
+            <TouchableOpacity
+              style={styles.categoryFloatingStartButton}
+              onPress={() => {
+                const first = modulesInCategory[0];
+                if (first) onOpenModule(first.moduleId, first);
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.categoryFloatingStartButtonText}>Start</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : null}
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
@@ -701,7 +767,7 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
   categoryOverlayScroll: { flex: 1 },
-  categoryOverlayContent: { paddingHorizontal: 24, paddingBottom: 48 },
+  categoryOverlayContent: { paddingHorizontal: 24, paddingBottom: 88 },
   expandedCategoryHeroOverlay: { marginBottom: 12 },
   expandedCategoryHero: { marginBottom: 12 },
   expandedCategoryHeroImageWrap: {
@@ -736,30 +802,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   expandedCategoryHeroBackIcon: { width: 24, height: 24, tintColor: '#FFF' },
-  categorySearchWrap: { marginBottom: 16, position: 'relative' },
-  categorySearchInput: {
-    backgroundColor: '#011f36',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#062731',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#FFF',
-  },
-  categorySearchInputWithClear: { paddingRight: 44 },
-  categorySearchClear: {
+  categoryFloatingStartButton: {
     position: 'absolute',
-    right: 12,
-    top: 0,
-    bottom: 0,
+    left: 24,
+    right: 24,
+    bottom: 24,
+    backgroundColor: '#07bbc0',
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  categorySearchClearText: { color: '#6b8693', fontSize: 18, fontWeight: '600' },
+  categoryFloatingStartButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   expandedCategoryListWrap: { marginBottom: 24 },
   difficultySection: { marginBottom: 20 },
   difficultySectionTitle: { fontSize: 18, fontWeight: '700', color: '#07bbc0', marginBottom: 10, letterSpacing: 0.5 },
+  placeholdersColumn: { gap: 8, marginBottom: 12 },
+  placeholderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 14,
+    backgroundColor: '#011f36',
+    borderWidth: 1,
+    borderColor: '#062731',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  placeholderTextWrap: { flex: 1, paddingRight: 8 },
+  placeholderTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  placeholderSubtitle: { color: '#6b8693', fontSize: 12 },
+  placeholderImageWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#0a3645',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderIcon: { fontSize: 22 },
   moduleRowScrollContent: { paddingRight: 24 },
   moduleRowCard: {
     width: MODULE_ROW_CARD_WIDTH,
@@ -777,6 +863,37 @@ const styles = StyleSheet.create({
   moduleRowTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
   moduleRowDesc: { color: '#6b8693', fontSize: 11, marginBottom: 2 },
   moduleRowDuration: { color: '#07bbc0', fontSize: 10, fontWeight: '600' },
+  moduleListColumn: { gap: 12 },
+  moduleListCard: {
+    width: '100%',
+    borderRadius: 18,
+    backgroundColor: '#011f36',
+    borderWidth: 1,
+    borderColor: '#062731',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    minHeight: 96,
+  },
+  moduleListLeft: { flex: 1, paddingVertical: 14, paddingLeft: 16, paddingRight: 12, justifyContent: 'center' },
+  moduleListRight: { width: 110, padding: 10, justifyContent: 'center', alignItems: 'center' },
+  moduleListImage: { width: 90, height: 76, borderRadius: 14, backgroundColor: '#0a3645' },
+  moduleListImagePlaceholder: { width: 90, height: 76, borderRadius: 14, backgroundColor: '#0a3645', justifyContent: 'center', alignItems: 'center' },
+  moduleListImageIcon: { fontSize: 28 },
+  moduleListPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(7, 187, 192, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.28)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginBottom: 8,
+  },
+  moduleListPillText: { color: '#07bbc0', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
+  moduleListTitle: { color: '#FFF', fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
+  moduleListDesc: { color: '#6b8693', fontSize: 12, marginTop: 6, lineHeight: 16 },
+  moduleListMeta: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600', marginTop: 8 },
   categoryHeading: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 16 },
   swipeHint: { color: '#6b8693', fontSize: 12, marginBottom: 12, letterSpacing: 0.5 },
   categoryScrollContent: {

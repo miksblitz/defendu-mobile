@@ -168,10 +168,26 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
   };
   const warmupOptions = category ? (warmupOptionsByCategory[category] ?? defaultWarmupOptions) : defaultWarmupOptions;
   const toggleWarmup = (w: string) => {
-    setWarmupExercises((prev) => (prev.includes(w) ? prev.filter((x) => x !== w) : [...prev, w]));
+    setWarmupExercises((prev) => {
+      if (prev.includes(w)) return prev.filter((x) => x !== w);
+      if (prev.length >= 3) {
+        showToast('Warmup: please select exactly 3');
+        return prev;
+      }
+      return [...prev, w];
+    });
+    if (errors.warmupExercises) setErrors((e) => ({ ...e, warmupExercises: '' }));
   };
   const toggleCooldown = (c: string) => {
-    setCooldownExercises((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+    setCooldownExercises((prev) => {
+      if (prev.includes(c)) return prev.filter((x) => x !== c);
+      if (prev.length >= 3) {
+        showToast('Cooldown: please select exactly 3');
+        return prev;
+      }
+      return [...prev, c];
+    });
+    if (errors.cooldownExercises) setErrors((e) => ({ ...e, cooldownExercises: '' }));
   };
   const togglePhysical = (t: string) => {
     setPhysicalTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
@@ -347,6 +363,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         : !introductionVideoUri ? 'Please upload an introduction video or add text' : '';
     const videoError = !techniqueVideoFile ? 'Please add technique video' : '';
     const thumbnailError = !thumbnailUri ? 'Please upload a thumbnail' : '';
+    const warmupError = warmupExercises.length !== 3 ? 'Please select exactly 3 warmup exercises' : '';
+    const cooldownError = cooldownExercises.length !== 3 ? 'Please select exactly 3 cooldown stretches' : '';
     const certError = !certificationChecked ? 'Please check this box to certify' : '';
     setErrors({
       moduleTitle: titleError,
@@ -355,9 +373,11 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       introduction: introError,
       video: videoError,
       thumbnail: thumbnailError,
+      warmupExercises: warmupError,
+      cooldownExercises: cooldownError,
       certification: certError,
     });
-    const hasFieldErrors = titleError || descError || catError || introError || videoError || thumbnailError;
+    const hasFieldErrors = titleError || descError || catError || introError || videoError || thumbnailError || warmupError || cooldownError;
     if (hasFieldErrors || certError) {
       // Build a guiding toast listing what's missing
       const missing: string[] = [];
@@ -367,6 +387,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       if (introError) missing.push('Introduction');
       if (videoError) missing.push('Technique video');
       if (thumbnailError) missing.push('Thumbnail');
+      if (warmupError) missing.push('Warmup (pick 3)');
+      if (cooldownError) missing.push('Cooldown (pick 3)');
       if (certError) missing.push('Certification box (check "I certify...")');
       const message = missing.length === 1
         ? `Please fill in: ${missing[0]}`
@@ -784,9 +806,9 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 ))}
               </View>
 
-              <Text style={styles.label}>Warmup (optional)</Text>
+              <Text style={styles.label}>Warmup * (pick 3)</Text>
               <TouchableOpacity
-                style={styles.selectBtn}
+                style={[styles.selectBtn, errors.warmupExercises ? styles.inputError : null]}
                 onPress={() => setShowWarmupDropdown(!showWarmupDropdown)}
               >
                 <Text style={styles.selectText}>
@@ -794,6 +816,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 </Text>
                 <Text style={styles.chevron}>{showWarmupDropdown ? '▲' : '▼'}</Text>
               </TouchableOpacity>
+              {errors.warmupExercises ? <Text style={styles.errorText}>{errors.warmupExercises}</Text> : null}
               {showWarmupDropdown && (
                 <View style={styles.pickerList}>
                   {warmupOptions.map((w) => (
@@ -811,9 +834,9 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 </View>
               )}
 
-              <Text style={styles.label}>Cooldown (optional)</Text>
+              <Text style={styles.label}>Cooldown * (pick 3)</Text>
               <TouchableOpacity
-                style={styles.selectBtn}
+                style={[styles.selectBtn, errors.cooldownExercises ? styles.inputError : null]}
                 onPress={() => setShowCooldownDropdown(!showCooldownDropdown)}
               >
                 <Text style={styles.selectText}>
@@ -821,6 +844,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 </Text>
                 <Text style={styles.chevron}>{showCooldownDropdown ? '▲' : '▼'}</Text>
               </TouchableOpacity>
+              {errors.cooldownExercises ? <Text style={styles.errorText}>{errors.cooldownExercises}</Text> : null}
               {showCooldownDropdown && (
                 <View style={styles.pickerList}>
                   {cooldownOptions.map((c) => (

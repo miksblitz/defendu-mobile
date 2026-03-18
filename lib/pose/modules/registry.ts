@@ -12,6 +12,8 @@ import { crossJabPipeline } from './punching/cross';
 import { leadHookPipeline } from './punching/lead-hook';
 import { leadUppercutPipeline } from './punching/lead-uppercut';
 import { rearUppercutPipeline } from './punching/rear-uppercut';
+import { jabCrossComboPipeline } from './punching/jab-cross-combo';
+import { jabUppercutComboPipeline } from './punching/jab-uppercut-combo';
 import { kickingDefaultPipeline } from './kicking/default';
 import { elbowStrikesDefaultPipeline } from './elbow_strikes/default';
 import { kneeStrikesDefaultPipeline } from './knee_strikes/default';
@@ -53,6 +55,10 @@ register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773562287677', leadHookP
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773669360613', leadUppercutPipeline);
 // Rear Uppercut Test (Firebase module) – right uppercut, left guard.
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773673272052', rearUppercutPipeline);
+// Jab → Cross combo (Firebase module) – perfect rep only when jab first, then cross.
+register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670', jabCrossComboPipeline);
+// Jab → rear uppercut combo (trained reference: jab then uppercut).
+register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773844294396', jabUppercutComboPipeline);
 // Legacy / other modules
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773459399866', orthodoxJabPipeline);
 

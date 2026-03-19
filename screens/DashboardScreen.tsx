@@ -210,6 +210,13 @@ function TrainingCategoryCard({
 // --- Types ---
 interface DashboardScreenProps {
   onOpenModule: (moduleId: string, initialModule?: ModuleItem) => void;
+  onStartCategorySession: (payload: {
+    category: string;
+    warmups: string[];
+    cooldowns: string[];
+    trainingModules: ModuleItem[];
+    mannequinGifUri?: string | null;
+  }) => void;
   /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
   refreshKey?: number;
   /** Shown once when landing on dashboard (e.g. after publishing a module). */
@@ -218,12 +225,15 @@ interface DashboardScreenProps {
 }
 
 // --- Component ---
-export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialToastMessage, onClearInitialToast }: DashboardScreenProps) {
+export default function DashboardScreen({ onOpenModule, onStartCategorySession, refreshKey = 0, initialToastMessage, onClearInitialToast }: DashboardScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  // -1 means: nothing selected yet; session starts from index 0.
+  const [warmupStartCardIndex, setWarmupStartCardIndex] = useState<number>(-1);
+  const [cooldownStartCardIndex, setCooldownStartCardIndex] = useState<number>(-1);
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
   const [refreshing, setRefreshing] = useState(false);
@@ -358,34 +368,26 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
   const cooldownTop3 = top3MostCommon(
     modulesInCategory.flatMap((m) => ((m as any).cooldownExercises as string[] | undefined) ?? [])
   );
+  const warmupTop3Values = warmupTop3.length ? [...warmupTop3, '—', '—', '—'].slice(0, 3) : ['—', '—', '—'];
+  const cooldownTop3Values = cooldownTop3.length ? [...cooldownTop3, '—', '—', '—'].slice(0, 3) : ['—', '—', '—'];
+
+  useEffect(() => {
+    // Reset the "start from here" warmup selection whenever the user changes category.
+    setWarmupStartCardIndex(-1);
+    setCooldownStartCardIndex(-1);
+  }, [selectedCategory]);
 
   function groupByDifficulty<T extends { difficultyLevel?: string | null }>(
     list: T[],
     category: string | null
   ): { level: 'basic' | 'intermediate' | 'advanced' | 'cooldown' | 'other'; label: string; items: T[] }[] {
-    if (category === 'Punching') {
-      return [
-        { level: 'intermediate', label: 'Warmup', items: [] },
-        { level: 'advanced', label: 'Training', items: [...list] },
-        { level: 'cooldown', label: 'Cooldown', items: [] },
-      ];
-    }
-    const basic = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'basic');
-    const intermediate = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'intermediate');
-    const advanced = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'advanced');
-    const cooldown = list.filter((m) => (m.difficultyLevel ?? '').toLowerCase() === 'cooldown');
-    const other = list.filter((m) => {
-      const L = (m.difficultyLevel ?? '').toLowerCase();
-      return L !== 'basic' && L !== 'intermediate' && L !== 'advanced' && L !== 'cooldown';
-    });
-    const out: { level: 'basic' | 'intermediate' | 'advanced' | 'cooldown' | 'other'; label: string; items: T[] }[] = [];
-    const warmupItems = [...basic, ...intermediate];
-    if (warmupItems.length) out.push({ level: 'intermediate', label: 'Warmup', items: warmupItems });
-    if (advanced.length) out.push({ level: 'advanced', label: 'Training', items: advanced });
-    if (cooldown.length) out.push({ level: 'cooldown', label: 'Cooldown', items: cooldown });
-    if (other.length) out.push({ level: 'other', label: 'More', items: other });
-    if (!cooldown.length) out.push({ level: 'cooldown', label: 'Cooldown', items: [] });
-    return out;
+    // Consistent session flow across all categories:
+    // Warmup/Cooldown sections are placeholders (exercise names), and all real modules are practiced in Training.
+    return [
+      { level: 'intermediate', label: 'Warmup', items: [] },
+      { level: 'advanced', label: 'Training', items: [...list] },
+      { level: 'cooldown', label: 'Cooldown', items: [] },
+    ];
   }
   const modulesInCategoryByLevel = groupByDifficulty(modulesInCategory, selectedCategory);
 
@@ -669,22 +671,93 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
                       <Text style={styles.difficultySectionTitle}>{label}</Text>
                       {(label === 'Warmup' || label === 'Cooldown') && (
                         <View style={styles.placeholdersColumn}>
-                          {((label === 'Warmup' ? warmupTop3 : cooldownTop3).length
-                            ? (label === 'Warmup' ? warmupTop3 : cooldownTop3)
-                            : ['—', '—', '—']
-                          ).map((t, idx) => (
-                            <View key={`${label}-${idx}`} style={styles.placeholderCard}>
-                              <View style={styles.placeholderTextWrap}>
-                                <Text style={styles.placeholderTitle} numberOfLines={1}>{t}</Text>
-                                <Text style={styles.placeholderSubtitle}>
-                                  {label === 'Warmup' ? 'Warm-up exercise' : 'Cooldown stretch'}
-                                </Text>
-                              </View>
-                              <View style={styles.placeholderImageWrap}>
-                                <Text style={styles.placeholderIcon}>🥋</Text>
-                              </View>
-                            </View>
-                          ))}
+                          {(label === 'Warmup' ? warmupTop3Values : cooldownTop3Values).map((t, idx) => {
+                            const isWarmup = label === 'Warmup';
+                            const isDisabled = t === '—';
+                            const isSelected = isWarmup ? idx === warmupStartCardIndex : idx === cooldownStartCardIndex;
+                            const isSelectable = !isDisabled;
+                            const cardStyle = [
+                              styles.placeholderCard,
+                              isWarmup
+                                ? {
+                                    backgroundColor: isDisabled
+                                      ? '#011f36'
+                                      : isSelected
+                                        ? 'rgba(7, 187, 192, 0.15)'
+                                        : '#011f36',
+                                    borderColor: isDisabled
+                                      ? '#062731'
+                                      : isSelected
+                                        ? '#07bbc0'
+                                        : '#062731',
+                                    opacity: isDisabled ? 0.5 : isSelected ? 1 : 0.65,
+                                  }
+                                : undefined,
+                            ];
+
+                            if (!isWarmup) {
+                              // Cooldown card: tappable start card (same UX as warmups).
+                              const cooldownCardStyle = [
+                                styles.placeholderCard,
+                                isDisabled
+                                  ? { backgroundColor: '#011f36', borderColor: '#062731', opacity: 0.5 }
+                                  : isSelected
+                                    ? { backgroundColor: 'rgba(7, 187, 192, 0.15)', borderColor: '#07bbc0', opacity: 1 }
+                                    : { backgroundColor: '#011f36', borderColor: '#062731', opacity: 0.65 },
+                              ];
+
+                              return (
+                                <TouchableOpacity
+                                  key={`${label}-${idx}`}
+                                  style={cooldownCardStyle}
+                                  activeOpacity={0.9}
+                                  disabled={isDisabled}
+                                  onPress={() => {
+                                    if (!isSelectable) return;
+                                    // Only one phase can be selected at a time.
+                                    setWarmupStartCardIndex(-1);
+                                    setCooldownStartCardIndex(idx);
+                                  }}
+                                >
+                                  <View style={styles.placeholderTextWrap}>
+                                    <Text style={styles.placeholderTitle} numberOfLines={1}>{t}</Text>
+                                    <Text style={styles.placeholderSubtitle}>
+                                      {isSelected ? 'Start here' : 'Tap to start here'}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.placeholderImageWrap}>
+                                    <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
+                                  </View>
+                                </TouchableOpacity>
+                              );
+                            }
+
+                            return (
+                              <TouchableOpacity
+                                key={`${label}-${idx}`}
+                                style={cardStyle}
+                                activeOpacity={0.9}
+                                disabled={isDisabled}
+                                onPress={() => {
+                                  if (!isSelectable) return;
+                                  // Tap warmup card to start session from that warmup.
+                                  // Only one phase can be selected at a time.
+                                  setCooldownStartCardIndex(-1);
+                                  setWarmupStartCardIndex(idx);
+                                }}
+                              >
+                                <View style={styles.placeholderTextWrap}>
+                                  <Text style={styles.placeholderTitle} numberOfLines={1}>{t}</Text>
+                                  <Text style={styles.placeholderSubtitle}>
+                                    {isSelected ? 'Start here' : 'Tap to start here'}
+                                  </Text>
+                                </View>
+                                <View style={styles.placeholderImageWrap}>
+                                  <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </View>
                       )}
                       <View style={styles.moduleListColumn}>
@@ -704,8 +777,25 @@ export default function DashboardScreen({ onOpenModule, refreshKey = 0, initialT
             <TouchableOpacity
               style={styles.categoryFloatingStartButton}
               onPress={() => {
-                const first = modulesInCategory[0];
-                if (first) onOpenModule(first.moduleId, first);
+                const trainingSection = modulesInCategoryByLevel.find((x) => x.label === 'Training');
+                const trainingModules = trainingSection?.items ?? [];
+                if (!trainingModules.length) {
+                  showToast('No training modules found for this category.');
+                  return;
+                }
+
+                const warmupStartIdx = warmupStartCardIndex >= 0 ? warmupStartCardIndex : 0;
+                const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
+                const warmupsToDo = warmupTop3Values.filter((v, idx) => idx >= warmupStartIdx && v !== '—');
+                const selectedCooldowns = cooldownTop3Values.filter((c, idx) => idx >= cooldownStartIdx && c && c !== '—');
+
+                onStartCategorySession({
+                  category: selectedCategory ?? 'Punching',
+                  warmups: warmupsToDo.length ? warmupsToDo : warmupTop3Values.filter((v) => v !== '—'),
+                  cooldowns: selectedCooldowns.length ? selectedCooldowns : cooldownTop3Values.filter((c) => c && c !== '—'),
+                  trainingModules,
+                  mannequinGifUri: null,
+                });
               }}
               activeOpacity={0.9}
             >

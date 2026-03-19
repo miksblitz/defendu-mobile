@@ -199,13 +199,8 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
   const handleStart = () => setStep('safety');
 
   const handleSafetyConfirm = () => {
-    const hasVideo = module?.introductionType === 'video' && module?.introductionVideoUrl;
-    const hasText = module?.introductionType === 'text' && module?.introduction?.trim();
-    if (hasVideo || hasText) {
-      setStep('video');
-    } else {
-      setStep('complete');
-    }
+    // Skip intro/video flow and go straight to pose practice.
+    handleTryWithPose();
   };
 
   const handleIntroDone = () => setStep('complete');
@@ -413,7 +408,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     if (step === 'intro') onBack();
     else if (step === 'safety') setStep('intro');
     else if (step === 'video') setStep('safety');
-    else if (step === 'tryIt' || step === 'tryItPose' || step === 'tryItPoseLoading') setStep('video');
+    else if (step === 'tryIt' || step === 'tryItPose' || step === 'tryItPoseLoading') setStep('safety');
     else if (step === 'complete') onBack();
   };
 
@@ -448,19 +443,9 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
         </View>
         <TouchableOpacity
           style={styles.loadingBackButton}
-          onPress={() => setStep('video')}
+          onPress={() => setStep('safety')}
         >
           <Text style={styles.loadingBackButtonText}>Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.loadingBackButton, styles.skipRefButton]}
-          onPress={() => {
-            setReferencePoseSequence(null);
-            setReferencePoseLoading(false);
-            rampProgressThenOpen();
-          }}
-        >
-          <Text style={styles.loadingBackButtonText}>Continue without reference</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -475,7 +460,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
               requiredReps={getRequiredReps(module.repRange)}
               correctReps={poseCorrectReps}
               isCurrentRepCorrect={poseCurrentRepCorrect}
-              onBack={() => setStep('video')}
+              onBack={() => setStep('safety')}
               onCorrectRepsUpdate={(count, lastCorrect) => {
                 setPoseCorrectReps(count);
                 setPoseCurrentRepCorrect(lastCorrect);
@@ -486,6 +471,8 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
               poseVariant="default"
               moduleId={moduleId ?? undefined}
               category={categoryKey}
+              showArmState={false}
+              showOverlayHint={false}
             />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity

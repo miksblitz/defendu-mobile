@@ -36,6 +36,10 @@ export interface PoseCameraViewProps {
   poseFocus?: PoseFocus;
   /** Optional: match threshold for comparison (default 0.20). */
   matchThreshold?: number;
+  /** Show the "Hand state" debug panel. Defaults to true. */
+  showArmState?: boolean;
+  /** Show the overlay hint text. Defaults to true. */
+  showOverlayHint?: boolean;
   /** When 'lead-jab', use lead-jab rep logic (left extended sideways, right contracted wrist-up); no reference. */
   poseVariant?: 'default' | 'lead-jab';
   /** If set, use per-module pipeline from lib/pose/modules/<category>/<moduleId>/ when available. */
@@ -86,6 +90,8 @@ export default function PoseCameraView({
   referenceSequence,
   poseFocus = 'full',
   matchThreshold = DEFAULT_MATCH_THRESHOLD,
+  showArmState = true,
+  showOverlayHint = true,
   poseVariant = 'default',
   moduleId,
   category,
@@ -220,15 +226,16 @@ export default function PoseCameraView({
     countdownDoneRef.current = false;
     setCountdownDone(false);
 
-    await showCountdownBeat('3', 650);
+    const SLIDE_MS = 2000;
+    await showCountdownBeat('3', SLIDE_MS);
     if (countdownDoneRef.current) return;
-    await showCountdownBeat('2', 650);
+    await showCountdownBeat('2', SLIDE_MS);
     if (countdownDoneRef.current) return;
-    await showCountdownBeat('1', 650);
+    await showCountdownBeat('1', SLIDE_MS);
     if (countdownDoneRef.current) return;
-    await showCountdownBeat('ARE YOU READY?', 800);
+    await showCountdownBeat('ARE YOU READY?', SLIDE_MS);
     if (countdownDoneRef.current) return;
-    await showCountdownBeat('GO!', 500);
+    await showCountdownBeat('GO!', SLIDE_MS);
     if (countdownDoneRef.current) return;
     finishCountdown();
   }, [finishCountdown, showCountdownBeat]);
@@ -615,7 +622,7 @@ export default function PoseCameraView({
       )}
       <View style={styles.overlay}>
         {/* Hand state: wrist–shoulder only, smoothed + hysteresis */}
-        {(poseFocus === 'punching' || poseFocus === 'full') && (
+        {showArmState && (poseFocus === 'punching' || poseFocus === 'full') && (
           <View style={styles.armStateBox}>
             <Text style={styles.armStateTitle}>Hand state</Text>
             {poseStatus === null && (
@@ -655,9 +662,11 @@ export default function PoseCameraView({
                 ? 'Legs in frame — raise leg then lower'
                 : 'Full body in frame — reps count automatically'}
         </Text>
-        <Text style={styles.overlayHint}>
-          Do a clear down–up movement so your hips go lower then back up
-        </Text>
+        {showOverlayHint && (
+          <Text style={styles.overlayHint}>
+            Do a clear down–up movement so your hips go lower then back up
+          </Text>
+        )}
         {!practiceMode && referenceSequence && (() => {
           const seq = Array.isArray(referenceSequence) ? referenceSequence[0] : referenceSequence;
           const frameCount = seq?.length ?? 0;

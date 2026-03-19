@@ -15,6 +15,7 @@ import MessagesScreen from './screens/MessagesScreen';
 import TrainerScreen from './screens/TrainerScreen';
 import TrainerRegistrationScreen from './screens/TrainerRegistrationScreen';
 import PublishModuleScreen from './screens/PublishModuleScreen';
+import CategoryPracticeSessionScreen from './screens/CategoryPracticeSessionScreen';
 import SkillProfilePhysicalScreen from './screens/SkillProfilePhysicalScreen';
 import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScreen';
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
@@ -41,6 +42,7 @@ type Screen =
   | 'trainer'
   | 'trainer-registration'
   | 'publish-module'
+  | 'category-practice-session'
   | 'skill-profile-step1'
   | 'skill-profile-step2'
   | 'skill-profile-step3'
@@ -76,6 +78,13 @@ export default function App() {
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
   const [viewModuleInitial, setViewModuleInitial] = useState<ModuleItem | null>(null);
+  const [categoryPracticeSession, setCategoryPracticeSession] = useState<{
+    category: string;
+    warmups: string[];
+    cooldowns: string[];
+    trainingModules: ModuleItem[];
+    mannequinGifUri?: string | null;
+  } | null>(null);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
@@ -211,7 +220,7 @@ export default function App() {
           }}
         />
       )}
-      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module') && (
+      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
             <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
@@ -220,6 +229,10 @@ export default function App() {
                 initialToastMessage={dashboardToastMessage}
                 onClearInitialToast={() => setDashboardToastMessage(null)}
                 onOpenModule={(moduleId: string, initialModule?: ModuleItem) => { setViewModuleId(moduleId); setViewModuleInitial(initialModule ?? null); setScreen('view-module'); }}
+                onStartCategorySession={(payload) => {
+                  setCategoryPracticeSession(payload);
+                  setScreen('category-practice-session');
+                }}
               />
             </MainLayout>
           )}
@@ -294,6 +307,22 @@ export default function App() {
                 setScreen('dashboard');
               }}
             />
+          )}
+          {screen === 'category-practice-session' && categoryPracticeSession && (
+            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+              <CategoryPracticeSessionScreen
+                category={categoryPracticeSession.category}
+                warmups={categoryPracticeSession.warmups}
+                cooldowns={categoryPracticeSession.cooldowns}
+                trainingModules={categoryPracticeSession.trainingModules}
+                mannequinGifUri={categoryPracticeSession.mannequinGifUri ?? null}
+                onExit={() => {
+                  setCategoryPracticeSession(null);
+                  setScreen('dashboard');
+                  setDashboardRefreshKey((k) => k + 1);
+                }}
+              />
+            </MainLayout>
           )}
         </UnreadMessagesProvider>
       )}

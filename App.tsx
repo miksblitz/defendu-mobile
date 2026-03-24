@@ -309,7 +309,7 @@ export default function App() {
             />
           )}
           {screen === 'category-practice-session' && categoryPracticeSession && (
-            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout} hideNavButton>
               <CategoryPracticeSessionScreen
                 category={categoryPracticeSession.category}
                 warmups={categoryPracticeSession.warmups}

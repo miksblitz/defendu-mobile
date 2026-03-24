@@ -22,6 +22,7 @@ import { AuthController, type ModuleItem } from '../lib/controllers/AuthControll
 import type { Module } from '../lib/models/Module';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
+import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
 
 // --- Constants ---
 /** Training category hero images (assets/images/training/). */
@@ -705,6 +706,7 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                                     ? { backgroundColor: 'rgba(7, 187, 192, 0.15)', borderColor: '#07bbc0', opacity: 1 }
                                     : { backgroundColor: '#011f36', borderColor: '#062731', opacity: 0.65 },
                               ];
+                              const cooldownGuide = getCooldownGuideSource(t);
 
                               return (
                                 <TouchableOpacity
@@ -725,13 +727,18 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                                       {isSelected ? 'Start here' : 'Tap to start here'}
                                     </Text>
                                   </View>
-                                  <View style={styles.placeholderImageWrap}>
-                                    <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
+                                  <View style={styles.placeholderThumbWrap}>
+                                    {cooldownGuide && !isDisabled ? (
+                                      <Image source={cooldownGuide} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                    ) : (
+                                      <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
+                                    )}
                                   </View>
                                 </TouchableOpacity>
                               );
                             }
 
+                            const warmupGuide = getWarmupGuideSource(t);
                             return (
                               <TouchableOpacity
                                 key={`${label}-${idx}`}
@@ -752,8 +759,12 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                                     {isSelected ? 'Start here' : 'Tap to start here'}
                                   </Text>
                                 </View>
-                                <View style={styles.placeholderImageWrap}>
-                                  <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
+                                <View style={styles.placeholderThumbWrap}>
+                                  {warmupGuide && !isDisabled ? (
+                                    <Image source={warmupGuide} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                  ) : (
+                                    <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
+                                  )}
                                 </View>
                               </TouchableOpacity>
                             );
@@ -905,7 +916,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 24,
     right: 24,
-    bottom: 24,
+    bottom: 36,
     backgroundColor: '#07bbc0',
     borderRadius: 999,
     paddingVertical: 14,
@@ -944,6 +955,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  /** Warmup guide GIF thumbnail (matches training-card feel: image on right). */
+  placeholderThumbWrap: {
+    width: 76,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: '#0a3645',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  placeholderGuideImage: { width: '100%', height: '100%' },
   placeholderIcon: { fontSize: 22 },
   moduleRowScrollContent: { paddingRight: 24 },
   moduleRowCard: {

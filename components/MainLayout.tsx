@@ -23,25 +23,38 @@ interface MainLayoutProps {
   children: React.ReactNode;
   /** Optional right-side header element (e.g. Trainer Registration button) */
   headerRight?: React.ReactNode;
+  /** Hide menu icon and disable nav panel interactions on specific screens */
+  hideNavButton?: boolean;
 }
 
-export default function MainLayout({ title, currentScreen, onNavigate, onLogout, children, headerRight }: MainLayoutProps) {
+export default function MainLayout({
+  title,
+  currentScreen,
+  onNavigate,
+  onLogout,
+  children,
+  headerRight,
+  hideNavButton = false,
+}: MainLayoutProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const { unreadCount, unreadDisplay, clearUnread } = useUnreadMessages();
 
   const openPanel = useCallback(() => {
+    if (hideNavButton) return;
     clearUnread();
     setPanelOpen(true);
-  }, [clearUnread]);
+  }, [clearUnread, hideNavButton]);
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
+        if (hideNavButton) return false;
         const startX = gestureState.moveX - gestureState.dx;
         return gestureState.dx > 18 && startX < 55;
       },
       onPanResponderRelease: (_, gestureState) => {
+        if (hideNavButton) return;
         if (gestureState.dx >= SWIPE_MIN_DX) openPanel();
       },
     })
@@ -49,15 +62,19 @@ export default function MainLayout({ title, currentScreen, onNavigate, onLogout,
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.navButton} onPress={openPanel} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Image source={require('../assets/images/icon-menu.png')} style={styles.navButtonIcon} resizeMode="contain" />
-          {unreadCount > 0 && (
-            <View style={styles.headerBadge}>
-              <Text style={styles.headerBadgeText}>{unreadDisplay}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      <View style={[styles.header, hideNavButton ? styles.headerNoDivider : null]}>
+        {hideNavButton ? (
+          <View style={styles.headerSpacer} />
+        ) : (
+          <TouchableOpacity style={styles.navButton} onPress={openPanel} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Image source={require('../assets/images/icon-menu.png')} style={styles.navButtonIcon} resizeMode="contain" />
+            {unreadCount > 0 ? (
+              <View style={styles.headerBadge}>
+                <Text style={styles.headerBadgeText}>{unreadDisplay}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        )}
         {title ? <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text> : <View style={styles.headerTitle} />}
         {headerRight != null ? headerRight : <View style={styles.headerSpacer} />}
       </View>
@@ -93,6 +110,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#062731',
     backgroundColor: '#041527',
+  },
+  headerNoDivider: {
+    borderBottomWidth: 0,
   },
   navButton: {
     width: 44,

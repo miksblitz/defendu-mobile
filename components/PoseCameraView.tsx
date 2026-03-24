@@ -46,6 +46,8 @@ export interface PoseCameraViewProps {
   moduleId?: string;
   /** Module category (e.g. Punching, Kicking) for pipeline lookup. */
   category?: string;
+  /** Show startup 3-2-1 countdown overlay before detection starts. Defaults to true. */
+  showStartCountdown?: boolean;
 }
 
 const POSE_THROTTLE_MS = 100;
@@ -95,6 +97,7 @@ export default function PoseCameraView({
   poseVariant = 'default',
   moduleId,
   category,
+  showStartCountdown = true,
 }: PoseCameraViewProps) {
   const pipeline = moduleId && category ? getModulePosePipeline(moduleId, category) : null;
   const [ready, setReady] = useState(false);
@@ -102,7 +105,7 @@ export default function PoseCameraView({
   const [switchCameraFn, setSwitchCameraFn] = useState<SwitchCameraFn>(null);
   const [error, setError] = useState<string | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
-  const [countdownDone, setCountdownDone] = useState(false);
+  const [countdownDone, setCountdownDone] = useState(!showStartCountdown);
   const [countdownText, setCountdownText] = useState<string>('3');
   const countdownOpacity = useRef(new Animated.Value(0)).current;
   const countdownScale = useRef(new Animated.Value(0.92)).current;
@@ -179,6 +182,15 @@ export default function PoseCameraView({
   useEffect(() => {
     countdownDoneRef.current = countdownDone;
   }, [countdownDone]);
+
+  useEffect(() => {
+    if (!showStartCountdown) {
+      countdownDoneRef.current = true;
+      countdownRunningRef.current = false;
+      setCountdownDone(true);
+      countdownBgOpacity.setValue(0);
+    }
+  }, [countdownBgOpacity, showStartCountdown]);
 
   const showCountdownBeat = useCallback(
     (text: string, durationMs: number) => {
@@ -278,12 +290,16 @@ export default function PoseCameraView({
     if (!ready) return;
     if (!MediaPipeView) return;
     if (!permission?.granted) return;
-    runCountdown();
+    if (showStartCountdown) {
+      runCountdown();
+    } else {
+      finishCountdown();
+    }
     return () => {
       countdownRunningRef.current = false;
       countdownDoneRef.current = false;
     };
-  }, [MediaPipeView, permission?.granted, ready, runCountdown]);
+  }, [MediaPipeView, finishCountdown, permission?.granted, ready, runCountdown, showStartCountdown]);
 
   const pushFrame = useCallback((frame: PoseFrame) => {
     if (frame.length === 0) return;

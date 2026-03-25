@@ -362,7 +362,6 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         ? !introduction.trim() ? 'Please fill this in or upload an introduction video' : ''
         : !introductionVideoUri ? 'Please upload an introduction video or add text' : '';
     const videoError = !techniqueVideoFile ? 'Please add technique video' : '';
-    const thumbnailError = !thumbnailUri ? 'Please upload a thumbnail' : '';
     const warmupError = warmupExercises.length !== 3 ? 'Please select exactly 3 warmup exercises' : '';
     const cooldownError = cooldownExercises.length !== 3 ? 'Please select exactly 3 cooldown stretches' : '';
     const certError = !certificationChecked ? 'Please check this box to certify' : '';
@@ -372,12 +371,12 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       category: catError,
       introduction: introError,
       video: videoError,
-      thumbnail: thumbnailError,
+      thumbnail: '',
       warmupExercises: warmupError,
       cooldownExercises: cooldownError,
       certification: certError,
     });
-    const hasFieldErrors = titleError || descError || catError || introError || videoError || thumbnailError || warmupError || cooldownError;
+    const hasFieldErrors = titleError || descError || catError || introError || videoError || warmupError || cooldownError;
     if (hasFieldErrors || certError) {
       // Build a guiding toast listing what's missing
       const missing: string[] = [];
@@ -386,7 +385,6 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       if (catError) missing.push('Category');
       if (introError) missing.push('Introduction');
       if (videoError) missing.push('Technique video');
-      if (thumbnailError) missing.push('Thumbnail');
       if (warmupError) missing.push('Warmup (pick 3)');
       if (cooldownError) missing.push('Cooldown (pick 3)');
       if (certError) missing.push('Certification box (check "I certify...")');
@@ -564,7 +562,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
             <Text style={styles.stepTitle}>
               {step === 1 && 'Title & introduction'}
               {step === 2 && 'Technique video'}
-              {step === 3 && 'Thumbnail'}
+              {step === 3 && 'Thumbnail (optional)'}
               {step === 4 && 'Intensity & details'}
             </Text>
             <Text style={styles.stepCounter}>Step {step} of 4</Text>
@@ -748,8 +746,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
 
           {step === 3 && (
             <>
-              <Text style={styles.intro}>Choose a thumbnail image for your module.</Text>
-              <Text style={styles.label}>Thumbnail *</Text>
+              <Text style={styles.intro}>Choose a thumbnail image for your module (optional).</Text>
+              <Text style={styles.label}>Thumbnail (optional)</Text>
               {thumbnailUri ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
@@ -970,14 +968,6 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                   }
                   setErrors((e) => ({ ...e, video: '' }));
                 }
-                  if (step === 3) {
-                    if (!thumbnailUri) {
-                      setErrors((e) => ({ ...e, thumbnail: 'Please upload a thumbnail' }));
-                      showToast('Take a picture or pick from gallery');
-                      return;
-                    }
-                    setErrors((e) => ({ ...e, thumbnail: '' }));
-                  }
                   goToStep(step + 1, 'forward');
                 }}
               >

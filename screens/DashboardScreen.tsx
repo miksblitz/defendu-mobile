@@ -510,6 +510,8 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
+        removeClippedSubviews
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -613,7 +615,16 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
       {selectedCategory ? (
         <View style={styles.categoryOverlay} pointerEvents="box-none">
           <Animated.View style={[StyleSheet.absoluteFill, { opacity: overlayOpacity }]}>
-          <ScrollView style={styles.categoryOverlayScroll} contentContainerStyle={styles.categoryOverlayContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+          <ScrollView
+            style={styles.categoryOverlayScroll}
+            contentContainerStyle={styles.categoryOverlayContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            removeClippedSubviews
+            scrollEventThrottle={16}
+          >
+            {/* Performance: avoid rendering offscreen content while scrolling. */}
             <Animated.View
               style={[
                 styles.expandedCategoryHeroOverlay,
@@ -728,7 +739,7 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                                     </Text>
                                   </View>
                                   <View style={styles.placeholderThumbWrap}>
-                                    {cooldownGuide && !isDisabled ? (
+                                    {cooldownGuide && !isDisabled && isSelected ? (
                                       <Image source={cooldownGuide} style={styles.placeholderGuideImage} resizeMode="cover" />
                                     ) : (
                                       <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
@@ -760,7 +771,7 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                                   </Text>
                                 </View>
                                 <View style={styles.placeholderThumbWrap}>
-                                  {warmupGuide && !isDisabled ? (
+                                  {warmupGuide && !isDisabled && isSelected ? (
                                     <Image source={warmupGuide} style={styles.placeholderGuideImage} resizeMode="cover" />
                                   ) : (
                                     <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
@@ -773,8 +784,34 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                       )}
                       <View style={styles.moduleListColumn}>
                         {items.length > 0 &&
-                          items.map((mod: ModuleItem) =>
-                            renderModuleListCard(mod, () => onOpenModule(mod.moduleId, mod), label)
+                          items.map((mod: ModuleItem, modIdx: number) =>
+                            renderModuleListCard(mod, () => {
+                              if (label === 'Training') {
+                                // Start category practice directly at the selected training module
+                                // (no module "introduction" page).
+                                const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
+                                const selectedCooldowns = cooldownTop3Values.filter(
+                                  (c, idx) => idx >= cooldownStartIdx && c && c !== '—'
+                                );
+
+                                // Slice training modules so the first training module is the one tapped.
+                                const trainingSlice = items.slice(modIdx);
+
+                                onStartCategorySession({
+                                  category: selectedCategory ?? 'Punching',
+                                  warmups: [],
+                                  cooldowns:
+                                    selectedCooldowns.length > 0
+                                      ? selectedCooldowns
+                                      : cooldownTop3Values.filter((c) => c && c !== '—'),
+                                  trainingModules: trainingSlice,
+                                  mannequinGifUri: null,
+                                });
+                                return;
+                              }
+
+                              onOpenModule(mod.moduleId, mod);
+                            }, label)
                           )}
                       </View>
                     </View>

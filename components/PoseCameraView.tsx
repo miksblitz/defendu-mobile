@@ -29,6 +29,24 @@ export interface PoseCameraViewProps {
   correctReps: number;
   isCurrentRepCorrect: boolean | null;
   onBack: () => void;
+  /** Optional label for the overlay back/exit button. Defaults to "Back". */
+  backLabel?: string;
+  /** Show the back/exit button overlay. Defaults to true. */
+  showBackButton?: boolean;
+  /** Optional training timer text (e.g. "0:30") shown above the rep counter. */
+  trainingTimerText?: string | null;
+  /**
+   * Optional training timer end time (ms since epoch).
+   * When provided, the timer will be updated from the pose frame loop (more reliable than setInterval).
+   */
+  trainingTimerEndTimeMs?: number | null;
+  /**
+   * Called once when the training timer reaches 0.
+   * Parent is responsible for navigating/advancing modules.
+   */
+  onTrainingTimerExpired?: () => void;
+  /** Label under the timer text. Defaults to "time left". */
+  trainingTimerLabel?: string;
   onCorrectRepsUpdate: (count: number, lastRepCorrect: boolean | null) => void;
   /** Reference pose sequence(s): one rep or array of reps (dataset). If null, practice mode. */
   referenceSequence: PoseSequence | PoseSequence[] | null;
@@ -88,6 +106,12 @@ export default function PoseCameraView({
   correctReps,
   isCurrentRepCorrect,
   onBack,
+  backLabel = 'Back',
+  showBackButton = true,
+  trainingTimerText = null,
+  trainingTimerEndTimeMs = null,
+  onTrainingTimerExpired,
+  trainingTimerLabel = 'time left',
   onCorrectRepsUpdate,
   referenceSequence,
   poseFocus = 'full',
@@ -99,6 +123,12 @@ export default function PoseCameraView({
   category,
   showStartCountdown = true,
 }: PoseCameraViewProps) {
+  const formatTime = (seconds: number): string => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   const pipeline = moduleId && category ? getModulePosePipeline(moduleId, category) : null;
   const [ready, setReady] = useState(false);
   const [MediaPipeView, setMediaPipeView] = useState<React.ComponentType<{ width: number; height: number; onLandmark: (data: unknown) => void; [key: string]: unknown }> | null>(null);
@@ -143,6 +173,26 @@ export default function PoseCameraView({
   const [successCount, setSuccessCount] = useState(0);
   const [showWrongOverlay, setShowWrongOverlay] = useState(false);
   const [lastFeedback, setLastFeedback] = useState<PoseFeedbackItem[]>([]);
+
+  const [computedTrainingTimerText, setComputedTrainingTimerText] = useState<string | null>(trainingTimerText);
+  const lastTrainingTimerSecondsRef = useRef<number | null>(null);
+  const lastTrainingTimerTickMsRef = useRef<number>(0);
+  const trainingTimerExpiredRef = useRef(false);
+
+  useEffect(() => {
+    trainingTimerExpiredRef.current = false;
+    lastTrainingTimerTickMsRef.current = 0;
+    if (trainingTimerEndTimeMs != null && trainingTimerEndTimeMs > 0) {
+      const remainingMs = trainingTimerEndTimeMs - Date.now();
+      const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      lastTrainingTimerSecondsRef.current = remainingSeconds;
+      setComputedTrainingTimerText(formatTime(remainingSeconds));
+    } else {
+      lastTrainingTimerSecondsRef.current = null;
+      setComputedTrainingTimerText(trainingTimerText);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trainingTimerEndTimeMs, trainingTimerText]);
   const [realtimeArmState, setRealtimeArmState] = useState<RealtimeArmState>({
     left: 'neutral',
     right: 'neutral',
@@ -411,6 +461,26 @@ export default function PoseCameraView({
       const frame = thinksysLandmarksToFrame(data);
       const now = Date.now();
 
+      // Update training timer from the same frame loop as pose detection.
+      // This avoids relying on JS timers that can get starved while camera callbacks are busy.
+      if (trainingTimerEndTimeMs != null && trainingTimerEndTimeMs > 0) {
+        if (now - lastTrainingTimerTickMsRef.current >= 250) {
+          lastTrainingTimerTickMsRef.current = now;
+          const remainingMs = trainingTimerEndTimeMs - now;
+          const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+
+          if (lastTrainingTimerSecondsRef.current !== remainingSeconds) {
+            lastTrainingTimerSecondsRef.current = remainingSeconds;
+            setComputedTrainingTimerText(formatTime(remainingSeconds));
+          }
+
+          if (remainingSeconds <= 0 && !trainingTimerExpiredRef.current) {
+            trainingTimerExpiredRef.current = true;
+            onTrainingTimerExpired?.();
+          }
+        }
+      }
+
       if (frame.length > 0) {
         pushFrame(frame);
         const ext = armExtensionDistances(frame);
@@ -487,7 +557,7 @@ export default function PoseCameraView({
         }
       }
     },
-    [pushFrame]
+    [pushFrame, trainingTimerEndTimeMs, onTrainingTimerExpired]
   );
 
   if (!ready || error) {
@@ -507,9 +577,11 @@ export default function PoseCameraView({
             </>
           )}
         </View>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
+        {showBackButton && (
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backButtonText}>{backLabel}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -524,9 +596,11 @@ export default function PoseCameraView({
             <Text style={styles.repButtonText}>Allow camera</Text>
           </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
+        {showBackButton && (
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backButtonText}>{backLabel}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -538,9 +612,11 @@ export default function PoseCameraView({
           <ActivityIndicator size="large" color="#07bbc0" />
           <Text style={styles.hint}>Requesting camera permission...</Text>
         </View>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
+        {showBackButton && (
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backButtonText}>{backLabel}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -558,9 +634,11 @@ export default function PoseCameraView({
         <View style={styles.placeholder}>
           <Text style={styles.hint}>Initializing camera...</Text>
         </View>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
+        {showBackButton && (
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backButtonText}>{backLabel}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -669,7 +747,7 @@ export default function PoseCameraView({
             )}
           </View>
         )}
-        <Text style={styles.overlayTitle}>
+        <Text style={[styles.overlayTitle, poseFocus === 'full' ? styles.overlayTitleFull : null]}>
           {poseVariant === 'lead-jab'
             ? 'Lead jab: left hand out to the side, right hand in guard (wrist up)'
             : poseFocus === 'punching'
@@ -693,15 +771,25 @@ export default function PoseCameraView({
             </Text>
           );
         })()}
+        {(trainingTimerEndTimeMs != null ? computedTrainingTimerText : trainingTimerText) ? (
+          <View style={styles.trainingTimerBlock}>
+            <Text style={styles.trainingTimerText}>
+              {trainingTimerEndTimeMs != null ? computedTrainingTimerText : trainingTimerText}
+            </Text>
+            <Text style={styles.trainingTimerLabel}>{trainingTimerLabel}</Text>
+          </View>
+        ) : null}
         <View style={styles.repBox}>
           <Text style={styles.repText}>
             {correctReps} / {requiredReps}
           </Text>
         </View>
       </View>
-      <TouchableOpacity style={styles.backButton} onPress={onBack}>
-        <Text style={styles.backButtonText}>Back</Text>
-      </TouchableOpacity>
+      {showBackButton && (
+        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <Text style={styles.backButtonText}>{backLabel}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -828,15 +916,24 @@ const styles = StyleSheet.create({
   armStateLead: { color: 'rgba(34,197,94,0.95)', fontSize: 13, fontWeight: '600', marginBottom: 2 },
   armStateLastRep: { color: 'rgba(255,255,255,0.85)', fontSize: 12 },
   overlayTitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginBottom: 4 },
+  overlayTitleFull: { color: '#07bbc0' },
   overlayHint: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 8 },
   referenceLoadedLabel: { color: 'rgba(34,197,94,0.95)', fontSize: 12, marginBottom: 4 },
+  trainingTimerBlock: { alignItems: 'center', marginBottom: 8 },
+  trainingTimerText: { color: '#07bbc0', fontSize: 48, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  trainingTimerLabel: { color: '#6b8693', fontSize: 14, marginTop: 4 },
   repBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  repText: { color: '#FFF', fontSize: 22, fontWeight: '700' },
+  repText: { color: '#07bbc0', fontSize: 22, fontWeight: '700' },
   backButton: {
     position: 'absolute',
     top: Platform.OS === 'android' ? 24 : 50,
     left: 16,
-    padding: 8,
+    // Keep consistent button sizing across all session steps.
+    width: 60,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 8,
   },

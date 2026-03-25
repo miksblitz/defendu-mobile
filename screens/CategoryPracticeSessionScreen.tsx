@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -23,10 +24,12 @@ type SessionStep =
   | 'warmup_countdown'
   | 'warmup_timer'
   | 'warmup_between_countdown'
+  | 'training_safety'
   | 'training_countdown'
   | 'training_stance'
   | 'training_pose_loading'
   | 'training_pose'
+  | 'training_success'
   | 'training_between_countdown'
   | 'training_between_stance'
   | 'cooldown_countdown'
@@ -150,6 +153,7 @@ const COUNTDOWN_STEPS: SessionStep[] = [
   'warmup_between_countdown',
   'training_countdown',
   'training_stance',
+  'training_success',
   'training_between_countdown',
   'training_between_stance',
   'cooldown_countdown',
@@ -182,9 +186,16 @@ export default function CategoryPracticeSessionScreen({
   const [countdownText, setCountdownText] = useState<CountdownText>('3');
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const stanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(30);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasInitializedSessionRef = useRef(false);
+
+  const hasRecordedCompletionRef = useRef(false);
+  // Prevent restarting the timer interval on re-renders while still on `training_pose`.
+  const trainingTimerEpochRef = useRef<number>(-1);
+  const [trainingTimerEndTimeMs, setTrainingTimerEndTimeMs] = useState<number | null>(null);
 
   const currentTrainingItem = trainingModules[trainingIndex] ?? null;
   const [module, setModule] = useState<Module | null>(null);
@@ -201,10 +212,26 @@ export default function CategoryPracticeSessionScreen({
   const moduleRef = useRef<Module | null>(null);
 
   const [hasRecordedCompletion, setHasRecordedCompletion] = useState(false);
+  useEffect(() => {
+    hasRecordedCompletionRef.current = hasRecordedCompletion;
+  }, [hasRecordedCompletion]);
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [hasShownTrainingSafety, setHasShownTrainingSafety] = useState(false);
+  const [showTrainingFailed, setShowTrainingFailed] = useState(false);
 
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
   const matchThreshold = referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD;
+  const requiredRepsRef = useRef<number>(requiredReps);
+  const poseCorrectRepsRef = useRef<number>(poseCorrectReps);
+
+  useEffect(() => {
+    requiredRepsRef.current = requiredReps;
+  }, [requiredReps]);
+
+  useEffect(() => {
+    poseCorrectRepsRef.current = poseCorrectReps;
+  }, [poseCorrectReps]);
 
   useEffect(() => {
     isTrainingPreparedRef.current = isTrainingPrepared;
@@ -233,6 +260,13 @@ export default function CategoryPracticeSessionScreen({
     }
   };
 
+  const clearSuccessTimeout = () => {
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = null;
+    }
+  };
+
   const startTimer = (seconds: number, onDone: () => void) => {
     clearTimer();
     setTimerRemainingSeconds(seconds);
@@ -248,19 +282,22 @@ export default function CategoryPracticeSessionScreen({
     }, 1000);
   };
 
-  const runReadyGoCountdown = (onDone: () => void) => {
+  const runReadyGoCountdown = (onDone: () => void, opts?: { showGo?: boolean }) => {
     clearCountdown();
     const schedule = (text: CountdownText, delayMs: number) => {
       const tid = setTimeout(() => setCountdownText(text), delayMs);
       countdownTimeoutsRef.current.push(tid);
     };
     setCountdownText('3');
+    // Slightly slower cadence for readability.
     schedule('3', 0);
-    schedule('2', 650);
-    schedule('1', 1300);
-    schedule('ARE YOU READY?', 1950);
-    schedule('GO!!', 2750);
-    const finalTid = setTimeout(() => onDone(), 3250);
+    schedule('2', 900);
+    schedule('1', 1800);
+    schedule('ARE YOU READY?', 2700);
+    if (opts?.showGo !== false) {
+      schedule('GO!!', 3700);
+    }
+    const finalTid = setTimeout(() => onDone(), 4700);
     countdownTimeoutsRef.current.push(finalTid);
   };
 
@@ -273,6 +310,16 @@ export default function CategoryPracticeSessionScreen({
       setStep('session_done');
     }
   }, [cooldownNames]);
+
+  const startTrainingCountdown = useCallback(
+    (index: number) => {
+      setTrainingIndex(index);
+      // Show safety protocol exactly once: before the first training module countdown.
+      if (index === 0 && !hasShownTrainingSafety) setStep('training_safety');
+      else setStep('training_countdown');
+    },
+    [hasShownTrainingSafety]
+  );
 
   const loadTrainingForCurrentModule = useCallback(async () => {
     if (!currentTrainingItem) {
@@ -327,19 +374,44 @@ export default function CategoryPracticeSessionScreen({
 
   const proceedAfterTraining = useCallback(() => {
     setHasRecordedCompletion(false);
+    setShowTrainingFailed(false);
+    clearSuccessTimeout();
     clearTimer();
+    // Reset the pose timer so returning to this module starts fresh.
+    trainingTimerEpochRef.current = -1;
+    setTrainingTimerEndTimeMs(null);
     const next = trainingIndex + 1;
     if (next < trainingModules.length) {
-      setTrainingIndex(next);
-      setStep('training_countdown');
+      startTrainingCountdown(next);
     } else {
       exitTrainingToCooldownOrDone();
     }
-  }, [exitTrainingToCooldownOrDone, trainingIndex, trainingModules.length]);
+  }, [exitTrainingToCooldownOrDone, startTrainingCountdown, clearTimer, trainingIndex, trainingModules.length]);
+
+  const handleTrainingTimerExpired = useCallback(() => {
+    if (hasRecordedCompletionRef.current) return;
+    const required = requiredRepsRef.current;
+    const achieved = poseCorrectRepsRef.current;
+    if (required > 0 && achieved < required) {
+      setShowTrainingFailed(true);
+      return;
+    }
+    proceedAfterTraining();
+  }, [proceedAfterTraining]);
 
   const skipCurrentWorkout = useCallback(() => {
     clearCountdown();
     clearTimer();
+    clearSuccessTimeout();
+    setShowTrainingFailed(false);
+    trainingTimerEpochRef.current = -1;
+    setTrainingTimerEndTimeMs(null);
+
+    if (step === 'training_safety') {
+      setHasShownTrainingSafety(true);
+      setStep('training_countdown');
+      return;
+    }
 
     if (step === 'warmup_countdown' || step === 'warmup_timer' || step === 'warmup_between_countdown') {
       const next = warmupIndex + 1;
@@ -349,8 +421,7 @@ export default function CategoryPracticeSessionScreen({
         // Skip should trigger a single countdown only once.
         setStep('warmup_countdown');
       } else if (trainingModules.length > 0) {
-        setTrainingIndex(0);
-        setStep('training_countdown');
+        startTrainingCountdown(0);
       } else {
         exitTrainingToCooldownOrDone();
       }
@@ -371,8 +442,7 @@ export default function CategoryPracticeSessionScreen({
       setModule(null);
       const next = trainingIndex + 1;
       if (next < trainingModules.length) {
-        setTrainingIndex(next);
-        setStep('training_countdown');
+        startTrainingCountdown(next);
       } else {
         exitTrainingToCooldownOrDone();
       }
@@ -394,16 +464,34 @@ export default function CategoryPracticeSessionScreen({
     cooldownIndex,
     cooldownNames,
     exitTrainingToCooldownOrDone,
+    hasShownTrainingSafety,
     step,
+    startTrainingCountdown,
     trainingIndex,
     trainingModules.length,
     warmupIndex,
     warmupNames,
   ]);
 
+  const handleRetryTraining = useCallback(() => {
+    // Retry the same module: reset pose evaluation counters + timer, then restart pose loading.
+    setShowTrainingFailed(false);
+    setHasRecordedCompletion(false);
+    clearSuccessTimeout();
+    setPoseCorrectReps(0);
+    setPoseCurrentRepCorrect(null);
+    trainingTimerEpochRef.current = -1;
+    setTrainingTimerEndTimeMs(null);
+    // Force PoseCameraView remount to reset its internal state.
+    setPoseSessionKey((k) => k + 1);
+    // Go back to module's pose phase without changing trainingIndex.
+    setStep('training_pose_loading');
+  }, []);
+
   useEffect(() => {
     return () => {
       clearStanceTimeout();
+      clearSuccessTimeout();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -421,8 +509,21 @@ export default function CategoryPracticeSessionScreen({
     skipCurrentWorkout();
   }, [skipCurrentWorkout]);
 
+  const handleQuitNo = useCallback(() => setShowQuitConfirm(false), []);
+  const handleQuitYes = useCallback(() => {
+    setShowQuitConfirm(false);
+    onExit();
+  }, [onExit]);
+
+  const confirmQuit = useCallback(() => {
+    setShowQuitConfirm(true);
+  }, []);
+
   // Initialize session entry step.
   useEffect(() => {
+    if (hasInitializedSessionRef.current) return;
+    hasInitializedSessionRef.current = true;
+
     if (warmupNames.length > 0) {
       setActiveExerciseName(warmupNames[0] ?? '');
       setWarmupIndex(0);
@@ -431,7 +532,7 @@ export default function CategoryPracticeSessionScreen({
     }
 
     if (trainingModules.length > 0) {
-      setStep('training_countdown');
+      startTrainingCountdown(0);
       return;
     }
 
@@ -443,7 +544,8 @@ export default function CategoryPracticeSessionScreen({
     }
 
     setStep('session_done');
-  }, [cooldownNames.length, trainingModules.length, warmupNames.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cooldownNames.length, trainingModules.length, warmupNames.length, startTrainingCountdown]);
 
   // Warmup: countdown then 30s timer.
   useEffect(() => {
@@ -457,8 +559,7 @@ export default function CategoryPracticeSessionScreen({
           setActiveExerciseName(warmupNames[next] ?? '');
           setStep('warmup_between_countdown');
         } else if (trainingModules.length > 0) {
-          setTrainingIndex(0);
-          setStep('training_countdown');
+          startTrainingCountdown(0);
         } else {
           exitTrainingToCooldownOrDone();
         }
@@ -466,13 +567,13 @@ export default function CategoryPracticeSessionScreen({
     });
     return () => clearCountdown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, warmupIndex, warmupNames.length, trainingModules.length, exitTrainingToCooldownOrDone]);
+  }, [step, warmupIndex, warmupNames.length, trainingModules.length, exitTrainingToCooldownOrDone, startTrainingCountdown]);
 
   // Between warmups: countdown then next warmup countdown phase.
   useEffect(() => {
     if (step !== 'warmup_between_countdown') return;
-    runReadyGoCountdown(() => setStep('warmup_countdown'));
-    return () => clearCountdown();
+    // Avoid double countdown between warmups: immediately continue to the single warmup countdown.
+    setStep('warmup_countdown');
   }, [step, warmupIndex]);
 
   // Before each training module: countdown then load pose.
@@ -481,7 +582,7 @@ export default function CategoryPracticeSessionScreen({
     loadTrainingForCurrentModule().catch(() => {});
     runReadyGoCountdown(() => {
       setStep('training_stance');
-    });
+    }, { showGo: true });
     return () => clearCountdown();
   }, [step, trainingIndex, loadTrainingForCurrentModule]);
 
@@ -503,11 +604,10 @@ export default function CategoryPracticeSessionScreen({
   // After training module (reps met): countdown then next module or cooldown.
   useEffect(() => {
     if (step !== 'training_between_countdown') return;
-    runReadyGoCountdown(() => {
-      setStep('training_between_stance');
-    });
-    return () => clearCountdown();
-  }, [step, trainingIndex]);
+    // Safety: we only want 3→2→1 once per module (handled by training_countdown).
+    // If training_between_countdown is reached, skip the numeric countdown.
+    setStep('training_between_stance');
+  }, [step]);
 
   useEffect(() => {
     if (step !== 'training_between_stance') return;
@@ -563,26 +663,61 @@ export default function CategoryPracticeSessionScreen({
   useEffect(() => {
     if (step !== 'training_pose') return;
     if (!module) return;
+    if (showTrainingFailed) return;
     if (hasRecordedCompletion) return;
     if (poseCorrectReps >= requiredReps && requiredReps > 0) {
       setHasRecordedCompletion(true);
       AuthController.recordModuleCompletion(module.moduleId)
         .catch(() => {})
         .finally(() => {
-          setStep('training_between_countdown');
+          clearSuccessTimeout();
+          setStep('training_success');
+          successTimeoutRef.current = setTimeout(() => {
+            // Move directly to the next module countdown so we only show
+            // "3 → 2 → 1 → Are you ready? → Ready your stance" once per module.
+            proceedAfterTraining();
+          }, 3000);
         });
     }
-  }, [hasRecordedCompletion, module, poseCorrectReps, requiredReps, step]);
+  }, [hasRecordedCompletion, module, poseCorrectReps, requiredReps, proceedAfterTraining, showTrainingFailed, step]);
+
+  // Training timer: provide an end timestamp to PoseCameraView.
+  // PoseCameraView updates the displayed time during its pose frame loop.
+  useEffect(() => {
+    if (step !== 'training_pose') return;
+    if (!module) return;
+
+    // Only start once per module.
+    if (trainingTimerEpochRef.current === trainingIndex && trainingTimerEndTimeMs != null) return;
+    trainingTimerEpochRef.current = trainingIndex;
+
+    // Clamp to a sensible minimum so the timer is always visible and counts down.
+    const rawDuration = module.trainingDurationSeconds ?? 30;
+    const durationSeconds =
+      typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0 ? Math.floor(rawDuration) : 30;
+
+    setTrainingTimerEndTimeMs(Date.now() + durationSeconds * 1000);
+  }, [module, step, trainingIndex, trainingTimerEndTimeMs]);
 
   const backButton = (
-    <TouchableOpacity style={styles.backButton} onPress={onExit} activeOpacity={0.85}>
-      <Text style={styles.backButtonText}>Back</Text>
+    <TouchableOpacity
+      style={styles.iconButton}
+      onPress={confirmQuit}
+      activeOpacity={0.85}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Image source={require('../assets/images/logouticon.png')} style={styles.iconButtonImage} />
     </TouchableOpacity>
   );
 
   const skipButton = (
-    <TouchableOpacity style={styles.skipButton} onPress={confirmSkip} activeOpacity={0.85}>
-      <Text style={styles.skipButtonText}>Skip</Text>
+    <TouchableOpacity
+      style={styles.iconButton}
+      onPress={confirmSkip}
+      activeOpacity={0.85}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Image source={require('../assets/images/icon-back.png')} style={[styles.iconButtonImage, styles.iconButtonImageSkip]} />
     </TouchableOpacity>
   );
 
@@ -605,6 +740,65 @@ export default function CategoryPracticeSessionScreen({
     </Modal>
   );
 
+  const quitConfirmModal = (
+    <Modal transparent visible={showQuitConfirm} animationType="fade" onRequestClose={handleQuitNo}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Quit session?</Text>
+          <Text style={styles.modalMessage}>Are you sure you want to quit?</Text>
+          <View style={styles.modalActions}>
+            <Pressable style={styles.modalNoButton} onPress={handleQuitNo}>
+              <Text style={styles.modalNoText}>No</Text>
+            </Pressable>
+            <Pressable style={styles.modalYesButton} onPress={handleQuitYes}>
+              <Text style={styles.modalYesText}>Yes</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const trainingFailedModal = (
+    <Modal transparent visible={showTrainingFailed} animationType="fade" onRequestClose={() => setShowTrainingFailed(false)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>FAILED</Text>
+          <Text style={styles.modalMessage}>Do you want to try again?</Text>
+          <View style={styles.modalActionsColumn}>
+            <Pressable
+              style={styles.modalPrimaryButton}
+              onPress={() => {
+                setShowTrainingFailed(false);
+                handleRetryTraining();
+              }}
+            >
+              <Text style={styles.modalPrimaryButtonText}>Retry</Text>
+            </Pressable>
+            <Pressable
+              style={styles.modalOutlineButton}
+              onPress={() => {
+                setShowTrainingFailed(false);
+                confirmQuit();
+              }}
+            >
+              <Text style={styles.modalOutlineButtonText}>Quit</Text>
+            </Pressable>
+            <Pressable
+              style={styles.modalOutlineButton}
+              onPress={() => {
+                setShowTrainingFailed(false);
+                skipCurrentWorkout();
+              }}
+            >
+              <Text style={styles.modalOutlineButtonText}>Skip</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (step === 'session_done') {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -614,11 +808,46 @@ export default function CategoryPracticeSessionScreen({
           {backButton}
         </View>
         {skipConfirmModal}
+        {quitConfirmModal}
+      </SafeAreaView>
+    );
+  }
+
+  if (step === 'training_safety') {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.center}>
+          <View style={styles.safetyCard}>
+            <Text style={styles.safetyTitle}>Safety Protocol</Text>
+            <Text style={styles.safetyIntro}>Please read and confirm the following before starting your training modules:</Text>
+
+            <View style={styles.safetyList}>
+              <Text style={styles.safetyItem}>• Ensure you have enough space to move safely with no obstacles.</Text>
+              <Text style={styles.safetyItem}>• Warm up before practicing. Do not train if you feel unwell or injured.</Text>
+              <Text style={styles.safetyItem}>• Train at your own risk and within your ability.</Text>
+              <Text style={styles.safetyItem}>• If using camera-based features, make sure the area behind you is clear.</Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => {
+                setHasShownTrainingSafety(true);
+                setStep('training_countdown');
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.primaryButtonText}>Confirm</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </SafeAreaView>
     );
   }
 
   if (step === 'training_pose' && module) {
+    const rawDuration = module.trainingDurationSeconds ?? 30;
+    const durationSeconds =
+      typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0 ? Math.floor(rawDuration) : 30;
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={{ flex: 1 }}>
@@ -627,7 +856,12 @@ export default function CategoryPracticeSessionScreen({
             requiredReps={requiredReps}
             correctReps={poseCorrectReps}
             isCurrentRepCorrect={poseCurrentRepCorrect}
-            onBack={onExit}
+            onBack={confirmQuit}
+            backLabel="Quit"
+            showBackButton={false}
+            trainingTimerText={formatTime(durationSeconds)}
+            trainingTimerEndTimeMs={trainingTimerEndTimeMs}
+            onTrainingTimerExpired={handleTrainingTimerExpired}
             onCorrectRepsUpdate={(count, lastCorrect) => {
               setPoseCorrectReps(count);
               setPoseCurrentRepCorrect(lastCorrect);
@@ -642,9 +876,14 @@ export default function CategoryPracticeSessionScreen({
             showArmState={false}
             showOverlayHint={false}
           />
-          <View style={styles.trainingSkipOverlay}>{skipButton}</View>
+          <View style={styles.bottomControlsRow}>
+            {backButton}
+            {skipButton}
+          </View>
         </View>
         {skipConfirmModal}
+        {quitConfirmModal}
+        {trainingFailedModal}
       </SafeAreaView>
     );
   }
@@ -659,15 +898,24 @@ export default function CategoryPracticeSessionScreen({
     const isTrainingStanceStep = step === 'training_stance' || step === 'training_between_stance';
     const trainingStanceSource = require('../assets/images/guides/side fighting stance gif.gif');
     const isNumericCountdown = countdownText === '3' || countdownText === '2' || countdownText === '1';
+    const isSuccessStep = step === 'training_success';
+    const hideControls =
+      isTrainingStanceStep || isNumericCountdown || countdownText === 'ARE YOU READY?' || countdownText === 'GO!!';
 
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.floatingControlsRow}>
-          {backButton}
-          {skipButton}
-        </View>
+        {!hideControls && !isSuccessStep && (
+          <View style={styles.floatingControlsRow}>
+            {backButton}
+            {skipButton}
+          </View>
+        )}
         <View style={styles.fullCountdownBody}>
-          {isTrainingStanceStep ? (
+          {isSuccessStep ? (
+            <Text style={[styles.fullCountdownText, styles.fullCountdownTextNumeric]} adjustsFontSizeToFit numberOfLines={1}>
+              GOOD JOB!
+            </Text>
+          ) : isTrainingStanceStep ? (
             <View style={styles.stancePageWrap}>
               <Image source={trainingStanceSource} style={styles.stanceCenterGif} resizeMode="contain" />
               <Text style={styles.stancePageText}>READY YOUR STANCE</Text>
@@ -683,6 +931,7 @@ export default function CategoryPracticeSessionScreen({
           )}
         </View>
         {skipConfirmModal}
+        {quitConfirmModal}
       </SafeAreaView>
     );
   }
@@ -741,6 +990,7 @@ export default function CategoryPracticeSessionScreen({
         </View>
       )}
       {skipConfirmModal}
+      {quitConfirmModal}
     </SafeAreaView>
   );
 }
@@ -749,7 +999,9 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   floatingControlsRow: {
     position: 'absolute',
-    top: 4,
+    // Bottom placement for nicer composition.
+    // Align with PoseCameraView overlay block (timer/rep area).
+    bottom: 60,
     left: 16,
     right: 16,
     zIndex: 20,
@@ -757,14 +1009,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  backButton: { width: 60, paddingVertical: 8 },
-  backButtonText: { color: '#FFF', fontWeight: '600' },
-  skipButton: { width: 60, paddingVertical: 8, alignItems: 'flex-end' },
-  skipButtonText: { color: '#ffd166', fontWeight: '700' },
-  trainingSkipOverlay: {
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(1, 31, 54, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.25)',
+  },
+  iconButtonImage: { width: 22, height: 22, tintColor: '#07bbc0', opacity: 0.95 },
+  // Reuse the back icon, flipped to point right, for "Skip".
+  iconButtonImageSkip: { transform: [{ rotate: '180deg' }] },
+  bottomControlsRow: {
     position: 'absolute',
-    top: 12,
+    // Align with PoseCameraView overlay block (timer/rep area).
+    bottom: 60,
+    left: 16,
     right: 16,
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   activeBody: { flex: 1, paddingHorizontal: 20, paddingTop: 26 },
   exerciseTitleLarge: {
@@ -844,6 +1111,21 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, gap: 10 },
   sessionTitle: { color: '#07bbc0', fontSize: 22, fontWeight: '900' },
   sessionSubtitle: { color: '#6b8693', fontSize: 14, textAlign: 'center' },
+  safetyCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#011f36',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#0a3645',
+  },
+  safetyTitle: { color: '#07bbc0', fontSize: 20, fontWeight: '700', marginBottom: 12, textAlign: 'center' },
+  safetyIntro: { color: '#FFF', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+  safetyList: { marginBottom: 18 },
+  safetyItem: { color: '#6b8693', fontSize: 14, marginBottom: 10, lineHeight: 22 },
+  primaryButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 },
+  primaryButtonText: { color: '#041527', fontSize: 16, fontWeight: '700' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -863,6 +1145,7 @@ const styles = StyleSheet.create({
   modalTitle: { color: '#07bbc0', fontSize: 20, fontWeight: '800', textAlign: 'center' },
   modalMessage: { color: '#d6e6ee', fontSize: 15, textAlign: 'center', marginTop: 10, marginBottom: 18 },
   modalActions: { flexDirection: 'row', gap: 10 },
+  modalActionsColumn: { flexDirection: 'column', gap: 10, marginTop: 8 },
   modalNoButton: {
     flex: 1,
     borderWidth: 1.5,
@@ -880,4 +1163,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalYesText: { color: '#041527', fontWeight: '800', fontSize: 15 },
+  modalPrimaryButton: { width: '100%', backgroundColor: '#07bbc0', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  modalPrimaryButtonText: { color: '#041527', fontWeight: '800', fontSize: 15 },
+  modalOutlineButton: { width: '100%', borderWidth: 1.5, borderColor: '#07bbc0', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  modalOutlineButtonText: { color: '#07bbc0', fontWeight: '700', fontSize: 15 },
 });

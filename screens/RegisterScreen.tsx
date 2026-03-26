@@ -18,7 +18,7 @@ import {
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
-import type { User } from '../lib/models/User';
+import type { RegisterData } from '../lib/models/User';
 
 // --- Validation helpers ---
 function validateName(name: string, fieldName: string): string {
@@ -76,11 +76,11 @@ interface ErrorsState {
 
 interface RegisterScreenProps {
   onLogin?: () => void;
-  onRegisterSuccess?: (user: User) => void;
+  onOtpRequested?: (data: RegisterData) => void;
 }
 
 // --- Component ---
-export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterScreenProps) {
+export default function RegisterScreen({ onLogin, onOtpRequested }: RegisterScreenProps) {
   const [form, setForm] = useState<FormState>({
     username: '',
     firstName: '',
@@ -133,7 +133,7 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterS
     });
 
     if (firstNameError || lastNameError || emailError || passwordError || confirmPasswordError) {
-      showToast('Please fix the errors before submitting');
+      showToast('Please check the highlighted fields and try again.');
       return;
     }
     if (form.email.toLowerCase() === 'admin@defendu.com') {
@@ -148,18 +148,19 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterS
 
     setLoading(true);
     try {
-      const user = await AuthController.register({
+      const registerData: RegisterData = {
         email: form.email,
         password: form.password,
         username: form.username.trim(),
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
-      });
-      showToast('Account created successfully! Please complete your skill profile.');
+      };
+      await AuthController.sendRegistrationOtp(registerData.email);
+      showToast('OTP sent to your email. Enter the code to confirm your account.');
       setTimeout(() => {
         setLoading(false);
-        onRegisterSuccess?.(user);
-      }, 2000);
+        onOtpRequested?.(registerData);
+      }, 1200);
     } catch (error) {
       showToast((error as Error)?.message ?? 'Registration failed. Please try again.');
       setLoading(false);
@@ -182,6 +183,15 @@ export default function RegisterScreen({ onLogin, onRegisterSuccess }: RegisterS
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={onLogin}
+            disabled={loading || !onLogin}
+            activeOpacity={0.8}
+          >
+            <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
+          </TouchableOpacity>
+
           <Image
             source={require('../assets/images/defendulogo.png')}
             style={styles.logoImage}
@@ -353,7 +363,9 @@ const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },
   container: { width: '100%', maxWidth: 400, alignItems: 'center' },
-  logoImage: { width: 160, height: 180, marginBottom: 16, resizeMode: 'contain' },
+  backBtn: { alignSelf: 'flex-start', marginBottom: 8, padding: 8 },
+  backIcon: { width: 24, height: 24, tintColor: '#FFF' },
+  logoImage: { width: 130, height: 145, marginBottom: 12, resizeMode: 'contain' },
   title: { fontSize: 24, fontWeight: '700', color: '#FFF', textAlign: 'center', marginBottom: 4 },
   subtitle: { fontSize: 14, color: '#FFF', textAlign: 'center', marginBottom: 24 },
   inputWrapper: {

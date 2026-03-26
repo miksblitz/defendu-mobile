@@ -98,7 +98,10 @@ export async function register(data: RegisterData): Promise<User> {
       hasCompletedSkillProfile: false,
       trainerApproved: false,
     };
-    await AsyncStorage.setItem('user', JSON.stringify(userData));
+    // Do not keep registration auto-session.
+    // User must explicitly log in after successful account creation.
+    await AsyncStorage.removeItem('user');
+    await signOut(auth).catch(() => {});
     return userData;
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };
@@ -410,6 +413,51 @@ export async function forgotPassword(data: { email: string }): Promise<string> {
   }
 
   return result.message ?? 'Password reset email sent successfully';
+}
+
+export async function sendRegistrationOtp(email: string): Promise<string> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/api/register-send-otp`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  const raw = await response.text();
+  let result: any = {};
+  try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('OTP service is unavailable right now. Please contact support or deploy the latest backend API.');
+    }
+    if (response.status === 503) {
+      throw new Error('Email service is not configured yet. Please contact support.');
+    }
+    const msg = (result as any).error || (result as any).message || 'Failed to send OTP';
+    throw new Error(msg);
+  }
+  return (result as any).message || 'OTP sent';
+}
+
+export async function verifyRegistrationOtp(email: string, code: string): Promise<string> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/api/register-verify-otp`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  });
+  const raw = await response.text();
+  let result: any = {};
+  try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('OTP verification service is unavailable. Please try again later.');
+    }
+    const msg = (result as any).error || (result as any).message || 'Failed to verify OTP';
+    throw new Error(msg);
+  }
+  return (result as any).message || 'OTP verified';
 }
 
 /** Validate reset token (e.g. when app opens via deep link). */
@@ -1033,6 +1081,8 @@ export const AuthController = {
   changePassword,
   getApprovedModules,
   forgotPassword,
+  sendRegistrationOtp,
+  verifyRegistrationOtp,
   logout,
   getRecommendations,
   getUserProgress,

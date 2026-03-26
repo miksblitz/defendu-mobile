@@ -8,6 +8,7 @@ LogBox.ignoreLogs(['Open debugger', 'view warnings', 'Debugger']);
 import StartupScreen from './screens/StartupScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
+import RegisterOtpScreen from './screens/RegisterOtpScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import ViewModuleScreen from './screens/ViewModuleScreen';
 import ProfileScreen from './screens/ProfileScreen';
@@ -26,13 +27,14 @@ import MainLayout from './components/MainLayout';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
 import { UnreadMessagesProvider } from './lib/contexts/UnreadMessagesContext';
 import { AuthController, type ModuleItem } from './lib/controllers/AuthController';
-import type { User } from './lib/models/User';
+import type { RegisterData, User } from './lib/models/User';
 
 type Screen =
   | 'splash'
   | 'startup'
   | 'login'
   | 'register'
+  | 'register-otp'
   | 'forgot-password'
   | 'reset-password'
   | 'dashboard'
@@ -89,6 +91,7 @@ export default function App() {
   const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
+  const [pendingRegistration, setPendingRegistration] = useState<RegisterData | null>(null);
 
   // Splash: brief branding then startup (shorter = faster to interactive)
   useEffect(() => {
@@ -214,10 +217,27 @@ export default function App() {
       {screen === 'register' && (
         <RegisterScreen
           onLogin={() => setScreen('login')}
-          onRegisterSuccess={(user: User | undefined) => {
-            if (user && !user.hasCompletedSkillProfile) setScreen('skill-profile-step1');
-            else setScreen('login');
+          onOtpRequested={(data) => {
+            setPendingRegistration(data);
+            setScreen('register-otp');
           }}
+        />
+      )}
+      {screen === 'register-otp' && pendingRegistration && (
+        <RegisterOtpScreen
+          registrationData={pendingRegistration}
+          onBack={() => setScreen('register')}
+          onSuccess={() => {
+            setPendingRegistration(null);
+            setScreen('login');
+          }}
+        />
+      )}
+      {screen === 'register-otp' && !pendingRegistration && (
+        <LoginScreen
+          onForgotPassword={() => setScreen('forgot-password')}
+          onRegister={() => setScreen('register')}
+          onLoginSuccess={handleLoginSuccess}
         />
       )}
       {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session') && (

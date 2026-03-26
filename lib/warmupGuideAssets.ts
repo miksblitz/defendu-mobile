@@ -21,6 +21,7 @@ const KNEE_HUG = require('../assets/images/cooldown_guides/knee hug.gif');
 /** Exact labels saved from PublishModuleScreen. */
 const BY_EXACT_LABEL: Record<string, ImageSourcePropType> = {
   'ARM CIRCLES': ARM_CIRCLES,
+  'HIP CIRCLES': HIP_CIRCLES,
   'HIP CIRCLES (like doing a hula hoop)': HIP_CIRCLES,
   'LEG SWINGS': LEG_SWING,
   'MARCH -OR- JOG IN PLACE': JOG_IN_PLACE,

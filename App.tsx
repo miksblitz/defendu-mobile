@@ -85,9 +85,11 @@ export default function App() {
     warmups: string[];
     cooldowns: string[];
     trainingModules: ModuleItem[];
+    startPhase?: 'warmup' | 'cooldown';
     mannequinGifUri?: string | null;
   } | null>(null);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const [dashboardReturnToCategory, setDashboardReturnToCategory] = useState<string | null>(null);
   const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
@@ -101,7 +103,7 @@ export default function App() {
   }, [screen]);
 
   useEffect(() => {
-    if (screen !== 'trainer') return;
+    if (screen !== 'trainer' && screen !== 'dashboard') return;
     let cancelled = false;
     AuthController.getCurrentUser().then((user) => {
       if (cancelled) return;
@@ -243,9 +245,27 @@ export default function App() {
       {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
-            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+            <MainLayout
+              title=""
+              currentScreen="dashboard"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              headerRight={
+                !isApprovedTrainer ? (
+                  <TouchableOpacity
+                    style={{ paddingVertical: 10, paddingHorizontal: 14, backgroundColor: '#07bbc0', borderRadius: 8 }}
+                    onPress={() => setScreen('trainer-registration')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={{ color: '#041527', fontSize: 14, fontWeight: '700' }}>Apply as Trainer</Text>
+                  </TouchableOpacity>
+                ) : undefined
+              }
+            >
               <DashboardScreen
                 refreshKey={dashboardRefreshKey}
+                returnToCategory={dashboardReturnToCategory}
+                onConsumeReturnToCategory={() => setDashboardReturnToCategory(null)}
                 initialToastMessage={dashboardToastMessage}
                 onClearInitialToast={() => setDashboardToastMessage(null)}
                 onOpenModule={(moduleId: string, initialModule?: ModuleItem) => { setViewModuleId(moduleId); setViewModuleInitial(initialModule ?? null); setScreen('view-module'); }}
@@ -299,15 +319,7 @@ export default function App() {
                   >
                     <Text style={{ color: '#041527', fontSize: 14, fontWeight: '700' }}>Publish</Text>
                   </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={{ paddingVertical: 10, paddingHorizontal: 14, backgroundColor: '#07bbc0', borderRadius: 8 }}
-                    onPress={() => setScreen('trainer-registration')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ color: '#041527', fontSize: 14, fontWeight: '700' }}>Register</Text>
-                  </TouchableOpacity>
-                )
+                ) : undefined
               }
             >
               <TrainerScreen onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }} />
@@ -335,8 +347,10 @@ export default function App() {
                 warmups={categoryPracticeSession.warmups}
                 cooldowns={categoryPracticeSession.cooldowns}
                 trainingModules={categoryPracticeSession.trainingModules}
+                startPhase={categoryPracticeSession.startPhase}
                 mannequinGifUri={categoryPracticeSession.mannequinGifUri ?? null}
                 onExit={() => {
+                  setDashboardReturnToCategory(categoryPracticeSession.category);
                   setCategoryPracticeSession(null);
                   setScreen('dashboard');
                   setDashboardRefreshKey((k) => k + 1);

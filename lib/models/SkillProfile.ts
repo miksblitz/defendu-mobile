@@ -9,6 +9,8 @@ export interface PhysicalAttributes {
 export interface Preferences {
   preferredTechnique: string[];
   trainingGoal: string[];
+  targetModulesPerDay: number;
+  targetModulesPerWeek: number;
 }
 
 export interface PastExperience {

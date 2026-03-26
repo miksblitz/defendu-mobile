@@ -44,6 +44,7 @@ export interface CategoryPracticeSessionScreenProps {
   warmups: string[];
   cooldowns: string[];
   trainingModules: ModuleItem[];
+  startPhase?: 'warmup' | 'cooldown';
   mannequinGifUri?: string | null;
   onExit: () => void;
 }
@@ -169,6 +170,7 @@ export default function CategoryPracticeSessionScreen({
   warmups,
   cooldowns,
   trainingModules,
+  startPhase = 'warmup',
   mannequinGifUri,
   onExit,
 }: CategoryPracticeSessionScreenProps) {
@@ -216,6 +218,7 @@ export default function CategoryPracticeSessionScreen({
     hasRecordedCompletionRef.current = hasRecordedCompletion;
   }, [hasRecordedCompletion]);
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  const [showPreviousConfirm, setShowPreviousConfirm] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [hasShownTrainingSafety, setHasShownTrainingSafety] = useState(false);
   const [showTrainingFailed, setShowTrainingFailed] = useState(false);
@@ -520,6 +523,103 @@ export default function CategoryPracticeSessionScreen({
     setShowSkipConfirm(true);
   }, [skipCurrentWorkout]);
 
+  const goToPreviousWorkout = useCallback(() => {
+    clearCountdown();
+    clearTimer();
+    clearSuccessTimeout();
+    setShowTrainingFailed(false);
+    trainingTimerEpochRef.current = -1;
+    setTrainingTimerEndTimeMs(null);
+    trainingPrepRequestRef.current += 1;
+    setHasRecordedCompletion(false);
+    setIsTrainingPrepared(false);
+    setModule(null);
+    const isWarmupStep = step === 'warmup_countdown' || step === 'warmup_timer' || step === 'warmup_between_countdown';
+    const isTrainingStep =
+      step === 'training_safety' ||
+      step === 'training_countdown' ||
+      step === 'training_stance' ||
+      step === 'training_pose_loading' ||
+      step === 'training_pose' ||
+      step === 'training_success' ||
+      step === 'training_between_countdown' ||
+      step === 'training_between_stance';
+    const isCooldownStep = step === 'cooldown_countdown' || step === 'cooldown_timer' || step === 'cooldown_between_countdown';
+
+    if (isWarmupStep) {
+      const prevWarmup = warmupIndex - 1;
+      if (prevWarmup >= 0) {
+        setWarmupIndex(prevWarmup);
+        setActiveExerciseName(warmupNames[prevWarmup] ?? '');
+        setStep('warmup_countdown');
+        return;
+      }
+      // Already first warmup: restart first warmup.
+      setWarmupIndex(0);
+      setActiveExerciseName(warmupNames[0] ?? '');
+      setStep('warmup_countdown');
+      return;
+    }
+
+    if (isTrainingStep) {
+      const prevTraining = trainingIndex - 1;
+      if (prevTraining >= 0) {
+        startTrainingCountdown(prevTraining);
+        return;
+      }
+      // From first training module, jump back to last warmup if available.
+      if (warmupNames.length > 0) {
+        const lastWarmup = warmupNames.length - 1;
+        setWarmupIndex(lastWarmup);
+        setActiveExerciseName(warmupNames[lastWarmup] ?? '');
+        setStep('warmup_countdown');
+        return;
+      }
+      // No warmups: restart first training module.
+      startTrainingCountdown(0);
+      return;
+    }
+
+    if (isCooldownStep) {
+      const prevCooldown = cooldownIndex - 1;
+      if (prevCooldown >= 0) {
+        setCooldownIndex(prevCooldown);
+        setActiveExerciseName(cooldownNames[prevCooldown] ?? '');
+        setStep('cooldown_countdown');
+        return;
+      }
+      // From first cooldown, jump to last training if available.
+      if (trainingModules.length > 0) {
+        startTrainingCountdown(trainingModules.length - 1);
+        return;
+      }
+      // Fallback: restart first cooldown.
+      setCooldownIndex(0);
+      setActiveExerciseName(cooldownNames[0] ?? '');
+      setStep('cooldown_countdown');
+      return;
+    }
+
+    // Session done / unknown: go to last available phase.
+    if (cooldownNames.length > 0) {
+      const lastCooldown = cooldownNames.length - 1;
+      setCooldownIndex(lastCooldown);
+      setActiveExerciseName(cooldownNames[lastCooldown] ?? '');
+      setStep('cooldown_countdown');
+      return;
+    }
+    if (trainingModules.length > 0) {
+      startTrainingCountdown(trainingModules.length - 1);
+      return;
+    }
+    if (warmupNames.length > 0) {
+      const lastWarmup = warmupNames.length - 1;
+      setWarmupIndex(lastWarmup);
+      setActiveExerciseName(warmupNames[lastWarmup] ?? '');
+      setStep('warmup_countdown');
+    }
+  }, [cooldownIndex, cooldownNames, startTrainingCountdown, step, trainingIndex, trainingModules.length, warmupIndex, warmupNames]);
+
   const handleSkipNo = useCallback(() => {
     setShowSkipConfirm(false);
   }, []);
@@ -528,6 +628,15 @@ export default function CategoryPracticeSessionScreen({
     setShowSkipConfirm(false);
     skipCurrentWorkout();
   }, [skipCurrentWorkout]);
+
+  const handlePreviousNo = useCallback(() => {
+    setShowPreviousConfirm(false);
+  }, []);
+
+  const handlePreviousYes = useCallback(() => {
+    setShowPreviousConfirm(false);
+    goToPreviousWorkout();
+  }, [goToPreviousWorkout]);
 
   const handleQuitNo = useCallback(() => setShowQuitConfirm(false), []);
   const handleQuitYes = useCallback(() => {
@@ -539,10 +648,21 @@ export default function CategoryPracticeSessionScreen({
     setShowQuitConfirm(true);
   }, []);
 
+  const confirmPrevious = useCallback(() => {
+    setShowPreviousConfirm(true);
+  }, []);
+
   // Initialize session entry step.
   useEffect(() => {
     if (hasInitializedSessionRef.current) return;
     hasInitializedSessionRef.current = true;
+
+    if (startPhase === 'cooldown' && cooldownNames.length > 0) {
+      setCooldownIndex(0);
+      setActiveExerciseName(cooldownNames[0] ?? '');
+      setStep('cooldown_countdown');
+      return;
+    }
 
     if (warmupNames.length > 0) {
       setActiveExerciseName(warmupNames[0] ?? '');
@@ -565,7 +685,7 @@ export default function CategoryPracticeSessionScreen({
 
     setStep('session_done');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cooldownNames.length, trainingModules.length, warmupNames.length, startTrainingCountdown]);
+  }, [cooldownNames, startPhase, trainingModules.length, warmupNames.length, startTrainingCountdown]);
 
   // Warmup: countdown then 30s timer.
   useEffect(() => {
@@ -719,14 +839,25 @@ export default function CategoryPracticeSessionScreen({
     setTrainingTimerEndTimeMs(Date.now() + durationSeconds * 1000);
   }, [module, step, trainingIndex, trainingTimerEndTimeMs]);
 
-  const backButton = (
+  const quitButton = (
     <TouchableOpacity
-      style={styles.iconButton}
+      style={styles.topLeftQuitButton}
       onPress={confirmQuit}
       activeOpacity={0.85}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
       <Image source={require('../assets/images/logouticon.png')} style={styles.iconButtonImage} />
+    </TouchableOpacity>
+  );
+
+  const previousButton = (
+    <TouchableOpacity
+      style={styles.iconButton}
+      onPress={confirmPrevious}
+      activeOpacity={0.85}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Image source={require('../assets/images/icon-back.png')} style={styles.iconButtonImage} />
     </TouchableOpacity>
   );
 
@@ -752,6 +883,25 @@ export default function CategoryPracticeSessionScreen({
               <Text style={styles.modalNoText}>No</Text>
             </Pressable>
             <Pressable style={styles.modalYesButton} onPress={handleSkipYes}>
+              <Text style={styles.modalYesText}>Yes</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const previousConfirmModal = (
+    <Modal transparent visible={showPreviousConfirm} animationType="fade" onRequestClose={handlePreviousNo}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Previous workout?</Text>
+          <Text style={styles.modalMessage}>Are you sure you want to go back to the previous workout?</Text>
+          <View style={styles.modalActions}>
+            <Pressable style={styles.modalNoButton} onPress={handlePreviousNo}>
+              <Text style={styles.modalNoText}>No</Text>
+            </Pressable>
+            <Pressable style={styles.modalYesButton} onPress={handlePreviousYes}>
               <Text style={styles.modalYesText}>Yes</Text>
             </Pressable>
           </View>
@@ -822,12 +972,13 @@ export default function CategoryPracticeSessionScreen({
   if (step === 'session_done') {
     return (
       <SafeAreaView style={styles.safeArea}>
+        {quitButton}
         <View style={styles.center}>
           <Text style={styles.sessionTitle}>Session Complete</Text>
           <Text style={styles.sessionSubtitle}>Nice work. You finished Warmup → Training → Cooldown.</Text>
-          {backButton}
         </View>
         {skipConfirmModal}
+        {previousConfirmModal}
         {quitConfirmModal}
       </SafeAreaView>
     );
@@ -836,6 +987,7 @@ export default function CategoryPracticeSessionScreen({
   if (step === 'training_safety') {
     return (
       <SafeAreaView style={styles.safeArea}>
+        {quitButton}
         <View style={styles.center}>
           <View style={styles.safetyCard}>
             <Text style={styles.safetyTitle}>Safety Protocol</Text>
@@ -860,6 +1012,7 @@ export default function CategoryPracticeSessionScreen({
             </TouchableOpacity>
           </View>
         </View>
+        {quitConfirmModal}
       </SafeAreaView>
     );
   }
@@ -911,11 +1064,13 @@ export default function CategoryPracticeSessionScreen({
             showOverlayHint={false}
           />
           <View style={styles.bottomControlsRow}>
-            {backButton}
+            {previousButton}
             {skipButton}
           </View>
         </View>
+        {quitButton}
         {skipConfirmModal}
+        {previousConfirmModal}
         {quitConfirmModal}
         {trainingFailedModal}
       </SafeAreaView>
@@ -935,15 +1090,18 @@ export default function CategoryPracticeSessionScreen({
     const isSuccessStep = step === 'training_success';
     const hideControls =
       isTrainingStanceStep || isNumericCountdown || countdownText === 'ARE YOU READY?' || countdownText === 'GO!!';
+    const hideQuitButton =
+      isTrainingStanceStep || isNumericCountdown || countdownText === 'ARE YOU READY?' || countdownText === 'GO!!';
 
     return (
       <SafeAreaView style={styles.safeArea}>
         {!hideControls && !isSuccessStep && (
           <View style={styles.floatingControlsRow}>
-            {backButton}
+            {previousButton}
             {skipButton}
           </View>
         )}
+        {!hideQuitButton ? <View style={styles.topLeftOverlay}>{quitButton}</View> : null}
         <View style={styles.fullCountdownBody}>
           {isSuccessStep ? (
             <Text style={[styles.fullCountdownText, styles.fullCountdownTextNumeric]} adjustsFontSizeToFit numberOfLines={1}>
@@ -965,15 +1123,16 @@ export default function CategoryPracticeSessionScreen({
           )}
         </View>
         {skipConfirmModal}
+        {previousConfirmModal}
         {quitConfirmModal}
       </SafeAreaView>
     );
   }
 
   const showTimer = step === 'warmup_timer' || step === 'cooldown_timer';
-
-  const topSectionTitle =
-    step === 'warmup_timer' ? `Warmup` : step === 'cooldown_timer' ? `Cool Down` : 'Training';
+  const warmupOrdinalTitle = `Warmup ${Math.min(warmupNames.length, warmupIndex + 1)}`;
+  const cooldownOrdinalTitle = `Cooldown ${Math.min(cooldownNames.length, cooldownIndex + 1)}`;
+  const topExerciseOrdinalTitle = step === 'warmup_timer' ? warmupOrdinalTitle : step === 'cooldown_timer' ? cooldownOrdinalTitle : '';
 
   const cooldownStretchMessage = 'Take a moment to stretch and cool down.';
 
@@ -987,9 +1146,10 @@ export default function CategoryPracticeSessionScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.floatingControlsRow}>
-        {backButton}
+        {previousButton}
         {skipButton}
       </View>
+      {quitButton}
 
       {step === 'training_pose_loading' && (
         <View style={styles.activeBody}>
@@ -1002,6 +1162,7 @@ export default function CategoryPracticeSessionScreen({
 
       {(step === 'warmup_timer' || step === 'cooldown_timer') && (
         <View style={styles.activeBody}>
+          <Text style={styles.exerciseOrdinalTitle}>{topExerciseOrdinalTitle}</Text>
           <Text style={styles.exerciseTitleLarge}>{activeExerciseName}</Text>
           {step === 'cooldown_timer' ? <Text style={styles.cooldownStretchText}>{cooldownStretchMessage}</Text> : null}
 
@@ -1024,6 +1185,7 @@ export default function CategoryPracticeSessionScreen({
         </View>
       )}
       {skipConfirmModal}
+      {previousConfirmModal}
       {quitConfirmModal}
     </SafeAreaView>
   );
@@ -1081,13 +1243,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  topLeftOverlay: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 10 : 4,
+    left: 16,
+    zIndex: 35,
+  },
+  topLeftQuitButton: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 10 : 4,
+    left: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(1, 31, 54, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.25)',
+    zIndex: 35,
+  },
   activeBody: { flex: 1, paddingHorizontal: 20, paddingTop: 26 },
+  exerciseOrdinalTitle: {
+    color: '#07bbc0',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 34,
+    marginBottom: 2,
+  },
   exerciseTitleLarge: {
     color: '#FFF',
     fontSize: 24,
     fontWeight: '800',
     textAlign: 'center',
-    marginTop: 42,
+    marginTop: 0,
     marginBottom: 8,
   },
   cooldownStretchText: { color: '#6b8693', fontSize: 15, marginBottom: 12, textAlign: 'center', lineHeight: 22 },

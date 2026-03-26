@@ -14,6 +14,8 @@ export interface User {
   lastActive?: Date;
   preferredTechnique?: string[];
   trainingGoal?: string[];
+  targetModulesPerDay?: number;
+  targetModulesPerWeek?: number;
   martialArtsBackground?: string[];
   height?: number;
   weight?: number;

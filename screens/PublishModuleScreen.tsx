@@ -42,11 +42,11 @@ const spaceOptions = ['Small space', 'Medium space', 'Large space', 'Outdoor', '
 
 /** Warmup options; can be filtered by category (e.g. Punching → upper body, Kicking → lower body). */
 const warmupOptionsByCategory: Record<string, string[]> = {
-  'Punching': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
-  'Kicking': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
-  'Elbow Strikes': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
-  'Knee Strikes': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
-  'Defensive Moves': ['ARM CIRCLES', 'HIP CIRCLES (like doing a hula hoop)', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Punching': ['ARM CIRCLES', 'HIP CIRCLES', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Kicking': ['ARM CIRCLES', 'HIP CIRCLES', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Elbow Strikes': ['ARM CIRCLES', 'HIP CIRCLES', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Knee Strikes': ['ARM CIRCLES', 'HIP CIRCLES', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
+  'Defensive Moves': ['ARM CIRCLES', 'HIP CIRCLES', 'LEG SWINGS', 'MARCH -OR- JOG IN PLACE', 'JUMPING JACKS', 'BODYWEIGHT SQUATS', 'REGULAR PUSH-UPS', 'LUNGES'],
 };
 const defaultWarmupOptions = warmupOptionsByCategory['Punching'];
 

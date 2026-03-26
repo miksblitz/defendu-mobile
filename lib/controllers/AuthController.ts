@@ -37,6 +37,27 @@ function normalizeArray(value: unknown): string[] | undefined {
   return undefined;
 }
 
+function normalizeWarmupExerciseLabel(label: string): string {
+  const t = label.trim();
+  const low = t.toLowerCase();
+  if ((low.includes('hip') && low.includes('circle')) || low.includes('hula')) return 'HIP CIRCLES';
+  return t;
+}
+
+function normalizeWarmupExercises(value: unknown): string[] {
+  const arr = normalizeArray(value) ?? [];
+  return arr.map(normalizeWarmupExerciseLabel);
+}
+
+function normalizeNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
 function getErrorMessage(errorCode: string | undefined): string {
   if (!errorCode) return 'Login failed. Please try again.';
   const code = String(errorCode);
@@ -149,6 +170,8 @@ export async function login(data: LoginData): Promise<User> {
       blocked: Boolean(userDataRaw.blocked ?? false),
       preferredTechnique: normalizeArray(userDataRaw.preferredTechnique),
       trainingGoal: normalizeArray(userDataRaw.trainingGoal),
+      targetModulesPerDay: normalizeNumber(userDataRaw.targetModulesPerDay),
+      targetModulesPerWeek: normalizeNumber(userDataRaw.targetModulesPerWeek),
       martialArtsBackground: normalizeArray(userDataRaw.martialArtsBackground),
     } as User;
 
@@ -181,6 +204,8 @@ export async function getCurrentUser(): Promise<User | null> {
       blocked: Boolean(raw.blocked ?? false),
       preferredTechnique: normalizeArray(raw.preferredTechnique),
       trainingGoal: normalizeArray(raw.trainingGoal),
+      targetModulesPerDay: normalizeNumber(raw.targetModulesPerDay),
+      targetModulesPerWeek: normalizeNumber(raw.targetModulesPerWeek),
       martialArtsBackground: normalizeArray(raw.martialArtsBackground),
     } as User;
   } catch {
@@ -208,6 +233,8 @@ export async function saveSkillProfile(profile: SkillProfile): Promise<void> {
     preferences: {
       preferredTechnique: profile.preferences.preferredTechnique ?? [],
       trainingGoal: profile.preferences.trainingGoal ?? [],
+      targetModulesPerDay: profile.preferences.targetModulesPerDay,
+      targetModulesPerWeek: profile.preferences.targetModulesPerWeek,
     },
     pastExperience: {
       experienceLevel: profile.pastExperience.experienceLevel,
@@ -234,6 +261,8 @@ export async function saveSkillProfile(profile: SkillProfile): Promise<void> {
     physicalLimitations: profile.physicalAttributes.limitations ?? null,
     preferredTechnique: profile.preferences.preferredTechnique ?? [],
     trainingGoal: profile.preferences.trainingGoal ?? [],
+    targetModulesPerDay: profile.preferences.targetModulesPerDay,
+    targetModulesPerWeek: profile.preferences.targetModulesPerWeek,
     experienceLevel: profile.pastExperience.experienceLevel,
     martialArtsBackground: profile.pastExperience.martialArtsBackground ?? [],
     previousTrainingDetails: profile.pastExperience.previousTrainingDetails ?? null,
@@ -304,6 +333,7 @@ function processModulesList(data: Record<string, Record<string, unknown>>): Modu
     modules.push({
       moduleId: id,
       ...rest,
+      warmupExercises: normalizeWarmupExercises(rest.warmupExercises),
       description: desc.length > 300 ? desc.slice(0, 300) + '…' : desc,
       createdAt: item.createdAt ? new Date(item.createdAt as number) : new Date(),
       updatedAt: item.updatedAt ? new Date(item.updatedAt as number) : new Date(),
@@ -702,7 +732,7 @@ export async function getModuleByIdForUser(moduleId: string): Promise<Module | n
       submittedAt: raw.submittedAt ? new Date(raw.submittedAt as number) : undefined,
       reviewedAt: raw.reviewedAt ? new Date(raw.reviewedAt as number) : undefined,
       spaceRequirements: normalizeArray(raw.spaceRequirements) ?? [],
-      warmupExercises: normalizeArray(raw.warmupExercises) ?? [],
+      warmupExercises: normalizeWarmupExercises(raw.warmupExercises),
       cooldownExercises: normalizeArray(raw.cooldownExercises) ?? [],
       physicalDemandTags: normalizeArray(raw.physicalDemandTags) ?? [],
     } as Module;
@@ -928,7 +958,7 @@ export async function saveModule(
     thumbnailUrl: moduleData.thumbnailUrl ?? null,
     intensityLevel: moduleData.intensityLevel ?? 2,
     spaceRequirements: moduleData.spaceRequirements ?? [],
-    warmupExercises: moduleData.warmupExercises ?? [],
+    warmupExercises: normalizeWarmupExercises(moduleData.warmupExercises),
     cooldownExercises: moduleData.cooldownExercises ?? [],
     physicalDemandTags: moduleData.physicalDemandTags ?? [],
     repRange: moduleData.repRange ?? null,

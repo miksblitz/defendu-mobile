@@ -66,14 +66,11 @@ export default function SkillProfilePastExperienceScreen({ onNext, onBack }: Ski
     <View style={styles.wrapper}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backRow}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
-            <Text style={styles.backText}>Past Experience</Text>
           </TouchableOpacity>
-          <View style={styles.headerRight}>
-            <Text style={styles.headerTitle}>Setup Profile</Text>
-            <Text style={styles.progress}>3 of 4</Text>
-          </View>
+          <Text style={styles.headerTitle}>Setup Profile</Text>
+          <Text style={styles.progress}>3 of 4</Text>
         </View>
         <View style={styles.progressBarBackground}>
           <View style={styles.progressBarFill} />
@@ -140,11 +137,9 @@ export default function SkillProfilePastExperienceScreen({ onNext, onBack }: Ski
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: '#041527' },
   container: { backgroundColor: '#041527', paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center', flexGrow: 1 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
-  headerRight: { alignItems: 'flex-end' },
-  backRow: { flexDirection: 'row', alignItems: 'center' },
-  backIcon: { width: 24, height: 24, marginRight: 8 },
-  backText: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
+  backButton: { padding: 4 },
+  backIcon: { width: 24, height: 24 },
   headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: 'bold' },
   progress: { color: '#FFFFFF', fontSize: 14, opacity: 0.6 },
   progressBarBackground: { width: '100%', height: 4, backgroundColor: '#073741', borderRadius: 4, marginBottom: 32 },

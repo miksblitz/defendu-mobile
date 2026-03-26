@@ -52,7 +52,8 @@ const HORIZONTAL_PADDING = 24;
 const HORIZONTAL_SNAP_INTERVAL = HORIZONTAL_CARD_WIDTH + HORIZONTAL_CARD_GAP;
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const MODULES_PER_DAY_GOAL = 5;
+const DEFAULT_MODULES_PER_DAY_GOAL = 5;
+const DEFAULT_MODULES_PER_WEEK_GOAL = 35;
 /** @deprecated Weekly progress now comes from completionTimestamps/dayProgress. Kept to avoid ReferenceError if cache references it. */
 const progressValues = [0, 0, 0, 0, 0, 0, 0];
 
@@ -216,17 +217,28 @@ interface DashboardScreenProps {
     warmups: string[];
     cooldowns: string[];
     trainingModules: ModuleItem[];
+    startPhase?: 'warmup' | 'cooldown';
     mannequinGifUri?: string | null;
   }) => void;
   /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
   refreshKey?: number;
+  returnToCategory?: string | null;
+  onConsumeReturnToCategory?: () => void;
   /** Shown once when landing on dashboard (e.g. after publishing a module). */
   initialToastMessage?: string | null;
   onClearInitialToast?: () => void;
 }
 
 // --- Component ---
-export default function DashboardScreen({ onOpenModule, onStartCategorySession, refreshKey = 0, initialToastMessage, onClearInitialToast }: DashboardScreenProps) {
+export default function DashboardScreen({
+  onOpenModule,
+  onStartCategorySession,
+  refreshKey = 0,
+  returnToCategory = null,
+  onConsumeReturnToCategory,
+  initialToastMessage,
+  onClearInitialToast,
+}: DashboardScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
@@ -236,6 +248,8 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
   const [warmupStartCardIndex, setWarmupStartCardIndex] = useState<number>(-1);
   const [cooldownStartCardIndex, setCooldownStartCardIndex] = useState<number>(-1);
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
+  const [targetModulesPerDay, setTargetModulesPerDay] = useState(DEFAULT_MODULES_PER_DAY_GOAL);
+  const [targetModulesPerWeek, setTargetModulesPerWeek] = useState(DEFAULT_MODULES_PER_WEEK_GOAL);
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -266,14 +280,23 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
       }
 
       // Load modules and progress (query only approved, so payload is smaller).
-      const [list, progress] = await Promise.all([
+      const [list, progress, currentUser] = await Promise.all([
         AuthController.getApprovedModules(),
         AuthController.getUserProgress(),
+        AuthController.getCurrentUser(),
       ]);
       if (done) return;
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
       setModules(list ?? []);
       setCompletionTimestamps(progress?.completionTimestamps ?? {});
+      const dailyTarget = currentUser?.targetModulesPerDay && currentUser.targetModulesPerDay > 0
+        ? currentUser.targetModulesPerDay
+        : DEFAULT_MODULES_PER_DAY_GOAL;
+      const weeklyTarget = currentUser?.targetModulesPerWeek && currentUser.targetModulesPerWeek > 0
+        ? currentUser.targetModulesPerWeek
+        : dailyTarget * 7;
+      setTargetModulesPerDay(dailyTarget);
+      setTargetModulesPerWeek(weeklyTarget);
       setLoading(false);
       setRefreshing(false);
       done = true;
@@ -321,6 +344,12 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
     }
   }, [initialToastMessage, onClearInitialToast, showToast]);
 
+  useEffect(() => {
+    if (!returnToCategory) return;
+    setSelectedCategory(returnToCategory);
+    onConsumeReturnToCategory?.();
+  }, [onConsumeReturnToCategory, returnToCategory]);
+
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     await loadDashboardData();
@@ -328,10 +357,9 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
 
   const todayIndex = (new Date().getDay() + 6) % 7;
   const dayCounts = getDayCountsThisWeek(completionTimestamps);
-  const dayProgress = dayCounts.map((c) => Math.min(1, c / MODULES_PER_DAY_GOAL));
-  const weeklyProgress = dayProgress.length
-    ? dayProgress.reduce((a, b) => a + b, 0) / 7
-    : 0;
+  const dayProgress = dayCounts.map((c) => Math.min(1, c / targetModulesPerDay));
+  const weeklyCompletions = dayCounts.reduce((sum, count) => sum + count, 0);
+  const weeklyProgress = Math.min(1, weeklyCompletions / targetModulesPerWeek);
 
   const modulesInCategoryRaw = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
@@ -536,7 +564,9 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
           <View style={styles.weeklyGoalHeader}>
             <View>
               <Text style={styles.weeklyGoalTitle}>Weekly Goal</Text>
-              <Text style={styles.weeklyGoalSubtitle}>5 modules per day • Resets every Monday</Text>
+              <Text style={styles.weeklyGoalSubtitle}>
+                {targetModulesPerDay} modules/day • {targetModulesPerWeek} modules/week
+              </Text>
             </View>
             <View style={styles.weeklyGoalStats}>
               <Text style={styles.weeklyGoalPercentage}>{Math.round(weeklyProgress * 100)}%</Text>
@@ -827,7 +857,9 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
               onPress={() => {
                 const trainingSection = modulesInCategoryByLevel.find((x) => x.label === 'Training');
                 const trainingModules = trainingSection?.items ?? [];
-                if (!trainingModules.length) {
+                const hasCooldownStartSelection = cooldownStartCardIndex >= 0 && warmupStartCardIndex < 0;
+
+                if (!trainingModules.length && !hasCooldownStartSelection) {
                   showToast('No training modules found for this category.');
                   return;
                 }
@@ -836,12 +868,16 @@ export default function DashboardScreen({ onOpenModule, onStartCategorySession, 
                 const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
                 const warmupsToDo = warmupTop3Values.filter((v, idx) => idx >= warmupStartIdx && v !== '—');
                 const selectedCooldowns = cooldownTop3Values.filter((c, idx) => idx >= cooldownStartIdx && c && c !== '—');
+                const allWarmups = warmupTop3Values.filter((v) => v !== '—');
+                const allCooldowns = cooldownTop3Values.filter((c) => c && c !== '—');
 
                 onStartCategorySession({
                   category: selectedCategory ?? 'Punching',
-                  warmups: warmupsToDo.length ? warmupsToDo : warmupTop3Values.filter((v) => v !== '—'),
-                  cooldowns: selectedCooldowns.length ? selectedCooldowns : cooldownTop3Values.filter((c) => c && c !== '—'),
+                  // If user selected a cooldown start card, begin directly in cooldown flow.
+                  warmups: hasCooldownStartSelection ? [] : (warmupsToDo.length ? warmupsToDo : allWarmups),
+                  cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
                   trainingModules,
+                  startPhase: hasCooldownStartSelection ? 'cooldown' : 'warmup',
                   mannequinGifUri: null,
                 });
               }}

@@ -2,7 +2,8 @@
  * TrainerScreen
  * List of approved trainers; open detail and message trainer.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import {
   View,
   Text,
@@ -13,6 +14,7 @@ import {
   ActivityIndicator,
   Modal,
   Linking,
+  TextInput,
 } from 'react-native';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
@@ -34,6 +36,7 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
   const [selectedTrainer, setSelectedTrainer] = useState<TrainerWithData | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +84,17 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
     Linking.openURL(toOpen).catch(() => {});
   };
 
+  const filteredTrainers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return trainers;
+    return trainers.filter((t) => {
+      const name = fullName(t).toLowerCase();
+      const stylesFromApplication = (t.applicationData?.defenseStyles ?? []).join(' ').toLowerCase();
+      const stylesFromUser = (t.martialArtsBackground ?? []).join(' ').toLowerCase();
+      return name.includes(q) || stylesFromApplication.includes(q) || stylesFromUser.includes(q);
+    });
+  }, [searchQuery, trainers]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -92,10 +106,23 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
   return (
     <View style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {trainers.length === 0 ? (
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={18} color="#6b8693" style={styles.searchIcon} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search trainer or martial art"
+            placeholderTextColor="#6b8693"
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+        </View>
+        {filteredTrainers.length === 0 ? (
           <Text style={styles.emptyText}>No approved trainers yet.</Text>
         ) : (
-          trainers.map((t) => (
+          filteredTrainers.map((t) => (
             <TouchableOpacity key={t.uid} style={styles.card} onPress={() => openDetail(t)} activeOpacity={0.8}>
               {t.profilePicture ? (
                 <Image source={{ uri: t.profilePicture }} style={styles.cardAvatar} />
@@ -226,6 +253,24 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },
   scroll: { flex: 1 },
   content: { padding: 16, paddingTop: 8, paddingBottom: 40 },
+  searchWrap: { marginBottom: 10 },
+  searchIcon: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
+    zIndex: 2,
+  },
+  searchInput: {
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#062731',
+    backgroundColor: '#011f36',
+    color: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingRight: 40,
+    fontSize: 14,
+  },
   emptyText: { color: '#6b8693', fontSize: 16, textAlign: 'center', marginTop: 24 },
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#062731' },
   cardAvatar: { width: 56, height: 56, borderRadius: 28, marginRight: 16 },

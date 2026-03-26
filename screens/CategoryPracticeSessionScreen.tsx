@@ -222,6 +222,26 @@ export default function CategoryPracticeSessionScreen({
 
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
   const matchThreshold = referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD;
+
+  const getPunchingGuideGif = (id: string | null | undefined) => {
+    if (!id) return null;
+    // Module IDs are registered in `lib/pose/modules/registry.ts`.
+    const MAP: Record<string, any> = {
+      // new test jab -> lead jab
+      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773459399866: require('../assets/images/punching_guides/lead jab gif.gif'),
+      // cross jab -> cross
+      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093: require('../assets/images/punching_guides/cross gif.gif'),
+      // basic 1-2 combo new -> jab + cross
+      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670: require('../assets/images/punching_guides/jab + cross gif.gif'),
+      // lead uppercut -> lead uppercut
+      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773669360613: require('../assets/images/punching_guides/Lead uppercut gif.gif'),
+      // rear uppercut test -> rear uppercut
+      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773673272052: require('../assets/images/punching_guides/rear uppercut.gif'),
+      // jab uppercut -> lead jab + rear uppercut
+      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773844294396: require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif'),
+    };
+    return MAP[id] ?? null;
+  };
   const requiredRepsRef = useRef<number>(requiredReps);
   const poseCorrectRepsRef = useRef<number>(poseCorrectReps);
 
@@ -848,9 +868,23 @@ export default function CategoryPracticeSessionScreen({
     const rawDuration = module.trainingDurationSeconds ?? 30;
     const durationSeconds =
       typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0 ? Math.floor(rawDuration) : 30;
+    const moduleTitleLower = (module.moduleTitle ?? '').toLowerCase();
+    const guideGifSource =
+      getPunchingGuideGif(module.moduleId) ??
+      // Fallbacks in case moduleId differs slightly at runtime.
+      (moduleTitleLower.includes('basic') || moduleTitleLower.includes('1-2') || moduleTitleLower.includes('combo')
+        ? require('../assets/images/punching_guides/jab + cross gif.gif')
+        : moduleTitleLower.includes('jab uppercut')
+          ? require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif')
+          : null);
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={{ flex: 1 }}>
+          {guideGifSource ? (
+            <View style={styles.trainingPoseGuideWrap} pointerEvents="none">
+              <Image source={guideGifSource} style={styles.trainingPoseGuideImage} resizeMode="contain" />
+            </View>
+          ) : null}
           <PoseCameraView
             key={poseSessionKey}
             requiredReps={requiredReps}
@@ -997,6 +1031,20 @@ export default function CategoryPracticeSessionScreen({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
+  // Top-center pose guide for known punching modules.
+  trainingPoseGuideWrap: {
+    position: 'absolute',
+    top: 16,
+    left: 0,
+    right: 0,
+    zIndex: 25,
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  trainingPoseGuideImage: {
+    width: 240,
+    height: 120,
+  },
   floatingControlsRow: {
     position: 'absolute',
     // Bottom placement for nicer composition.

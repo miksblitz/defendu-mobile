@@ -242,6 +242,27 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     }, RAMP_MS);
   }, []);
 
+  // Punching guides (top-center) for known pose modules.
+  // These moduleIds are registered in `lib/pose/modules/registry.ts`.
+  const getPunchingGuideGif = (id: string | null | undefined): any | null => {
+    if (!id) return null;
+    const MAP: Record<string, any> = {
+      // new test jab -> lead jab
+      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773459399866': require('../assets/images/punching_guides/lead jab gif.gif'),
+      // cross jab -> cross
+      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093': require('../assets/images/punching_guides/cross gif.gif'),
+      // basic 1-2 combo -> jab + cross
+      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670': require('../assets/images/punching_guides/jab + cross gif.gif'),
+      // lead uppercut -> lead uppercut
+      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773669360613': require('../assets/images/punching_guides/Lead uppercut gif.gif'),
+      // rear uppercut test -> rear uppercut
+      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773673272052': require('../assets/images/punching_guides/rear uppercut.gif'),
+      // jab uppercut -> lead jab + rear uppercut
+      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773844294396': require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif'),
+    };
+    return MAP[id] ?? null;
+  };
+
   // Load pose reference only when user has tapped "Try with pose" (tryItPoseLoading). Keeps module intro/video fast.
   useEffect(() => {
     if ((step !== 'tryItPoseLoading' && step !== 'tryItPose') || !module) {
@@ -453,9 +474,23 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
   if (step === 'tryItPose' && module) {
     const categoryKey = module.category && String(module.category).trim() ? module.category : 'Punching';
+    // Don't rely on exact category casing; show guides by moduleId match.
+    const moduleTitleLower = (module.moduleTitle ?? '').toLowerCase();
+    const guideGifSource =
+      getPunchingGuideGif(moduleId ?? module.moduleId) ??
+      (moduleTitleLower.includes('basic') || moduleTitleLower.includes('1-2') || moduleTitleLower.includes('combo')
+        ? require('../assets/images/punching_guides/jab + cross gif.gif')
+        : moduleTitleLower.includes('jab uppercut')
+          ? require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif')
+          : null);
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
+          {guideGifSource ? (
+            <View style={styles.poseGuideWrap} pointerEvents="none">
+              <Image source={guideGifSource} style={styles.poseGuideImage} resizeMode="contain" />
+            </View>
+          ) : null}
             <PoseCameraView
               requiredReps={getRequiredReps(module.repRange)}
               correctReps={poseCorrectReps}
@@ -709,6 +744,20 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   poseFullScreen: { flex: 1 },
+  // Top-center pose guide gif for known punching modules.
+  poseGuideWrap: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  poseGuideImage: {
+    width: 220,
+    height: 125,
+  },
   continueOverlayButton: { position: 'absolute', bottom: 24, left: 20, right: 20, backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
   backButton: { paddingVertical: 8, paddingRight: 16 },

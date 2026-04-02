@@ -80,12 +80,18 @@ const ARM_TREND_THRESHOLD = 0.018;
 const ARM_SMOOTH_WINDOW = 3;
 /** Require this many consecutive same-direction updates before changing state (hysteresis). */
 const ARM_STATE_CONFIRM_COUNT = 2;
+const ELBOW_BENT_MAX_ANGLE_DEG = 150;
 
 export type ArmMotionState = 'extending' | 'contracting' | 'neutral';
 export type RealtimeArmState = {
   left: ArmMotionState;
   right: ArmMotionState;
   lead: 'left' | 'right' | null;
+};
+type ElbowBendLabel = 'bent' | 'straight' | 'unknown';
+type RealtimeElbowState = {
+  left: { label: ElbowBendLabel; angleDeg: number | null };
+  right: { label: ElbowBendLabel; angleDeg: number | null };
 };
 /** Short success beep when rep is correct (no asset file needed). */
 async function playSuccessSound() {
@@ -99,6 +105,62 @@ async function playSuccessSound() {
       if (s.isLoaded && s.didJustFinishNotify) sound.unloadAsync().catch(() => {});
     });
   } catch (_) {}
+}
+
+function getArmIndicesForElbow(frame: PoseFrame): { ls: number; rs: number; le: number; re: number; lw: number; rw: number } | null {
+  if (frame.length > 17) return { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
+  if (frame.length >= 11) return { ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };
+  return null;
+}
+
+function elbowAngleDeg(
+  shoulder: { x: number; y: number },
+  elbow: { x: number; y: number },
+  wrist: { x: number; y: number }
+): number {
+  const ax = shoulder.x - elbow.x;
+  const ay = shoulder.y - elbow.y;
+  const bx = wrist.x - elbow.x;
+  const by = wrist.y - elbow.y;
+  const denom = Math.hypot(ax, ay) * Math.hypot(bx, by);
+  if (denom <= 1e-6) return 180;
+  const cos = Math.max(-1, Math.min(1, (ax * bx + ay * by) / denom));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+function getRealtimeElbowState(frame: PoseFrame): RealtimeElbowState {
+  const idx = getArmIndicesForElbow(frame);
+  if (!idx || frame.length <= Math.max(idx.ls, idx.le, idx.lw, idx.rs, idx.re, idx.rw)) {
+    return {
+      left: { label: 'unknown', angleDeg: null },
+      right: { label: 'unknown', angleDeg: null },
+    };
+  }
+
+  const ls = frame[idx.ls];
+  const le = frame[idx.le];
+  const lw = frame[idx.lw];
+  const rs = frame[idx.rs];
+  const re = frame[idx.re];
+  const rw = frame[idx.rw];
+
+  const valid = (p: unknown): p is { x: number; y: number } =>
+    !!p
+    && typeof p === 'object'
+    && Number.isFinite((p as { x?: number }).x)
+    && Number.isFinite((p as { y?: number }).y);
+
+  const leftAngle = valid(ls) && valid(le) && valid(lw) ? elbowAngleDeg(ls, le, lw) : null;
+  const rightAngle = valid(rs) && valid(re) && valid(rw) ? elbowAngleDeg(rs, re, rw) : null;
+  const labelOf = (angle: number | null): ElbowBendLabel => {
+    if (angle == null) return 'unknown';
+    return angle <= ELBOW_BENT_MAX_ANGLE_DEG ? 'bent' : 'straight';
+  };
+
+  return {
+    left: { label: labelOf(leftAngle), angleDeg: leftAngle },
+    right: { label: labelOf(rightAngle), angleDeg: rightAngle },
+  };
 }
 
 export default function PoseCameraView({
@@ -198,6 +260,10 @@ export default function PoseCameraView({
     right: 'neutral',
     lead: null,
   });
+  const [realtimeElbowState, setRealtimeElbowState] = useState<RealtimeElbowState>({
+    left: { label: 'unknown', angleDeg: null },
+    right: { label: 'unknown', angleDeg: null },
+  });
   const [lastRepArm, setLastRepArm] = useState<'left' | 'right' | null>(null);
   const [extensionValues, setExtensionValues] = useState<{ left: number; right: number } | null>(null);
   const [poseStatus, setPoseStatus] = useState<{ landmarkCount: number; hasArmData: boolean } | null>(null);
@@ -228,6 +294,7 @@ export default function PoseCameraView({
   correctRepsRef.current = correctReps;
   referenceSequenceRef.current = referenceSequence;
   matchThresholdRef.current = matchThreshold;
+
 
   useEffect(() => {
     countdownDoneRef.current = countdownDone;
@@ -483,6 +550,7 @@ export default function PoseCameraView({
 
       if (frame.length > 0) {
         pushFrame(frame);
+        setRealtimeElbowState(getRealtimeElbowState(frame));
         const ext = armExtensionDistances(frame);
 
         // Throttled pose status so user always sees if pose/arms are detected
@@ -735,6 +803,12 @@ export default function PoseCameraView({
                 <Text style={styles.armStateText}>
                   Left hand: {realtimeArmState.right} · Right hand: {realtimeArmState.left}
                 </Text>
+                <Text style={styles.armStateText}>
+                  Left arm: {realtimeElbowState.right.label}
+                  {realtimeElbowState.right.angleDeg != null ? ` (${Math.round(realtimeElbowState.right.angleDeg)} deg)` : ''}
+                  {' '}· Right arm: {realtimeElbowState.left.label}
+                  {realtimeElbowState.left.angleDeg != null ? ` (${Math.round(realtimeElbowState.left.angleDeg)} deg)` : ''}
+                </Text>
                 {realtimeArmState.lead != null && (
                   <Text style={styles.armStateLead}>
                     Punching arm: {realtimeArmState.lead === 'right' ? 'Left' : 'Right'}
@@ -748,13 +822,15 @@ export default function PoseCameraView({
           </View>
         )}
         <Text style={[styles.overlayTitle, poseFocus === 'full' ? styles.overlayTitleFull : null]}>
-          {poseVariant === 'lead-jab'
-            ? 'Lead jab: left hand out to the side, right hand in guard (wrist up)'
-            : poseFocus === 'punching'
-              ? 'Upper body in frame — each full extension = 1 rep'
-              : poseFocus === 'kicking'
-                ? 'Legs in frame — raise leg then lower'
-                : 'Full body in frame — reps count automatically'}
+          {lastFeedback.length > 0
+            ? lastFeedback[0]?.message ?? ''
+            : poseVariant === 'lead-jab'
+              ? 'Lead jab: left hand out to the side, right hand in guard (wrist up)'
+              : poseFocus === 'punching'
+                ? 'Upper body in frame — each full extension = 1 rep'
+                : poseFocus === 'kicking'
+                  ? 'Legs in frame — raise leg then lower'
+                  : 'Full body in frame — reps count automatically'}
         </Text>
         {showOverlayHint && (
           <Text style={styles.overlayHint}>

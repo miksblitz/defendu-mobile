@@ -1,5 +1,7 @@
 export interface Module {
   moduleId: string;
+  /** Human-friendly module reference code (e.g. M0101). */
+  referenceCode?: string;
   trainerId: string;
   trainerName?: string;
   moduleTitle: string;

@@ -1,5 +1,5 @@
 /**
- * Default elbow strikes module pipeline (upper body / punching focus).
+ * Default elbow strikes module pipeline (upper-body striking focus).
  */
 
 import type { ModulePosePipeline } from '../../types';

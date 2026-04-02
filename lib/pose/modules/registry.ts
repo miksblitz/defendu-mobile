@@ -16,8 +16,16 @@ import { jabCrossComboPipeline } from './punching/jab-cross-combo';
 import { jabUppercutComboPipeline } from './punching/jab-uppercut-combo';
 import { kickingDefaultPipeline } from './kicking/default';
 import { elbowStrikesDefaultPipeline } from './elbow_strikes/default';
+import { leadUppercutElbowStrikePipeline } from './elbow_strikes/lead-uppercut-elbow-strike';
+import { rearUppercutElbowStrikePipeline } from './elbow_strikes/rear-uppercut-elbow-strike';
 import { kneeStrikesDefaultPipeline } from './knee_strikes/default';
 import { defensiveMovesDefaultPipeline } from './defensive_moves/default';
+import { defensiveBlockPipeline, BLOCK_MODULE_REGISTRY_KEY } from './defensive_moves/block';
+import { defensiveSlipPipeline, SLIP_MODULE_REGISTRY_KEY } from './defensive_moves/slip';
+import { defensiveParryPipeline, PARRY_MODULE_REGISTRY_KEY } from './defensive_moves/parry';
+import { defensiveDuckingPipeline, DUCKING_MODULE_REGISTRY_KEY } from './defensive_moves/ducking';
+import { defensiveRollPipeline, ROLL_MODULE_REGISTRY_KEY } from './defensive_moves/roll';
+import { defensiveSlipDuckPipeline, SLIP_DUCK_MODULE_REGISTRY_KEY } from './defensive_moves/slip_duck';
 
 /** App category display names -> folder key */
 const CATEGORY_TO_KEY: Record<string, string> = {
@@ -44,8 +52,25 @@ function register(key: string, pipeline: ModulePosePipeline): void {
 register('punching/default', punchingDefaultPipeline);
 register('kicking/default', kickingDefaultPipeline);
 register('elbow_strikes/default', elbowStrikesDefaultPipeline);
+// Lead elbow strike module:
+// guard_stance -> transition -> elbowstrikefinalposition -> guard_stance
+register('elbow_strikes/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774767480246', leadUppercutElbowStrikePipeline);
+// Rear elbow strike module
+register('elbow_strikes/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774763194879', rearUppercutElbowStrikePipeline);
 register('knee_strikes/default', kneeStrikesDefaultPipeline);
 register('defensive_moves/default', defensiveMovesDefaultPipeline);
+// Block module (Firebase): stance to guard/blocking defensive movement.
+register(BLOCK_MODULE_REGISTRY_KEY, defensiveBlockPipeline);
+// Slip module (Firebase): upper-body centerline evasion with stable hips/core.
+register(SLIP_MODULE_REGISTRY_KEY, defensiveSlipPipeline);
+// Parry module (Firebase): left or right arm parry, with cooldown between reps.
+register(PARRY_MODULE_REGISTRY_KEY, defensiveParryPipeline);
+// Ducking module (Firebase): standing up/down detection with guard-up requirement.
+register(DUCKING_MODULE_REGISTRY_KEY, defensiveDuckingPipeline);
+// Slip + opposite-hand parry (Firebase id …72612042; folder name "roll" is legacy).
+register(ROLL_MODULE_REGISTRY_KEY, defensiveRollPipeline);
+// Slip + duck (Firebase): lateral slip then duck with guard.
+register(SLIP_DUCK_MODULE_REGISTRY_KEY, defensiveSlipDuckPipeline);
 
 // Cross Jab Test (Firebase module) – right punch, left guard.
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093', crossJabPipeline);

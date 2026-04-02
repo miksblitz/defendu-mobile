@@ -1,7 +1,6 @@
 /**
  * Lead uppercut pipeline: user's LEFT hand throws the uppercut, user's RIGHT hand in guard.
- * Uses jab mechanics for timing (left punch / right guard) but uppercut‑specific
- * form checks so straight jabs do not pass as correct reps.
+ * Uses uppercut-specific detection/comparison/feedback for punching.
  */
 
 import type { ModulePosePipeline } from '../../types';
@@ -28,4 +27,3 @@ export {
   compareRepWithFeedbackLeadUppercut,
   compareRepWithFeedbackAnyLeadUppercut,
 } from './leadUppercutComparator';
-

@@ -1060,7 +1060,7 @@ export default function CategoryPracticeSessionScreen({
             moduleId={module.moduleId}
             category={module.category && module.category.trim() ? module.category : category}
             showStartCountdown={false}
-            showArmState={false}
+            showArmState={true}
             showOverlayHint={false}
           />
           <View style={styles.bottomControlsRow}>

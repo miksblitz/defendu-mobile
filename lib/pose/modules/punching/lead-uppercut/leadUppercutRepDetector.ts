@@ -6,7 +6,6 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
-import { armExtensionDistances } from '../../../phaseDetection';
 
 const COOLDOWN_MS = 1000;
 
@@ -33,27 +32,29 @@ function leftHandInGuard(frame: PoseFrame): boolean {
   return leftDist <= guardMax && wristUp;
 }
 
-/** Vertical lift and extension for the punching arm = MediaPipe RIGHT (user's left). */
-function punchMetrics(frame: PoseFrame): { lift: number | null; ext: number | null } {
-  const d = armExtensionDistances(frame);
-  const ext = d ? d.right : null;
+/** Vertical lift metrics for punching arm = MediaPipe RIGHT (user's left). */
+function punchMetrics(frame: PoseFrame): { lift: number | null; elbowLift: number | null } {
   const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
-  if (!idx || frame.length <= Math.max(idx.rs, idx.rw)) {
-    return { lift: null, ext };
+  if (!idx || frame.length <= Math.max(idx.rs, idx.re, idx.rw)) {
+    return { lift: null, elbowLift: null };
   }
   const rs = frame[idx.rs];
+  const re = frame[idx.re];
   const rw = frame[idx.rw];
-  if (!validArmLandmark(rs) || !validArmLandmark(rw)) {
-    return { lift: null, ext };
+  if (!validArmLandmark(rs) || !validArmLandmark(re) || !validArmLandmark(rw)) {
+    return { lift: null, elbowLift: null };
   }
-  // Positive when wrist goes above shoulder (uppercut travels upward)
+  // Positive when wrist/elbow rise above shoulder.
   const lift = rs.y - rw.y;
-  return { lift, ext };
+  const elbowLift = rs.y - re.y;
+  return { lift, elbowLift };
 }
 
-// Tuned heuristics for uppercut motion
-const UPPERCUT_LIFT_EXTEND_MIN = 0.035;   // wrist at impact should be clearly above shoulder
-const UPPERCUT_LIFT_RETRACT_MAX = 0.01;   // "down" position: wrist roughly level with or below shoulder
+// Tuned heuristics for uppercut motion (from guard -> drive up high)
+const UPPERCUT_LIFT_EXTEND_MIN = 0.04;    // entering rising phase: wrist clearly above shoulder
+const UPPERCUT_ELBOW_EXTEND_MIN = 0.0;    // elbow should at least reach shoulder height
+const UPPERCUT_LIFT_HIGH_TARGET = 0.055;  // peak lift target for a convincing high uppercut
+const UPPERCUT_LIFT_RETRACT_MAX = 0.01;   // setup "down" position: wrist near/below shoulder
 const UPPERCUT_MIN_REP_FRAMES = 5;
 
 type UppercutState = 'idle' | 'rising' | 'cooldown';
@@ -64,9 +65,11 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let hasDroppedSinceRep = false;
+  let readyFromGuard = false;
+  let peakLift = -Infinity;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
-    const { lift } = punchMetrics(frame);
+    const { lift, elbowLift } = punchMetrics(frame);
 
     if (state === 'cooldown') {
       // Wait until the punch has dropped back down before counting another rep
@@ -86,39 +89,49 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
     if (state === 'idle') {
       // Require a clear "down" or neutral start and rear hand in guard
       if (lift < UPPERCUT_LIFT_RETRACT_MAX && leftHandInGuard(frame)) {
-        // Wait for lift to rise into the uppercut window
-        // Stay in idle until that happens
+        readyFromGuard = true;
       }
       if (
+        readyFromGuard &&
         lift > UPPERCUT_LIFT_EXTEND_MIN &&
+        elbowLift != null &&
+        elbowLift >= UPPERCUT_ELBOW_EXTEND_MIN &&
         leftHandInGuard(frame)
       ) {
         state = 'rising';
         segment = [frame];
+        peakLift = lift;
       }
       return { done: false };
     }
 
     if (state === 'rising') {
       segment.push(frame);
+      peakLift = Math.max(peakLift, lift);
       // Guard must be maintained; lift must stay reasonably high
       if (!leftHandInGuard(frame)) {
         state = 'idle';
         segment = [];
+        readyFromGuard = false;
+        peakLift = -Infinity;
         return { done: false };
       }
       if (lift < UPPERCUT_LIFT_RETRACT_MAX) {
         // Dropped too early; restart
         state = 'idle';
         segment = [];
+        readyFromGuard = true;
+        peakLift = -Infinity;
         return { done: false };
       }
-      if (segment.length >= UPPERCUT_MIN_REP_FRAMES) {
+      if (segment.length >= UPPERCUT_MIN_REP_FRAMES && peakLift >= UPPERCUT_LIFT_HIGH_TARGET) {
         const out = [...segment];
         segment = [];
         state = 'cooldown';
         cooldownUntil = now + COOLDOWN_MS;
         hasDroppedSinceRep = false;
+        readyFromGuard = false;
+        peakLift = -Infinity;
         return { done: true, segment: out };
       }
       return { done: false };
@@ -127,4 +140,3 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
     return { done: false };
   };
 }
-

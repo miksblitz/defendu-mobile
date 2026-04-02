@@ -185,4 +185,3 @@ export function createRepDetector(focus: PoseFocus = 'full') {
 
 /** Re-export jab rep detectors (implemented in modules/punching/jab). */
 export { createLeadJabRepDetector, createOrthodoxJabRepDetector } from './modules/punching/jab/jabRepDetector';
-

@@ -19,6 +19,7 @@ import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import PoseCameraView from '../components/PoseCameraView';
 import { getRequiredReps } from '../utils/repRange';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
+import { getPunchingGuideSource } from '../lib/punchingGuideAssets';
 
 type SessionStep =
   | 'warmup_countdown'
@@ -46,6 +47,11 @@ export interface CategoryPracticeSessionScreenProps {
   trainingModules: ModuleItem[];
   startPhase?: 'warmup' | 'cooldown';
   mannequinGifUri?: string | null;
+  /**
+   * Recommended pick: same countdown → pose flow; **no** previous/skip or pose back button.
+   * Quit (top-left) stays available so users can leave the session.
+   */
+  sessionVariant?: 'default' | 'recommendedSingle';
   onExit: () => void;
 }
 
@@ -172,8 +178,10 @@ export default function CategoryPracticeSessionScreen({
   trainingModules,
   startPhase = 'warmup',
   mannequinGifUri,
+  sessionVariant = 'default',
   onExit,
 }: CategoryPracticeSessionScreenProps) {
+  const hideSessionNav = sessionVariant === 'recommendedSingle';
   const [step, setStep] = useState<SessionStep>('warmup_countdown');
 
   const warmupNames = useMemo(() => warmups.filter((w) => !!w && w !== '—'), [warmups]);
@@ -226,25 +234,6 @@ export default function CategoryPracticeSessionScreen({
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
   const matchThreshold = referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD;
 
-  const getPunchingGuideGif = (id: string | null | undefined) => {
-    if (!id) return null;
-    // Module IDs are registered in `lib/pose/modules/registry.ts`.
-    const MAP: Record<string, any> = {
-      // new test jab -> lead jab
-      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773459399866: require('../assets/images/punching_guides/lead jab gif.gif'),
-      // cross jab -> cross
-      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093: require('../assets/images/punching_guides/cross gif.gif'),
-      // basic 1-2 combo new -> jab + cross
-      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670: require('../assets/images/punching_guides/jab + cross gif.gif'),
-      // lead uppercut -> lead uppercut
-      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773669360613: require('../assets/images/punching_guides/Lead uppercut gif.gif'),
-      // rear uppercut test -> rear uppercut
-      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773673272052: require('../assets/images/punching_guides/rear uppercut.gif'),
-      // jab uppercut -> lead jab + rear uppercut
-      module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773844294396: require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif'),
-    };
-    return MAP[id] ?? null;
-  };
   const requiredRepsRef = useRef<number>(requiredReps);
   const poseCorrectRepsRef = useRef<number>(poseCorrectReps);
 
@@ -263,6 +252,19 @@ export default function CategoryPracticeSessionScreen({
   useEffect(() => {
     moduleRef.current = module;
   }, [module]);
+
+  /** One failure increment per training module attempt (timer fail or skip before rep goal). */
+  const trainingFailureLoggedRef = useRef(false);
+  useEffect(() => {
+    trainingFailureLoggedRef.current = false;
+  }, [trainingIndex]);
+
+  const logTrainingFailureOnce = useCallback(() => {
+    const m = moduleRef.current;
+    if (!m?.moduleId || trainingFailureLoggedRef.current) return;
+    trainingFailureLoggedRef.current = true;
+    AuthController.recordModuleTrainingFailure(m.moduleId).catch(() => {});
+  }, []);
 
   const clearCountdown = () => {
     for (const t of countdownTimeoutsRef.current) clearTimeout(t);
@@ -329,10 +331,12 @@ export default function CategoryPracticeSessionScreen({
       setCooldownIndex(0);
       setActiveExerciseName(cooldownNames[0] ?? '');
       setStep('cooldown_countdown');
+    } else if (hideSessionNav) {
+      onExit();
     } else {
       setStep('session_done');
     }
-  }, [cooldownNames]);
+  }, [cooldownNames, hideSessionNav, onExit]);
 
   const startTrainingCountdown = useCallback(
     (index: number) => {
@@ -416,11 +420,12 @@ export default function CategoryPracticeSessionScreen({
     const required = requiredRepsRef.current;
     const achieved = poseCorrectRepsRef.current;
     if (required > 0 && achieved < required) {
+      logTrainingFailureOnce();
       setShowTrainingFailed(true);
       return;
     }
     proceedAfterTraining();
-  }, [proceedAfterTraining]);
+  }, [logTrainingFailureOnce, proceedAfterTraining]);
 
   const skipCurrentWorkout = useCallback(() => {
     clearCountdown();
@@ -459,6 +464,20 @@ export default function CategoryPracticeSessionScreen({
       step === 'training_between_countdown' ||
       step === 'training_between_stance'
     ) {
+      if (
+        (step === 'training_pose' ||
+          step === 'training_between_countdown' ||
+          step === 'training_between_stance') &&
+        !hasRecordedCompletionRef.current
+      ) {
+        const mod = moduleRef.current;
+        if (mod) {
+          const req = getRequiredReps(mod.repRange);
+          if (req > 0 && poseCorrectRepsRef.current < req) {
+            logTrainingFailureOnce();
+          }
+        }
+      }
       trainingPrepRequestRef.current += 1;
       setHasRecordedCompletion(false);
       setIsTrainingPrepared(false);
@@ -479,6 +498,8 @@ export default function CategoryPracticeSessionScreen({
         setActiveExerciseName(cooldownNames[next] ?? '');
         // Skip should trigger a single countdown only once.
         setStep('cooldown_countdown');
+      } else if (hideSessionNav) {
+        onExit();
       } else {
         setStep('session_done');
       }
@@ -488,6 +509,9 @@ export default function CategoryPracticeSessionScreen({
     cooldownNames,
     exitTrainingToCooldownOrDone,
     hasShownTrainingSafety,
+    hideSessionNav,
+    logTrainingFailureOnce,
+    onExit,
     step,
     startTrainingCountdown,
     trainingIndex,
@@ -770,6 +794,8 @@ export default function CategoryPracticeSessionScreen({
           setCooldownIndex(next);
           setActiveExerciseName(cooldownNames[next] ?? '');
           setStep('cooldown_between_countdown');
+        } else if (hideSessionNav) {
+          onExit();
         } else {
           setStep('session_done');
         }
@@ -777,7 +803,7 @@ export default function CategoryPracticeSessionScreen({
     });
     return () => clearCountdown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, cooldownIndex, cooldownNames.length]);
+  }, [step, cooldownIndex, cooldownNames.length, hideSessionNav, onExit]);
 
   // Between cooldowns: countdown then next cooldown.
   useEffect(() => {
@@ -1021,29 +1047,18 @@ export default function CategoryPracticeSessionScreen({
     const rawDuration = module.trainingDurationSeconds ?? 30;
     const durationSeconds =
       typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0 ? Math.floor(rawDuration) : 30;
-    const moduleTitleLower = (module.moduleTitle ?? '').toLowerCase();
-    const guideGifSource =
-      getPunchingGuideGif(module.moduleId) ??
-      // Fallbacks in case moduleId differs slightly at runtime.
-      (moduleTitleLower.includes('basic') || moduleTitleLower.includes('1-2') || moduleTitleLower.includes('combo')
-        ? require('../assets/images/punching_guides/jab + cross gif.gif')
-        : moduleTitleLower.includes('jab uppercut')
-          ? require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif')
-          : null);
+    const moduleCategory =
+      module.category && String(module.category).trim() ? String(module.category).trim() : category;
+    const guideGifSource = getPunchingGuideSource(module.moduleId, module.moduleTitle, moduleCategory);
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={{ flex: 1 }}>
-          {guideGifSource ? (
-            <View style={styles.trainingPoseGuideWrap} pointerEvents="none">
-              <Image source={guideGifSource} style={styles.trainingPoseGuideImage} resizeMode="contain" />
-            </View>
-          ) : null}
           <PoseCameraView
             key={poseSessionKey}
             requiredReps={requiredReps}
             correctReps={poseCorrectReps}
             isCurrentRepCorrect={poseCurrentRepCorrect}
-            onBack={confirmQuit}
+            onBack={hideSessionNav ? () => {} : confirmQuit}
             backLabel="Quit"
             showBackButton={false}
             trainingTimerText={formatTime(durationSeconds)}
@@ -1063,10 +1078,17 @@ export default function CategoryPracticeSessionScreen({
             showArmState={true}
             showOverlayHint={false}
           />
-          <View style={styles.bottomControlsRow}>
-            {previousButton}
-            {skipButton}
-          </View>
+          {guideGifSource ? (
+            <View style={styles.trainingPoseGuideWrap} pointerEvents="none">
+              <Image source={guideGifSource} style={styles.trainingPoseGuideImage} resizeMode="contain" />
+            </View>
+          ) : null}
+          {!hideSessionNav ? (
+            <View style={styles.bottomControlsRow}>
+              {previousButton}
+              {skipButton}
+            </View>
+          ) : null}
         </View>
         {quitButton}
         {skipConfirmModal}
@@ -1089,9 +1111,15 @@ export default function CategoryPracticeSessionScreen({
     const isNumericCountdown = countdownText === '3' || countdownText === '2' || countdownText === '1';
     const isSuccessStep = step === 'training_success';
     const hideControls =
-      isTrainingStanceStep || isNumericCountdown || countdownText === 'ARE YOU READY?' || countdownText === 'GO!!';
+      isTrainingStanceStep ||
+      isNumericCountdown ||
+      countdownText === 'ARE YOU READY?' ||
+      countdownText === 'GO!!';
     const hideQuitButton =
-      isTrainingStanceStep || isNumericCountdown || countdownText === 'ARE YOU READY?' || countdownText === 'GO!!';
+      isTrainingStanceStep ||
+      isNumericCountdown ||
+      countdownText === 'ARE YOU READY?' ||
+      countdownText === 'GO!!';
 
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -1145,10 +1173,12 @@ export default function CategoryPracticeSessionScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.floatingControlsRow}>
-        {previousButton}
-        {skipButton}
-      </View>
+      {!hideSessionNav ? (
+        <View style={styles.floatingControlsRow}>
+          {previousButton}
+          {skipButton}
+        </View>
+      ) : null}
       {quitButton}
 
       {step === 'training_pose_loading' && (
@@ -1199,7 +1229,8 @@ const styles = StyleSheet.create({
     top: 16,
     left: 0,
     right: 0,
-    zIndex: 25,
+    zIndex: 50,
+    ...(Platform.OS === 'android' ? { elevation: 50 } : {}),
     alignItems: 'center',
     pointerEvents: 'none',
   },

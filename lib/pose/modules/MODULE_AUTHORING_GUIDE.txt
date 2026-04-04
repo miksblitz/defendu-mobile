@@ -1,0 +1,93 @@
+POSE MODULE AUTHORING GUIDE (precision checklist)
+================================================
+Use this when adding a new module under lib/pose/modules/<category>/<module-folder>/
+Goal: explicit geometry + state machine + feedback that matches the detector (debuggable, consistent).
+
+
+1. LANDMARKS AND WHICH LIMB
+---------------------------
+- Choose one consistent chain (e.g. right: rh/rk/ra or left: lh/lk/la).
+- Support both landmark layouts if the app uses them: MediaPipe full (~33 pts) vs reduced (~17).
+  Pattern: getIdx(frame) -> MP | MN17 | null by checking frame.length.
+- Never mix legs inside one rule unless the module explicitly requires both (e.g. combos).
+
+
+2. IMAGE COORDINATES (MediaPipe-style)
+--------------------------------------
+- Normalized coords: x,y typically in [0,1]. y increases DOWNWARD.
+- "Higher on screen" = smaller y. "Lower on screen" = larger y.
+- Phrases like "knee below hip line" translate to numeric comparisons on y after you fix which side is "below" in your rule.
+
+
+3. GEOMETRY MODULE (<name>Geometry.ts)
+--------------------------------------
+- Export named constants for every tuned threshold (SLACK, RESET margin, angle min/max, windows).
+  Example patterns:
+  - UNDER_HIP_LINE_SLACK: tolerate jitter so the rule doesn't flicker at the boundary.
+  - RESET_BELOW_HIP_MIN: require the limb to return clearly past the line before the next rep.
+- Encode "what is the pose" as pure functions: validPoint(), getIdx(), midHipY(), limb angle, inStrikePose(), resetPose().
+- Avoid magic numbers inside the rep detector; import from geometry.
+- Document in 1-3 lines at top of file: which leg, what "success" means in plain language.
+
+
+4. KNEE / ANGLE RULES (when relevant)
+-------------------------------------
+- Hip-knee-ankle interior angle: standing straight often ~180° or very open; chamber/strike uses a band (e.g. 48°-135°) to reject idle stance.
+- Optional: rolling mean over ANGLE_WINDOW frames for feedback smoothing (short reps use slightly wider band).
+- Tune on real video: camera angle and bag distance change apparent geometry.
+
+
+5. REP DETECTOR (<name>RepDetector.ts)
+--------------------------------------
+- Small state machine, not one-frame triggers. Typical phases:
+  idle -> raised (hold MIN_REP_FRAMES in strike pose) -> emit segment -> cooldown -> idle.
+- Start from resetPose in idle so reps begin from a clean baseline.
+- During cooldown, require resetPose before leaving cooldown (avoids double-counting).
+- COOLDOWN_MS prevents bounce/oscillation from becoming multiple reps.
+- Return type: RepDetectorResult { done, segment? } matching existing modules.
+
+
+6. FEEDBACK (<name>Feedback.ts)
+-------------------------------
+- Drive hints from the SAME functions/constants as geometry (same thresholds, same limb).
+- Messages should say the limb and the cue ("left knee", "under hip line", etc.).
+- If landmarks missing: single clear hint (landmarks not visible enough).
+
+
+7. COMPARATOR (<name>Comparator.ts)
+-----------------------------------
+- Decide product behavior:
+  - Strict: distance vs reference + form feedback gates match.
+  - Permissive: match: true if the bespoke detector already encodes success (knee strikes pattern);
+    still compute distance for analytics/debug if useful.
+- Keep compareRepWithFeedback and compareRepWithFeedbackAny parallel to sibling modules.
+
+
+8. INDEX + REGISTRY
+-------------------
+- index.ts: export MODULE_ID (Firebase id), REGISTRY_KEY = `<categoryKey>/${MODULE_ID}`, ModulePosePipeline:
+  createRepDetector, compareRepWithFeedback, compareRepWithFeedbackAny, defaultMatchThreshold, poseFocus, minFramesForRep.
+- registry.ts: import pipeline + REGISTRY_KEY; register() next to related modules.
+- Category key must match CATEGORY_TO_KEY (e.g. knee_strikes).
+
+
+9. NAMING AND PARITY
+--------------------
+- "Lead" vs "rear" in combat stance: be explicit which Landmark side implements each (orthodox vs southpaw).
+- Mirror modules (left/right): copy folder structure; swap lh/lk/la vs rh/rk/ra; re-read every message string.
+
+
+10. QUALITY BAR ("why it feels precise")
+-----------------------------------------
+- Every pass/fail reason maps to a named constant or function (not vibes).
+- Tuning is adjusting constants in one file + re-testing on device.
+- minFramesForRep in pipeline should align with detector MIN_REP_FRAMES unless you document why they differ.
+
+
+11. OPTIONAL: REFERENCE DATA
+----------------------------
+- CSV/JSON from pose-data-extractor can seed references; bespoke detectors may still ignore strict frame match.
+- If you add extractor outputs, name files consistently with module purpose and athlete.
+
+
+End of guide.

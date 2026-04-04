@@ -18,7 +18,7 @@ export {
   logout,
 } from './authSession';
 
-export { saveSkillProfile, getSkillProfile } from './skillProfile';
+export { saveSkillProfile, getSkillProfile, getFullSkillProfile } from './skillProfile';
 
 export {
   forgotPassword,
@@ -32,6 +32,7 @@ export {
   getRecommendations,
   getUserProgress,
   recordModuleCompletion,
+  recordModuleTrainingFailure,
   resetUserProgress,
 } from './userProgress';
 
@@ -67,7 +68,7 @@ export {
 
 import { isDemoMode, setDemoModeAndUser, clearDemoMode } from './demoMode';
 import { register, login, getCurrentUser, logout } from './authSession';
-import { saveSkillProfile, getSkillProfile } from './skillProfile';
+import { saveSkillProfile, getSkillProfile, getFullSkillProfile } from './skillProfile';
 import {
   forgotPassword,
   sendRegistrationOtp,
@@ -77,6 +78,7 @@ import {
   getRecommendations,
   getUserProgress,
   recordModuleCompletion,
+  recordModuleTrainingFailure,
   resetUserProgress,
 } from './userProgress';
 import { uploadFileToCloudinary } from './cloudinary';
@@ -115,6 +117,7 @@ export const AuthController = {
   clearDemoMode,
   saveSkillProfile,
   getSkillProfile,
+  getFullSkillProfile,
   updateUserProfile,
   updateProfilePicture,
   resetUserProgress,
@@ -127,6 +130,7 @@ export const AuthController = {
   getRecommendations,
   getUserProgress,
   recordModuleCompletion,
+  recordModuleTrainingFailure,
   getModulesByIds,
   getReferencePoseData,
   getModuleByIdForUser,

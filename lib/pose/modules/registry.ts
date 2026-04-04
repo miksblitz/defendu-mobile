@@ -15,10 +15,51 @@ import { rearUppercutPipeline } from './punching/rear-uppercut';
 import { jabCrossComboPipeline } from './punching/jab-cross-combo';
 import { jabUppercutComboPipeline } from './punching/jab-uppercut-combo';
 import { kickingDefaultPipeline } from './kicking/default';
+import { leadLowKickPipeline, LEAD_LOW_KICK_REGISTRY_KEY } from './kicking/lead-low-kick';
+import { rearLowKickPipeline, REAR_LOW_KICK_REGISTRY_KEY } from './kicking/rear-low-kick';
+import { leadHighKickPipeline, LEAD_HIGH_KICK_REGISTRY_KEY } from './kicking/lead-high-kick';
+import { sideKickPipeline, SIDE_KICK_REGISTRY_KEY } from './kicking/side-kick';
+import { doubleLowKickPipeline, DOUBLE_LOW_KICK_REGISTRY_KEY } from './kicking/double-low-kick';
 import { elbowStrikesDefaultPipeline } from './elbow_strikes/default';
 import { leadUppercutElbowStrikePipeline } from './elbow_strikes/lead-uppercut-elbow-strike';
 import { rearUppercutElbowStrikePipeline } from './elbow_strikes/rear-uppercut-elbow-strike';
+import {
+  leadElbowStrikePipeline,
+  LEAD_ELBOW_STRIKE_REGISTRY_KEY,
+} from './elbow_strikes/lead-elbow-strike';
+import {
+  rightElbowStrikePipeline,
+  RIGHT_ELBOW_STRIKE_REGISTRY_KEY,
+} from './elbow_strikes/elbow-strike-right';
+import {
+  backwardsElbowStrikePipeline,
+  BACKWARDS_ELBOW_STRIKE_REGISTRY_KEY,
+} from './elbow_strikes/backwards-elbow-strike';
 import { kneeStrikesDefaultPipeline } from './knee_strikes/default';
+import {
+  lowLeadKneeStrikePipeline,
+  LOW_LEAD_KNEE_STRIKE_REGISTRY_KEY,
+} from './knee_strikes/low-lead-knee-strike';
+import {
+  lowRearKneeStrikePipeline,
+  LOW_REAR_KNEE_STRIKE_REGISTRY_KEY,
+} from './knee_strikes/low-rear-knee-strike';
+import {
+  highLeadKneeStrikePipeline,
+  HIGH_LEAD_KNEE_STRIKE_REGISTRY_KEY,
+} from './knee_strikes/high-lead-knee-strike';
+import {
+  highRearKneeStrikePipeline,
+  HIGH_REAR_KNEE_STRIKE_REGISTRY_KEY,
+} from './knee_strikes/high-rear-knee-strike';
+import {
+  doubleHighKneeStrikePipeline,
+  DOUBLE_HIGH_KNEE_STRIKE_REGISTRY_KEY,
+} from './knee_strikes/double-high-knee-strike';
+import {
+  doubleLowKneeStrikePipeline,
+  DOUBLE_LOW_KNEE_STRIKE_REGISTRY_KEY,
+} from './knee_strikes/double-low-knee-strike';
 import { defensiveMovesDefaultPipeline } from './defensive_moves/default';
 import { defensiveBlockPipeline, BLOCK_MODULE_REGISTRY_KEY } from './defensive_moves/block';
 import { defensiveSlipPipeline, SLIP_MODULE_REGISTRY_KEY } from './defensive_moves/slip';
@@ -51,13 +92,30 @@ function register(key: string, pipeline: ModulePosePipeline): void {
 // Category defaults: <categoryKey>/default
 register('punching/default', punchingDefaultPipeline);
 register('kicking/default', kickingDefaultPipeline);
+register(LEAD_LOW_KICK_REGISTRY_KEY, leadLowKickPipeline);
+register(REAR_LOW_KICK_REGISTRY_KEY, rearLowKickPipeline);
+register(LEAD_HIGH_KICK_REGISTRY_KEY, leadHighKickPipeline);
+register(SIDE_KICK_REGISTRY_KEY, sideKickPipeline);
+register(DOUBLE_LOW_KICK_REGISTRY_KEY, doubleLowKickPipeline);
 register('elbow_strikes/default', elbowStrikesDefaultPipeline);
 // Lead elbow strike module:
 // guard_stance -> transition -> elbowstrikefinalposition -> guard_stance
 register('elbow_strikes/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774767480246', leadUppercutElbowStrikePipeline);
 // Rear elbow strike module
 register('elbow_strikes/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774763194879', rearUppercutElbowStrikePipeline);
+// Lead elbow strike module (final position only; right landmark chain 12/14/16).
+register(LEAD_ELBOW_STRIKE_REGISTRY_KEY, leadElbowStrikePipeline);
+// Elbow Strike (Right) Firebase module — left landmark chain 11/13/15 (swapped vs lead for mirror/setup).
+register(RIGHT_ELBOW_STRIKE_REGISTRY_KEY, rightElbowStrikePipeline);
+// Backwards elbow strike — left chain 11/13/15; final pose from reference good_rep analysis.
+register(BACKWARDS_ELBOW_STRIKE_REGISTRY_KEY, backwardsElbowStrikePipeline);
 register('knee_strikes/default', kneeStrikesDefaultPipeline);
+register(LOW_LEAD_KNEE_STRIKE_REGISTRY_KEY, lowLeadKneeStrikePipeline);
+register(LOW_REAR_KNEE_STRIKE_REGISTRY_KEY, lowRearKneeStrikePipeline);
+register(HIGH_LEAD_KNEE_STRIKE_REGISTRY_KEY, highLeadKneeStrikePipeline);
+register(HIGH_REAR_KNEE_STRIKE_REGISTRY_KEY, highRearKneeStrikePipeline);
+register(DOUBLE_HIGH_KNEE_STRIKE_REGISTRY_KEY, doubleHighKneeStrikePipeline);
+register(DOUBLE_LOW_KNEE_STRIKE_REGISTRY_KEY, doubleLowKneeStrikePipeline);
 register('defensive_moves/default', defensiveMovesDefaultPipeline);
 // Block module (Firebase): stance to guard/blocking defensive movement.
 register(BLOCK_MODULE_REGISTRY_KEY, defensiveBlockPipeline);

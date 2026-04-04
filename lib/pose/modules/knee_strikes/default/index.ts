@@ -1,5 +1,5 @@
 /**
- * Default knee strikes module pipeline (legs / kicking focus).
+ * Default knee strikes module pipeline (generic leg raise; category fallback).
  */
 
 import type { ModulePosePipeline } from '../../types';

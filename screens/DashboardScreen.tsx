@@ -16,10 +16,18 @@ import {
   Platform,
   StatusBar,
   RefreshControl,
+  Modal,
+  Pressable,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
+import type { SkillProfile } from '../lib/models/SkillProfile';
+import type { ModuleTrainingStat } from '../lib/controllers/userProgress';
+import {
+  buildPersonalizedModuleRecommendations,
+  PERFORMANCE_PHASE_COMPLETION_THRESHOLD,
+} from '../lib/recommendations/trainingModuleRecommendations';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
@@ -220,6 +228,12 @@ interface DashboardScreenProps {
     startPhase?: 'warmup' | 'cooldown';
     mannequinGifUri?: string | null;
   }) => void;
+  /** Category-style session (safety → countdown → pose) for a single pick from Recommended modal. */
+  onStartRecommendedSingleSession?: (module: ModuleItem) => void;
+  /** Increment when returning from recommended single session so the modal reopens. */
+  recommendationsReopenToken?: number;
+  /** Call after opening the modal from `recommendationsReopenToken` so the token can be cleared in App (prevents reopen after category quit). */
+  onConsumeRecommendationsReopen?: () => void;
   /** When this changes (e.g. after returning from a module), progress is refetched so weekly goal updates. */
   refreshKey?: number;
   returnToCategory?: string | null;
@@ -233,6 +247,9 @@ interface DashboardScreenProps {
 export default function DashboardScreen({
   onOpenModule,
   onStartCategorySession,
+  onStartRecommendedSingleSession,
+  recommendationsReopenToken = 0,
+  onConsumeRecommendationsReopen,
   refreshKey = 0,
   returnToCategory = null,
   onConsumeReturnToCategory,
@@ -248,10 +265,21 @@ export default function DashboardScreen({
   const [warmupStartCardIndex, setWarmupStartCardIndex] = useState<number>(-1);
   const [cooldownStartCardIndex, setCooldownStartCardIndex] = useState<number>(-1);
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
+  const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
+  const [moduleTrainingStats, setModuleTrainingStats] = useState<Record<string, ModuleTrainingStat>>({});
+  const [skillProfile, setSkillProfile] = useState<SkillProfile | null>(null);
+  const [mlRecommendedModuleIds, setMlRecommendedModuleIds] = useState<string[]>([]);
+  const [recModalVisible, setRecModalVisible] = useState(false);
   const [targetModulesPerDay, setTargetModulesPerDay] = useState(DEFAULT_MODULES_PER_DAY_GOAL);
   const [targetModulesPerWeek, setTargetModulesPerWeek] = useState(DEFAULT_MODULES_PER_WEEK_GOAL);
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (recommendationsReopenToken <= 0) return;
+    setRecModalVisible(true);
+    onConsumeRecommendationsReopen?.();
+  }, [recommendationsReopenToken, onConsumeRecommendationsReopen]);
 
   const loadDashboardData = React.useCallback(async () => {
     const LOAD_TIMEOUT_MS = 10000;
@@ -280,15 +308,19 @@ export default function DashboardScreen({
       }
 
       // Load modules and progress (query only approved, so payload is smaller).
-      const [list, progress, currentUser] = await Promise.all([
+      const [list, progress, currentUser, fullProfile] = await Promise.all([
         AuthController.getApprovedModules(),
         AuthController.getUserProgress(),
         AuthController.getCurrentUser(),
+        AuthController.getFullSkillProfile(),
       ]);
       if (done) return;
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
       setModules(list ?? []);
       setCompletionTimestamps(progress?.completionTimestamps ?? {});
+      setCompletedModuleIds(completedIds);
+      setModuleTrainingStats(progress?.moduleTrainingStats ?? {});
+      setSkillProfile(fullProfile);
       const dailyTarget = currentUser?.targetModulesPerDay && currentUser.targetModulesPerDay > 0
         ? currentUser.targetModulesPerDay
         : DEFAULT_MODULES_PER_DAY_GOAL;
@@ -309,16 +341,21 @@ export default function DashboardScreen({
       // Load recommendations in background (don't block showing the module list).
       AuthController.getRecommendations()
         .then((recs) => {
-          if (!recs?.recommendedModuleIds?.length) {
+          const ids = Array.isArray(recs?.recommendedModuleIds) ? recs!.recommendedModuleIds : [];
+          setMlRecommendedModuleIds(ids);
+          if (!ids.length) {
             setRecommendedModules([]);
             return;
           }
-          return AuthController.getModulesByIds(recs.recommendedModuleIds).then((recommended) => {
+          return AuthController.getModulesByIds(ids).then((recommended) => {
             const notCompleted = recommended.filter((m) => !completedIds.includes(m.moduleId));
             setRecommendedModules(notCompleted);
           });
         })
-        .catch(() => setRecommendedModules([]));
+        .catch(() => {
+          setMlRecommendedModuleIds([]);
+          setRecommendedModules([]);
+        });
     } catch (e) {
       if (!done) setModules([]);
       done = true;
@@ -360,6 +397,24 @@ export default function DashboardScreen({
   const dayProgress = dayCounts.map((c) => Math.min(1, c / targetModulesPerDay));
   const weeklyCompletions = dayCounts.reduce((sum, count) => sum + count, 0);
   const weeklyProgress = Math.min(1, weeklyCompletions / targetModulesPerWeek);
+
+  const personalizedRecIds = React.useMemo(
+    () =>
+      buildPersonalizedModuleRecommendations({
+        modules,
+        skillProfile,
+        completedModuleIds,
+        moduleTrainingStats,
+        mlRecommendedModuleIds,
+        topN: 5,
+      }),
+    [modules, skillProfile, completedModuleIds, moduleTrainingStats, mlRecommendedModuleIds]
+  );
+
+  const personalizedRecModules = React.useMemo(() => {
+    const byId = new Map(modules.map((m) => [m.moduleId, m]));
+    return personalizedRecIds.map((id) => byId.get(id)).filter((m): m is ModuleItem => m != null);
+  }, [modules, personalizedRecIds]);
 
   const modulesInCategoryRaw = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
@@ -560,7 +615,14 @@ export default function DashboardScreen({
         )}
 
         <View style={styles.weeklyGoalContainer}>
-          <Image source={require('../assets/images/defendudashboardlogo.png')} style={styles.weeklyGoalLogo} resizeMode="contain" />
+          <TouchableOpacity
+            onPress={() => setRecModalVisible(true)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Open recommended training modules"
+          >
+            <Image source={require('../assets/images/defendudashboardlogo.png')} style={styles.weeklyGoalLogo} resizeMode="contain" />
+          </TouchableOpacity>
           <View style={styles.weeklyGoalHeader}>
             <View>
               <Text style={styles.weeklyGoalTitle}>Weekly Goal</Text>
@@ -888,6 +950,82 @@ export default function DashboardScreen({
           )}
         </View>
       ) : null}
+
+      <Modal
+        visible={recModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRecModalVisible(false)}
+      >
+        <View style={styles.recModalBackdrop}>
+          <View style={styles.recModalCard}>
+            <Text style={styles.recModalTitle}>Recommended Training Modules</Text>
+            <Text style={styles.recModalSub}>
+              Five picks tailored to your skill profile
+              {skillProfile ? '' : ' (complete your profile for stronger matches)'}
+              , similar learners when available, and your training results
+              {completedModuleIds.length >= PERFORMANCE_PHASE_COMPLETION_THRESHOLD
+                ? ' — struggles weigh more after you have completed several modules.'
+                : '.'}
+            </Text>
+            {personalizedRecModules.length === 0 ? (
+              <Text style={styles.recModalEmpty}>
+                {modules.length === 0
+                  ? 'No modules loaded yet.'
+                  : completedModuleIds.length >= modules.length
+                    ? 'You have completed every available module. Outstanding work.'
+                    : 'No matches right now. Pull to refresh or check back soon.'}
+              </Text>
+            ) : (
+              <ScrollView
+                style={styles.recModalList}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {personalizedRecModules.map((mod, idx) => {
+                  const fails = moduleTrainingStats[mod.moduleId]?.failCount ?? 0;
+                  const hint =
+                    fails > 0
+                      ? `Needs practice — ${fails} incomplete training session${fails === 1 ? '' : 's'}`
+                      : 'Aligned with your level and goals';
+                  return (
+                    <TouchableOpacity
+                      key={mod.moduleId}
+                      style={styles.recModalRow}
+                      activeOpacity={0.88}
+                      onPress={() => {
+                        setRecModalVisible(false);
+                        if (onStartRecommendedSingleSession) {
+                          onStartRecommendedSingleSession(mod);
+                        } else {
+                          onOpenModule(mod.moduleId, mod);
+                        }
+                      }}
+                    >
+                      <View style={styles.recModalRank}>
+                        <Text style={styles.recModalRankText}>{idx + 1}</Text>
+                      </View>
+                      <View style={styles.recModalRowBody}>
+                        <Text style={styles.recModalModuleTitle} numberOfLines={2}>
+                          {mod.moduleTitle ?? mod.moduleId}
+                        </Text>
+                        <Text style={styles.recModalModuleMeta} numberOfLines={1}>
+                          {mod.category ?? 'Training'} · {hint}
+                        </Text>
+                      </View>
+                      <Text style={styles.recModalChevron}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <Pressable style={styles.recModalClose} onPress={() => setRecModalVisible(false)}>
+              <Text style={styles.recModalCloseText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
     </View>
   );
@@ -913,6 +1051,59 @@ const styles = StyleSheet.create({
   jabTesterSubtext: { fontSize: 13, color: 'rgba(255,255,255,0.8)' },
   weeklyGoalContainer: { backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: '#062731' },
   weeklyGoalLogo: { width: '100%', maxWidth: 200, height: 44, alignSelf: 'center', marginBottom: 16 },
+  recModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
+  recModalCard: {
+    backgroundColor: '#011f36',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#062731',
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 16,
+    maxHeight: SCREEN_HEIGHT * 0.72,
+  },
+  recModalTitle: { color: '#07bbc0', fontSize: 18, fontWeight: '800', marginBottom: 8 },
+  recModalSub: { color: '#6b8693', fontSize: 12, lineHeight: 17, marginBottom: 14 },
+  recModalEmpty: { color: '#6b8693', fontSize: 14, paddingVertical: 16 },
+  recModalList: { maxHeight: SCREEN_HEIGHT * 0.48 },
+  recModalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#041527',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#062731',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  recModalRank: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(7, 187, 192, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  recModalRankText: { color: '#07bbc0', fontSize: 13, fontWeight: '800' },
+  recModalRowBody: { flex: 1, minWidth: 0 },
+  recModalModuleTitle: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  recModalModuleMeta: { color: '#6b8693', fontSize: 12, marginTop: 4 },
+  recModalChevron: { color: 'rgba(255,255,255,0.45)', fontSize: 22, marginLeft: 6 },
+  recModalClose: {
+    marginTop: 6,
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  recModalCloseText: { color: '#07bbc0', fontSize: 15, fontWeight: '700' },
   weeklyGoalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   weeklyGoalTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   weeklyGoalSubtitle: { fontSize: 12, color: '#6b8693', marginTop: 2 },

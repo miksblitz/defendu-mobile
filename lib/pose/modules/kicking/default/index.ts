@@ -1,5 +1,5 @@
 /**
- * Default kicking module pipeline.
+ * Default kicking module pipeline (generic leg-up / leg-down rep detector).
  */
 
 import type { ModulePosePipeline } from '../../types';

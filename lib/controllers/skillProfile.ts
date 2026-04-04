@@ -83,3 +83,61 @@ export async function getSkillProfile(): Promise<{ height: number; weight: numbe
   }
   return null;
 }
+
+/** Full skill profile from Realtime DB (for personalized recommendations). */
+export async function getFullSkillProfile(): Promise<SkillProfile | null> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) return null;
+  const snap = await get(ref(db, `skillProfiles/${currentUser.uid}`));
+  if (!snap.exists()) return null;
+  const data = snap.val();
+  const pa = data?.physicalAttributes;
+  const prefs = data?.preferences;
+  const past = data?.pastExperience;
+  const fit = data?.fitnessCapabilities;
+  if (!pa || typeof pa.height !== 'number' || typeof pa.weight !== 'number') return null;
+
+  const completedAtMs = typeof data?.completedAt === 'number' ? data.completedAt : Date.now();
+  const updatedAtMs = typeof data?.updatedAt === 'number' ? data.updatedAt : undefined;
+
+  return {
+    uid: currentUser.uid,
+    physicalAttributes: {
+      height: pa.height,
+      weight: pa.weight,
+      age: typeof pa.age === 'number' ? pa.age : 0,
+      gender: pa.gender === 'Male' || pa.gender === 'Female' || pa.gender === 'Other' ? pa.gender : 'Other',
+      limitations: typeof pa.limitations === 'string' ? pa.limitations : undefined,
+    },
+    preferences: {
+      preferredTechnique: Array.isArray(prefs?.preferredTechnique)
+        ? prefs.preferredTechnique.map(String)
+        : [],
+      trainingGoal: Array.isArray(prefs?.trainingGoal) ? prefs.trainingGoal.map(String) : [],
+      targetModulesPerDay:
+        typeof prefs?.targetModulesPerDay === 'number' && prefs.targetModulesPerDay > 0
+          ? prefs.targetModulesPerDay
+          : 5,
+      targetModulesPerWeek:
+        typeof prefs?.targetModulesPerWeek === 'number' && prefs.targetModulesPerWeek > 0
+          ? prefs.targetModulesPerWeek
+          : 35,
+    },
+    pastExperience: {
+      experienceLevel: typeof past?.experienceLevel === 'string' ? past.experienceLevel : 'Some Experience',
+      martialArtsBackground: Array.isArray(past?.martialArtsBackground)
+        ? past.martialArtsBackground.map(String)
+        : [],
+      previousTrainingDetails:
+        typeof past?.previousTrainingDetails === 'string' ? past.previousTrainingDetails : undefined,
+    },
+    fitnessCapabilities: {
+      currentFitnessLevel:
+        typeof fit?.currentFitnessLevel === 'string' ? fit.currentFitnessLevel : 'Moderate',
+      trainingFrequency: typeof fit?.trainingFrequency === 'string' ? fit.trainingFrequency : 'Never',
+      injuries: typeof fit?.injuries === 'string' ? fit.injuries : undefined,
+    },
+    completedAt: new Date(completedAtMs),
+    updatedAt: updatedAtMs != null ? new Date(updatedAtMs) : undefined,
+  };
+}

@@ -17,6 +17,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  Platform,
 } from 'react-native';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
@@ -26,6 +27,7 @@ import PoseCameraView from '../components/PoseCameraView';
 import type { PoseSequence, PoseFocus, PoseFrame } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
+import { getPunchingGuideSource } from '../lib/punchingGuideAssets';
 
 // --- Types & props ---
 type Step = 'intro' | 'safety' | 'video' | 'tryIt' | 'tryItPoseLoading' | 'tryItPose' | 'complete';
@@ -112,6 +114,44 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
   const [poseLoadingProgress, setPoseLoadingProgress] = useState(0);
   const tryItTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const poseRampRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Sync refs for silent training-failure analytics (recommendations); no UI. */
+  const stepRef = useRef<Step>(step);
+  const poseCorrectRepsRef = useRef(poseCorrectReps);
+  const moduleRefForFailure = useRef<Module | null>(null);
+  const moduleIdRef = useRef(moduleId);
+  const poseFailureLoggedRef = useRef(false);
+
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+  useEffect(() => {
+    poseCorrectRepsRef.current = poseCorrectReps;
+  }, [poseCorrectReps]);
+  useEffect(() => {
+    moduleRefForFailure.current = module;
+  }, [module]);
+  useEffect(() => {
+    moduleIdRef.current = moduleId;
+  }, [moduleId]);
+  useEffect(() => {
+    if (step === 'tryItPose') {
+      poseFailureLoggedRef.current = false;
+    }
+  }, [step]);
+
+  useEffect(() => {
+    return () => {
+      if (stepRef.current !== 'tryItPose') return;
+      if (poseFailureLoggedRef.current) return;
+      const mod = moduleRefForFailure.current;
+      const mid = moduleIdRef.current;
+      if (!mod || !mid) return;
+      const req = getRequiredReps(mod.repRange);
+      if (req > 0 && poseCorrectRepsRef.current < req) {
+        AuthController.recordModuleTrainingFailure(mid).catch(() => {});
+      }
+    };
+  }, []);
 
   // Load full module from Firebase.
   useEffect(() => {
@@ -241,27 +281,6 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
       });
     }, RAMP_MS);
   }, []);
-
-  // Punching guides (top-center) for known pose modules.
-  // These moduleIds are registered in `lib/pose/modules/registry.ts`.
-  const getPunchingGuideGif = (id: string | null | undefined): any | null => {
-    if (!id) return null;
-    const MAP: Record<string, any> = {
-      // new test jab -> lead jab
-      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773459399866': require('../assets/images/punching_guides/lead jab gif.gif'),
-      // cross jab -> cross
-      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093': require('../assets/images/punching_guides/cross gif.gif'),
-      // basic 1-2 combo -> jab + cross
-      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670': require('../assets/images/punching_guides/jab + cross gif.gif'),
-      // lead uppercut -> lead uppercut
-      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773669360613': require('../assets/images/punching_guides/Lead uppercut gif.gif'),
-      // rear uppercut test -> rear uppercut
-      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773673272052': require('../assets/images/punching_guides/rear uppercut.gif'),
-      // jab uppercut -> lead jab + rear uppercut
-      'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773844294396': require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif'),
-    };
-    return MAP[id] ?? null;
-  };
 
   // Load pose reference only when user has tapped "Try with pose" (tryItPoseLoading). Keeps module intro/video fast.
   useEffect(() => {
@@ -396,6 +415,16 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     }
   }, [step]);
 
+  const logPosePracticeBailOnce = useCallback(() => {
+    const mid = moduleIdRef.current;
+    const mod = moduleRefForFailure.current;
+    if (!mid || !mod || poseFailureLoggedRef.current) return;
+    const req = getRequiredReps(mod.repRange);
+    if (req <= 0 || poseCorrectRepsRef.current >= req) return;
+    poseFailureLoggedRef.current = true;
+    AuthController.recordModuleTrainingFailure(mid).catch(() => {});
+  }, []);
+
   const handleSaveProgress = async () => {
     if (moduleId) {
       try {
@@ -429,8 +458,10 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     if (step === 'intro') onBack();
     else if (step === 'safety') setStep('intro');
     else if (step === 'video') setStep('safety');
-    else if (step === 'tryIt' || step === 'tryItPose' || step === 'tryItPoseLoading') setStep('safety');
-    else if (step === 'complete') onBack();
+    else if (step === 'tryIt' || step === 'tryItPose' || step === 'tryItPoseLoading') {
+      if (step === 'tryItPose') logPosePracticeBailOnce();
+      setStep('safety');
+    } else if (step === 'complete') onBack();
   };
 
   const isPunching = module?.category === 'Punching';
@@ -474,41 +505,36 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
   if (step === 'tryItPose' && module) {
     const categoryKey = module.category && String(module.category).trim() ? module.category : 'Punching';
-    // Don't rely on exact category casing; show guides by moduleId match.
-    const moduleTitleLower = (module.moduleTitle ?? '').toLowerCase();
-    const guideGifSource =
-      getPunchingGuideGif(moduleId ?? module.moduleId) ??
-      (moduleTitleLower.includes('basic') || moduleTitleLower.includes('1-2') || moduleTitleLower.includes('combo')
-        ? require('../assets/images/punching_guides/jab + cross gif.gif')
-        : moduleTitleLower.includes('jab uppercut')
-          ? require('../assets/images/punching_guides/lead jab + rear uppercut gif.gif')
-          : null);
+    const guideGifSource = getPunchingGuideSource(moduleId ?? module.moduleId, module.moduleTitle, categoryKey);
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
+          <PoseCameraView
+            requiredReps={getRequiredReps(module.repRange)}
+            correctReps={poseCorrectReps}
+            isCurrentRepCorrect={poseCurrentRepCorrect}
+            onBack={() => {
+              logPosePracticeBailOnce();
+              setStep('safety');
+            }}
+            onCorrectRepsUpdate={(count, lastCorrect) => {
+              setPoseCorrectReps(count);
+              setPoseCurrentRepCorrect(lastCorrect);
+            }}
+            referenceSequence={referencePoseLoading ? null : referencePoseSequence}
+            poseFocus={referencePoseFocus}
+            matchThreshold={referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD}
+            poseVariant="default"
+            moduleId={moduleId ?? undefined}
+            category={categoryKey}
+            showArmState={false}
+            showOverlayHint={false}
+          />
           {guideGifSource ? (
             <View style={styles.poseGuideWrap} pointerEvents="none">
               <Image source={guideGifSource} style={styles.poseGuideImage} resizeMode="contain" />
             </View>
           ) : null}
-            <PoseCameraView
-              requiredReps={getRequiredReps(module.repRange)}
-              correctReps={poseCorrectReps}
-              isCurrentRepCorrect={poseCurrentRepCorrect}
-              onBack={() => setStep('safety')}
-              onCorrectRepsUpdate={(count, lastCorrect) => {
-                setPoseCorrectReps(count);
-                setPoseCurrentRepCorrect(lastCorrect);
-              }}
-              referenceSequence={referencePoseLoading ? null : referencePoseSequence}
-              poseFocus={referencePoseFocus}
-              matchThreshold={referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD}
-              poseVariant="default"
-              moduleId={moduleId ?? undefined}
-              category={categoryKey}
-              showArmState={false}
-              showOverlayHint={false}
-            />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity
               style={styles.continueOverlayButton}
@@ -750,7 +776,8 @@ const styles = StyleSheet.create({
     top: 10,
     left: 0,
     right: 0,
-    zIndex: 10,
+    zIndex: 50,
+    ...(Platform.OS === 'android' ? { elevation: 50 } : {}),
     alignItems: 'center',
     pointerEvents: 'none',
   },
@@ -758,7 +785,18 @@ const styles = StyleSheet.create({
     width: 220,
     height: 125,
   },
-  continueOverlayButton: { position: 'absolute', bottom: 24, left: 20, right: 20, backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  continueOverlayButton: {
+    position: 'absolute',
+    bottom: 24,
+    left: 20,
+    right: 20,
+    zIndex: 60,
+    ...(Platform.OS === 'android' ? { elevation: 60 } : {}),
+    backgroundColor: '#07bbc0',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#062731' },
   backButton: { paddingVertical: 8, paddingRight: 16 },
   backButtonIcon: { width: 24, height: 24 },

@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image, LogBox } from 'react-native';
 
 // Suppress "Open debugger to view warnings" and similar dev prompts
@@ -87,7 +87,9 @@ export default function App() {
     trainingModules: ModuleItem[];
     startPhase?: 'warmup' | 'cooldown';
     mannequinGifUri?: string | null;
+    sessionVariant?: 'default' | 'recommendedSingle';
   } | null>(null);
+  const [dashboardRecommendationsReopenToken, setDashboardRecommendationsReopenToken] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [dashboardReturnToCategory, setDashboardReturnToCategory] = useState<string | null>(null);
   const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
@@ -169,6 +171,11 @@ export default function App() {
     if (screen === 'messages') setMessagesOpenWith(null);
     setScreen(screen);
   };
+
+  /** Clears reopen signal after Dashboard handles it (avoids modal opening again after unrelated remounts). */
+  const handleConsumeRecommendationsReopen = useCallback(() => {
+    setDashboardRecommendationsReopenToken(0);
+  }, []);
 
   return (
     <>
@@ -264,6 +271,8 @@ export default function App() {
             >
               <DashboardScreen
                 refreshKey={dashboardRefreshKey}
+                recommendationsReopenToken={dashboardRecommendationsReopenToken}
+                onConsumeRecommendationsReopen={handleConsumeRecommendationsReopen}
                 returnToCategory={dashboardReturnToCategory}
                 onConsumeReturnToCategory={() => setDashboardReturnToCategory(null)}
                 initialToastMessage={dashboardToastMessage}
@@ -271,6 +280,17 @@ export default function App() {
                 onOpenModule={(moduleId: string, initialModule?: ModuleItem) => { setViewModuleId(moduleId); setViewModuleInitial(initialModule ?? null); setScreen('view-module'); }}
                 onStartCategorySession={(payload) => {
                   setCategoryPracticeSession(payload);
+                  setScreen('category-practice-session');
+                }}
+                onStartRecommendedSingleSession={(mod) => {
+                  const cat = mod.category?.trim() ? mod.category : 'Punching';
+                  setCategoryPracticeSession({
+                    category: cat,
+                    warmups: [],
+                    cooldowns: [],
+                    trainingModules: [mod],
+                    sessionVariant: 'recommendedSingle',
+                  });
                   setScreen('category-practice-session');
                 }}
               />
@@ -349,8 +369,15 @@ export default function App() {
                 trainingModules={categoryPracticeSession.trainingModules}
                 startPhase={categoryPracticeSession.startPhase}
                 mannequinGifUri={categoryPracticeSession.mannequinGifUri ?? null}
+                sessionVariant={categoryPracticeSession.sessionVariant ?? 'default'}
                 onExit={() => {
-                  setDashboardReturnToCategory(categoryPracticeSession.category);
+                  const variant = categoryPracticeSession.sessionVariant;
+                  if (variant === 'recommendedSingle') {
+                    setDashboardRecommendationsReopenToken((t) => t + 1);
+                  } else {
+                    setDashboardRecommendationsReopenToken(0);
+                    setDashboardReturnToCategory(categoryPracticeSession.category);
+                  }
                   setCategoryPracticeSession(null);
                   setScreen('dashboard');
                   setDashboardRefreshKey((k) => k + 1);

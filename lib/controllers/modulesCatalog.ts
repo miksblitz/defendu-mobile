@@ -12,6 +12,9 @@ export interface ModuleItem {
   videoDuration?: number;
   /** basic | intermediate | advanced – used to group modules in the app */
   difficultyLevel?: 'basic' | 'intermediate' | 'advanced';
+  /** 1–5, aligns with ML `profile_module_fit` / admin module metadata. */
+  intensityLevel?: number;
+  physicalDemandTags?: string[];
   /** Optional warmup exercises saved on the module. */
   warmupExercises?: string[];
   /** Optional cooldown stretches saved on the module. */
@@ -44,9 +47,7 @@ function processModulesList(data: Record<string, Record<string, unknown>>): Modu
       referencePoseVideoUrlSide2: _rv2,
       videoDuration: _vd,
       spaceRequirements: _sr,
-      physicalDemandTags: _pd,
       trainingDurationSeconds: _td,
-      intensityLevel: _il,
       submittedAt: _sa,
       reviewedAt: _ra,
       reviewedBy: _rb,
@@ -55,9 +56,21 @@ function processModulesList(data: Record<string, Record<string, unknown>>): Modu
       ...rest
     } = item;
     const desc = typeof rest.description === 'string' ? rest.description : '';
+    const intensityRaw = item.intensityLevel;
+    const intensityLevel =
+      typeof intensityRaw === 'number' && Number.isFinite(intensityRaw)
+        ? Math.max(1, Math.min(5, Math.round(intensityRaw)))
+        : undefined;
+    const tagsRaw = item.physicalDemandTags;
+    const physicalDemandTags = Array.isArray(tagsRaw)
+      ? tagsRaw.map((t) => String(t).trim()).filter(Boolean)
+      : undefined;
+
     modules.push({
       moduleId: id,
       ...rest,
+      intensityLevel,
+      physicalDemandTags,
       warmupExercises: normalizeWarmupExercises(rest.warmupExercises),
       description: desc.length > 300 ? desc.slice(0, 300) + '…' : desc,
       createdAt: item.createdAt ? new Date(item.createdAt as number) : new Date(),

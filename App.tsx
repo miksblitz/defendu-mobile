@@ -78,6 +78,7 @@ function parseResetPasswordToken(url: string | null): string | null {
 export default function App() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [topUpStep, setTopUpStep] = useState<'packs' | 'payment'>('packs');
+  const [creditsBalance, setCreditsBalance] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
@@ -117,6 +118,20 @@ export default function App() {
     return () => { cancelled = true; };
   }, [screen]);
 
+  useEffect(() => {
+    if (screen === 'splash' || screen === 'startup' || screen === 'login' || screen === 'register' || screen === 'register-otp' || screen === 'forgot-password' || screen === 'reset-password') {
+      return;
+    }
+    let cancelled = false;
+    AuthController.getCurrentUser().then((user) => {
+      if (cancelled) return;
+      setCreditsBalance(typeof user?.credits === 'number' ? user.credits : 0);
+    }).catch(() => {
+      if (!cancelled) setCreditsBalance(0);
+    });
+    return () => { cancelled = true; };
+  }, [screen]);
+
   // Deep link: defenduapp://resetpassword?token=... (from email reset link → open app → Enter new password)
   useEffect(() => {
     const handleUrl = (url: string) => {
@@ -149,6 +164,7 @@ export default function App() {
   }, []);
 
   const handleLoginSuccess = (user: User) => {
+    setCreditsBalance(typeof user.credits === 'number' ? user.credits : 0);
     if (user.role === 'admin') {
       setScreen('dashboard');
     } else if (!user.hasCompletedSkillProfile) {
@@ -261,7 +277,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
               headerRight={
                 !isApprovedTrainer ? (
                   <TouchableOpacity
@@ -308,7 +324,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
             >
               <ViewModuleScreen
                 moduleId={viewModuleId}
@@ -329,7 +345,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
             >
               <ProfileScreen />
             </MainLayout>
@@ -341,7 +357,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
             >
               <MessagesScreen
                 openWithUserId={messagesOpenWith?.uid}
@@ -357,7 +373,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
               headerRight={
                 isApprovedTrainer ? (
                   <TouchableOpacity
@@ -395,7 +411,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
               hideNavButton
               hideCreditsBar
             >
@@ -429,7 +445,7 @@ export default function App() {
               onNavigate={handleNav}
               onLogout={handleLogout}
               onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
-              creditsBalance={0}
+              creditsBalance={creditsBalance}
               headerLeft="back"
               onHeaderBack={() => {
                 if (topUpStep === 'payment') {
@@ -439,7 +455,7 @@ export default function App() {
                 }
               }}
             >
-              <TopUpScreen step={topUpStep} onStepChange={setTopUpStep} />
+              <TopUpScreen step={topUpStep} onStepChange={setTopUpStep} onCreditsUpdated={setCreditsBalance} />
             </MainLayout>
           )}
         </UnreadMessagesProvider>

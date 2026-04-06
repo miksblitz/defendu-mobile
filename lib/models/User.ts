@@ -28,6 +28,7 @@ export interface User {
   trainingFrequency?: string;
   currentInjuries?: string | null;
   profilePicture?: string | null;
+  credits?: number;
 }
 
 export interface RegisterData {

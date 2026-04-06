@@ -16,6 +16,7 @@ export {
   login,
   getCurrentUser,
   logout,
+  updateStoredUserCredits,
 } from './authSession';
 
 export { saveSkillProfile, getSkillProfile, getFullSkillProfile } from './skillProfile';
@@ -67,7 +68,7 @@ export {
 } from './trainers';
 
 import { isDemoMode, setDemoModeAndUser, clearDemoMode } from './demoMode';
-import { register, login, getCurrentUser, logout } from './authSession';
+import { register, login, getCurrentUser, logout, updateStoredUserCredits } from './authSession';
 import { saveSkillProfile, getSkillProfile, getFullSkillProfile } from './skillProfile';
 import {
   forgotPassword,
@@ -112,6 +113,7 @@ export const AuthController = {
   register,
   login,
   getCurrentUser,
+  updateStoredUserCredits,
   isDemoMode,
   setDemoModeAndUser,
   clearDemoMode,

@@ -10,20 +10,24 @@ export interface QrPaymentResult {
   sourceId: string;
 }
 
+export interface TopUpInvoice {
+  invoiceNo: string;
+  sourceId: string;
+  amountPhp: number;
+  creditsAdded: number;
+  createdAt: number;
+}
+
 export interface ConfirmTopUpResult {
   success: boolean;
   newCredits: number;
   sourceId: string;
   paymentId?: string;
   alreadyProcessed?: boolean;
-  invoice?: {
-    invoiceNo: string;
-    sourceId: string;
-    amountPhp: number;
-    creditsAdded: number;
-    createdAt: number;
-  };
+  invoice?: TopUpInvoice;
 }
+
+import { updateStoredUserCredits } from './authSession';
 
 function getApiBaseUrl(): string {
   if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
@@ -114,7 +118,11 @@ export async function confirmTopUpPayment(sourceId: string, creditsToAdd: number
       if (!res.ok) {
         throw new Error((data as { error?: string; detail?: string }).detail || (data as { error?: string }).error || `Request failed (${res.status})`);
       }
-      return data as ConfirmTopUpResult;
+      const result = data as ConfirmTopUpResult;
+      if (result.success && Number.isFinite(result.newCredits)) {
+        await updateStoredUserCredits(result.newCredits);
+      }
+      return result;
     } catch (error) {
       lastError = error as Error;
     }

@@ -18,6 +18,8 @@ import TrainerRegistrationScreen from './screens/TrainerRegistrationScreen';
 import PublishModuleScreen from './screens/PublishModuleScreen';
 import CategoryPracticeSessionScreen from './screens/CategoryPracticeSessionScreen';
 import TopUpScreen from './screens/TopUpScreen';
+import TopUpInvoiceScreen from './screens/TopUpInvoiceScreen';
+import type { TopUpInvoice } from './lib/controllers/payments';
 import SkillProfilePhysicalScreen from './screens/SkillProfilePhysicalScreen';
 import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScreen';
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
@@ -46,6 +48,7 @@ type Screen =
   | 'trainer-registration'
   | 'publish-module'
   | 'top-up'
+  | 'top-up-invoice'
   | 'category-practice-session'
   | 'skill-profile-step1'
   | 'skill-profile-step2'
@@ -79,6 +82,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [topUpStep, setTopUpStep] = useState<'packs' | 'payment'>('packs');
   const [creditsBalance, setCreditsBalance] = useState(0);
+  const [topUpReceipt, setTopUpReceipt] = useState<{ invoice: TopUpInvoice; newCredits: number } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
@@ -191,6 +195,12 @@ export default function App() {
     setScreen(screen);
   };
 
+  const openTopUp = useCallback(() => {
+    setTopUpReceipt(null);
+    setTopUpStep('packs');
+    setScreen('top-up');
+  }, []);
+
   /** Clears reopen signal after Dashboard handles it (avoids modal opening again after unrelated remounts). */
   const handleConsumeRecommendationsReopen = useCallback(() => {
     setDashboardRecommendationsReopenToken(0);
@@ -268,7 +278,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
-      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up') && (
+      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
             <MainLayout
@@ -276,7 +286,7 @@ export default function App() {
               currentScreen="dashboard"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
               headerRight={
                 !isApprovedTrainer ? (
@@ -323,7 +333,7 @@ export default function App() {
               currentScreen="dashboard"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
             >
               <ViewModuleScreen
@@ -344,7 +354,7 @@ export default function App() {
               currentScreen="profile"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
             >
               <ProfileScreen />
@@ -356,7 +366,7 @@ export default function App() {
               currentScreen="messages"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
             >
               <MessagesScreen
@@ -372,7 +382,7 @@ export default function App() {
               currentScreen="trainer"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
               headerRight={
                 isApprovedTrainer ? (
@@ -410,7 +420,7 @@ export default function App() {
               currentScreen="dashboard"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
               hideNavButton
               hideCreditsBar
@@ -444,7 +454,7 @@ export default function App() {
               currentScreen="dashboard"
               onNavigate={handleNav}
               onLogout={handleLogout}
-              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
               headerLeft="back"
               onHeaderBack={() => {
@@ -455,7 +465,41 @@ export default function App() {
                 }
               }}
             >
-              <TopUpScreen step={topUpStep} onStepChange={setTopUpStep} onCreditsUpdated={setCreditsBalance} />
+              <TopUpScreen
+                step={topUpStep}
+                onStepChange={setTopUpStep}
+                onCreditsUpdated={setCreditsBalance}
+                onPaymentComplete={(payload) => {
+                  setTopUpReceipt(payload);
+                  setScreen('top-up-invoice');
+                }}
+              />
+            </MainLayout>
+          )}
+          {screen === 'top-up-invoice' && topUpReceipt && (
+            <MainLayout
+              title=""
+              currentScreen="dashboard"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={openTopUp}
+              creditsBalance={creditsBalance}
+              headerLeft="back"
+              onHeaderBack={() => {
+                setTopUpReceipt(null);
+                setTopUpStep('packs');
+                setScreen('dashboard');
+              }}
+            >
+              <TopUpInvoiceScreen
+                invoice={topUpReceipt.invoice}
+                newCredits={topUpReceipt.newCredits}
+                onDone={() => {
+                  setTopUpReceipt(null);
+                  setTopUpStep('packs');
+                  setScreen('dashboard');
+                }}
+              />
             </MainLayout>
           )}
         </UnreadMessagesProvider>

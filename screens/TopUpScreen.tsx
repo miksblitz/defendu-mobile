@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, ActivityIndicator } from 'react-native';
-import { checkPaymentServerHealth, confirmTopUpPayment, createQrPayment } from '../lib/controllers/payments';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, ActivityIndicator, Alert } from 'react-native';
+import {
+  checkPaymentServerHealth,
+  confirmTopUpPayment,
+  createQrPayment,
+  type TopUpInvoice,
+} from '../lib/controllers/payments';
 
 const CREDIT_PACKS = [
   { id: 'starter', credits: 250, price: 'PHP 99', bonus: '' },
@@ -14,9 +19,10 @@ interface TopUpScreenProps {
   step: TopUpStep;
   onStepChange: (step: TopUpStep) => void;
   onCreditsUpdated?: (newCredits: number) => void;
+  onPaymentComplete?: (payload: { invoice: TopUpInvoice; newCredits: number }) => void;
 }
 
-export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: TopUpScreenProps) {
+export default function TopUpScreen({ step, onStepChange, onCreditsUpdated, onPaymentComplete }: TopUpScreenProps) {
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [payingMethod, setPayingMethod] = useState<'qr' | null>(null);
   const [checkingServer, setCheckingServer] = useState(false);
@@ -24,13 +30,7 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: To
   const [generatedQrDataUrl, setGeneratedQrDataUrl] = useState<string | null>(null);
   const [generatedCheckoutUrl, setGeneratedCheckoutUrl] = useState<string | null>(null);
   const [generatedSourceId, setGeneratedSourceId] = useState<string | null>(null);
-  const [invoice, setInvoice] = useState<{
-    invoiceNo: string;
-    sourceId: string;
-    amountPhp: number;
-    creditsAdded: number;
-    createdAt: number;
-  } | null>(null);
+  const [receiptDone, setReceiptDone] = useState(false);
   const [autoCheckStatus, setAutoCheckStatus] = useState<string | null>(null);
   const [autoCheckError, setAutoCheckError] = useState<string | null>(null);
   const selectedPack = CREDIT_PACKS.find((p) => p.id === selectedPackId) ?? null;
@@ -55,7 +55,7 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: To
     setGeneratedQrDataUrl(null);
     setGeneratedCheckoutUrl(null);
     setGeneratedSourceId(null);
-    setInvoice(null);
+    setReceiptDone(false);
     setAutoCheckError(null);
     setAutoCheckStatus('Waiting for payment confirmation...');
     try {
@@ -76,7 +76,7 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: To
   };
 
   useEffect(() => {
-    if (step !== 'payment' || !generatedSourceId || !selectedPack || invoice) return;
+    if (step !== 'payment' || !generatedSourceId || !selectedPack || receiptDone) return;
     let cancelled = false;
     let attempts = 0;
     const maxAttempts = 75; // ~5 minutes at 4s intervals
@@ -94,10 +94,15 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: To
         const result = await confirmTopUpPayment(generatedSourceId, selectedPack.credits);
         if (cancelled) return;
         onCreditsUpdated?.(result.newCredits);
-        if (result.invoice) setInvoice(result.invoice);
         setAutoCheckError(null);
-        setAutoCheckStatus(`Payment confirmed. Credits updated to ${result.newCredits}.`);
+        setAutoCheckStatus('Payment confirmed. Opening your receipt…');
         clearInterval(timer);
+        if (result.invoice) {
+          setReceiptDone(true);
+          onPaymentComplete?.({ invoice: result.invoice, newCredits: result.newCredits });
+        } else {
+          setAutoCheckStatus(`Payment confirmed. Credits updated to ${result.newCredits}.`);
+        }
       } catch (e) {
         if (cancelled) return;
         const msg = (e as Error)?.message || 'Waiting for payment confirmation...';
@@ -116,7 +121,7 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: To
       cancelled = true;
       clearInterval(timer);
     };
-  }, [generatedSourceId, invoice, onCreditsUpdated, selectedPack, step]);
+  }, [generatedSourceId, receiptDone, onCreditsUpdated, onPaymentComplete, selectedPack, step]);
 
   return (
     <View style={styles.safeArea}>
@@ -191,18 +196,6 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated }: To
                       <Text style={styles.openCheckoutBtnText}>Open Checkout Link</Text>
                     </TouchableOpacity>
                   ) : null}
-                </View>
-              ) : null}
-              {invoice ? (
-                <View style={styles.invoiceCard}>
-                  <Text style={styles.invoiceTitle}>Payment Invoice</Text>
-                  <Text style={styles.invoiceLine}>Invoice: {invoice.invoiceNo}</Text>
-                  <Text style={styles.invoiceLine}>Source ID: {invoice.sourceId}</Text>
-                  <Text style={styles.invoiceLine}>Amount: PHP {invoice.amountPhp.toFixed(2)}</Text>
-                  <Text style={styles.invoiceLine}>Credits Added: {invoice.creditsAdded}</Text>
-                  <Text style={styles.invoiceLine}>
-                    Date: {new Date(invoice.createdAt).toLocaleString()}
-                  </Text>
                 </View>
               ) : null}
             </View>
@@ -280,16 +273,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   openCheckoutBtnText: { color: '#07bbc0', fontSize: 13, fontWeight: '700' },
-  invoiceCard: {
-    marginTop: 12,
-    backgroundColor: '#011f36',
-    borderWidth: 1,
-    borderColor: '#07bbc0',
-    borderRadius: 12,
-    padding: 12,
-  },
-  invoiceTitle: { color: '#07bbc0', fontSize: 15, fontWeight: '800', marginBottom: 8 },
-  invoiceLine: { color: '#FFFFFF', fontSize: 12, marginBottom: 4 },
   primaryButton: {
     backgroundColor: '#07bbc0',
     borderRadius: 12,

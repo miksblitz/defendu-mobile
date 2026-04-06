@@ -106,6 +106,18 @@ export async function login(data: LoginData): Promise<User> {
   }
 }
 
+/** Merge server-authoritative credits into the locally cached user after top-up (RTDB is already updated server-side). */
+export async function updateStoredUserCredits(newCredits: number): Promise<void> {
+  try {
+    const userJson = await AsyncStorage.getItem('user');
+    if (!userJson) return;
+    const raw = JSON.parse(userJson) as Record<string, unknown>;
+    await AsyncStorage.setItem('user', JSON.stringify({ ...raw, credits: newCredits }));
+  } catch {
+    // ignore cache write failures
+  }
+}
+
 export async function getCurrentUser(): Promise<User | null> {
   try {
     const userJson = await AsyncStorage.getItem('user');

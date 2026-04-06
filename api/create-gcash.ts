@@ -52,8 +52,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return res.status(500).json({
-        error: (payload as { errors?: { detail?: string }[] })?.errors?.[0]?.detail || 'Failed to create GCash payment source',
+      const detail =
+        (payload as { errors?: { detail?: string; code?: string }[] })?.errors?.[0]?.detail ||
+        (payload as { errors?: { detail?: string; code?: string }[] })?.errors?.[0]?.code ||
+        'Failed to create GCash payment source';
+      return res.status(502).json({
+        error: 'Failed to create GCash payment source',
+        detail,
+        status: response.status,
       });
     }
 
@@ -64,6 +70,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     console.error('[PayMongo] create-gcash error:', error);
-    return res.status(500).json({ error: 'Failed to create GCash payment source' });
+    return res.status(500).json({
+      error: 'Failed to create GCash payment source',
+      detail: (error as Error)?.message ?? 'Unknown error',
+    });
   }
 }

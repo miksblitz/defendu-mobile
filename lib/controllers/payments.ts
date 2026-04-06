@@ -5,6 +5,8 @@ export interface GcashPaymentResult {
 
 export interface QrPaymentResult {
   qrCodeUrl: string;
+  qrCodeDataUrl?: string;
+  checkoutUrl?: string;
   sourceId: string;
 }
 
@@ -43,7 +45,7 @@ async function postPaymentEndpoint<T>(paths: string[], body: Record<string, unkn
 
 export async function checkPaymentServerHealth(): Promise<boolean> {
   const apiBaseUrl = getApiBaseUrl();
-  const healthPaths = ['/create-gcash', '/api/create-gcash'];
+  const healthPaths = ['/create-qr', '/api/create-qr'];
   for (const path of healthPaths) {
     try {
       const res = await fetch(`${apiBaseUrl}${path}`, {

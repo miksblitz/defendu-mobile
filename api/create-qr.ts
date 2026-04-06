@@ -15,9 +15,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { amount, description } = req.body || {};
-    if (!amount || !description) {
-      return res.status(400).json({ error: 'amount and description are required' });
+    const { amount, description = 'Defendu Credits Top Up' } = req.body || {};
+    if (!amount) {
+      return res.status(400).json({ error: 'amount is required' });
     }
     if (!process.env.PAYMONGO_SECRET_KEY) {
       return res.status(500).json({ error: 'PAYMONGO_SECRET_KEY is not configured' });
@@ -39,7 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           attributes: {
             amount: amountCentavos,
             currency: 'PHP',
-            type: 'qrph',
+            type: 'gcash',
             description,
             redirect: {
               success: `${SERVER_BASE_URL}/api/payment-success`,
@@ -52,18 +52,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return res.status(500).json({
-        error: (payload as { errors?: { detail?: string }[] })?.errors?.[0]?.detail || 'Failed to create QR payment source',
+      const detail =
+        (payload as { errors?: { detail?: string; code?: string }[] })?.errors?.[0]?.detail ||
+        (payload as { errors?: { detail?: string; code?: string }[] })?.errors?.[0]?.code ||
+        'Failed to create QR payment source';
+      return res.status(502).json({
+        error: 'Failed to create QR payment source',
+        detail,
+        status: response.status,
+        paymongo: payload,
       });
     }
 
     const source = (payload as any).data;
+    const checkoutUrl = source?.attributes?.redirect?.checkout_url;
+    if (!checkoutUrl) {
+      return res.status(502).json({ error: 'No checkout_url returned from PayMongo' });
+    }
+
+    const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(checkoutUrl)}`;
+    const qrResp = await fetch(qrApi);
+    if (!qrResp.ok) {
+      return res.status(502).json({ error: 'Failed to generate QR image' });
+    }
+    const mime = qrResp.headers.get('Content-Type') || 'image/png';
+    const ab = await qrResp.arrayBuffer();
+    const b64 = Buffer.from(ab).toString('base64');
+    const qrCodeDataUrl = `data:${mime};base64,${b64}`;
+
     return res.status(200).json({
-      qrCodeUrl: source?.attributes?.qr_code || source?.attributes?.redirect?.checkout_url || '',
+      qrCodeUrl: qrApi,
+      qrCodeDataUrl,
+      checkoutUrl,
       sourceId: source?.id,
     });
   } catch (error) {
     console.error('[PayMongo] create-qr error:', error);
-    return res.status(500).json({ error: 'Failed to create QR payment source' });
+    return res.status(500).json({
+      error: 'Failed to create QR payment source',
+      detail: (error as Error)?.message ?? 'Unknown error',
+    });
   }
 }

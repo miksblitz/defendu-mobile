@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Alert, Linking, ActivityIndicator } from 'react-native';
-import { checkPaymentServerHealth, createGcashPayment, createQrPayment } from '../lib/controllers/payments';
+import { checkPaymentServerHealth, createQrPayment } from '../lib/controllers/payments';
 
 const CREDIT_PACKS = [
   { id: 'starter', credits: 250, price: 'PHP 99', bonus: '' },
@@ -15,14 +15,13 @@ interface TopUpScreenProps {
   onStepChange: (step: TopUpStep) => void;
 }
 
-const QR_CODE_IMAGE = require('../assets/images/qrcode.png');
-const GCASH_LOGO_IMAGE = require('../assets/images/gcash.png');
-
 export default function TopUpScreen({ step, onStepChange }: TopUpScreenProps) {
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
-  const [payingMethod, setPayingMethod] = useState<'gcash' | 'qr' | null>(null);
+  const [payingMethod, setPayingMethod] = useState<'qr' | null>(null);
   const [checkingServer, setCheckingServer] = useState(false);
   const [serverHealthy, setServerHealthy] = useState(true);
+  const [generatedQrDataUrl, setGeneratedQrDataUrl] = useState<string | null>(null);
+  const [generatedCheckoutUrl, setGeneratedCheckoutUrl] = useState<string | null>(null);
   const selectedPack = CREDIT_PACKS.find((p) => p.id === selectedPackId) ?? null;
   const selectedAmount = selectedPack ? Number((selectedPack.price || '').replace(/[^\d.]/g, '')) : 0;
 
@@ -39,32 +38,19 @@ export default function TopUpScreen({ step, onStepChange }: TopUpScreenProps) {
     return () => { cancelled = true; };
   }, [step]);
 
-  const handlePayWithGcash = async () => {
-    if (!selectedPack || selectedAmount <= 0) return;
-    setPayingMethod('gcash');
-    try {
-      const result = await createGcashPayment(selectedAmount, `${selectedPack.credits} Defendu Credits`);
-      if (!result.checkoutUrl) {
-        throw new Error('Checkout URL not returned by server');
-      }
-      await Linking.openURL(result.checkoutUrl);
-    } catch (e) {
-      Alert.alert('Payment error', (e as Error)?.message || 'Could not start GCash payment.');
-    } finally {
-      setPayingMethod(null);
-    }
-  };
-
   const handlePayWithQr = async () => {
     if (!selectedPack || selectedAmount <= 0) return;
     setPayingMethod('qr');
+    setGeneratedQrDataUrl(null);
+    setGeneratedCheckoutUrl(null);
     try {
       const result = await createQrPayment(selectedAmount, `${selectedPack.credits} Defendu Credits`);
-      if (!result.qrCodeUrl) {
-        Alert.alert('QR Ready', 'QR source created. QR image URL was not returned by server.');
+      if (!result.qrCodeDataUrl) {
+        Alert.alert('QR error', 'QR image was not returned by server.');
         return;
       }
-      await Linking.openURL(result.qrCodeUrl);
+      setGeneratedQrDataUrl(result.qrCodeDataUrl);
+      setGeneratedCheckoutUrl(result.checkoutUrl || null);
     } catch (e) {
       Alert.alert('Payment error', (e as Error)?.message || 'Could not start QR payment.');
     } finally {
@@ -127,20 +113,24 @@ export default function TopUpScreen({ step, onStepChange }: TopUpScreenProps) {
             ) : null}
 
             <View style={styles.section}>
-              <TouchableOpacity style={styles.methodCard} activeOpacity={0.88} onPress={handlePayWithGcash} disabled={payingMethod != null || !serverHealthy}>
-                {payingMethod === 'gcash' ? (
-                  <ActivityIndicator color="#07bbc0" />
-                ) : (
-                  <Image source={GCASH_LOGO_IMAGE} style={styles.gcashLogo} resizeMode="contain" />
-                )}
-              </TouchableOpacity>
               <TouchableOpacity style={styles.methodCard} activeOpacity={0.88} onPress={handlePayWithQr} disabled={payingMethod != null || !serverHealthy}>
                 {payingMethod === 'qr' ? (
                   <ActivityIndicator color="#07bbc0" />
                 ) : (
-                  <Image source={QR_CODE_IMAGE} style={styles.qrThumbRight} resizeMode="contain" />
+                  <Text style={styles.generateQrText}>Generate Payment QR</Text>
                 )}
               </TouchableOpacity>
+              {generatedQrDataUrl ? (
+                <View style={styles.generatedQrWrap}>
+                  <Image source={{ uri: generatedQrDataUrl }} style={styles.generatedQrImage} resizeMode="contain" />
+                  <Text style={styles.generatedQrHint}>Scan this QR to continue to test payment.</Text>
+                  {generatedCheckoutUrl ? (
+                    <TouchableOpacity style={styles.openCheckoutBtn} onPress={() => Linking.openURL(generatedCheckoutUrl)} activeOpacity={0.85}>
+                      <Text style={styles.openCheckoutBtnText}>Open Checkout Link</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           </>
         )}
@@ -192,8 +182,28 @@ const styles = StyleSheet.create({
     width: '78%',
     alignSelf: 'center',
   },
-  gcashLogo: { width: '100%', height: 130, borderRadius: 10 },
-  qrThumbRight: { width: '100%', height: 138, borderRadius: 10 },
+  generateQrText: { color: '#07bbc0', fontSize: 18, fontWeight: '800' },
+  generatedQrWrap: {
+    marginTop: 10,
+    alignItems: 'center',
+    backgroundColor: '#011f36',
+    borderWidth: 1,
+    borderColor: '#062731',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  generatedQrImage: { width: 260, height: 260, borderRadius: 8, backgroundColor: '#fff' },
+  generatedQrHint: { marginTop: 10, color: '#6b8693', fontSize: 12, textAlign: 'center' },
+  openCheckoutBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  openCheckoutBtnText: { color: '#07bbc0', fontSize: 13, fontWeight: '700' },
   primaryButton: {
     backgroundColor: '#07bbc0',
     borderRadius: 12,

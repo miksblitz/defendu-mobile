@@ -17,6 +17,7 @@ import TrainerScreen from './screens/TrainerScreen';
 import TrainerRegistrationScreen from './screens/TrainerRegistrationScreen';
 import PublishModuleScreen from './screens/PublishModuleScreen';
 import CategoryPracticeSessionScreen from './screens/CategoryPracticeSessionScreen';
+import TopUpScreen from './screens/TopUpScreen';
 import SkillProfilePhysicalScreen from './screens/SkillProfilePhysicalScreen';
 import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScreen';
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
@@ -44,6 +45,7 @@ type Screen =
   | 'trainer'
   | 'trainer-registration'
   | 'publish-module'
+  | 'top-up'
   | 'category-practice-session'
   | 'skill-profile-step1'
   | 'skill-profile-step2'
@@ -75,6 +77,7 @@ function parseResetPasswordToken(url: string | null): string | null {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('splash');
+  const [topUpStep, setTopUpStep] = useState<'packs' | 'payment'>('packs');
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
@@ -249,7 +252,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
-      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session') && (
+      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
             <MainLayout
@@ -257,6 +260,8 @@ export default function App() {
               currentScreen="dashboard"
               onNavigate={handleNav}
               onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
               headerRight={
                 !isApprovedTrainer ? (
                   <TouchableOpacity
@@ -297,7 +302,14 @@ export default function App() {
             </MainLayout>
           )}
           {screen === 'view-module' && viewModuleId && (
-            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout}>
+            <MainLayout
+              title=""
+              currentScreen="dashboard"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
+            >
               <ViewModuleScreen
                 moduleId={viewModuleId}
                 initialModule={viewModuleInitial}
@@ -311,12 +323,26 @@ export default function App() {
             </MainLayout>
           )}
           {screen === 'profile' && (
-            <MainLayout title="Profile" currentScreen="profile" onNavigate={handleNav} onLogout={handleLogout}>
+            <MainLayout
+              title="Profile"
+              currentScreen="profile"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
+            >
               <ProfileScreen />
             </MainLayout>
           )}
           {screen === 'messages' && (
-            <MainLayout title="Messages" currentScreen="messages" onNavigate={handleNav} onLogout={handleLogout}>
+            <MainLayout
+              title="Messages"
+              currentScreen="messages"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
+            >
               <MessagesScreen
                 openWithUserId={messagesOpenWith?.uid}
                 openWithUserName={messagesOpenWith?.name}
@@ -330,6 +356,8 @@ export default function App() {
               currentScreen="trainer"
               onNavigate={handleNav}
               onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
               headerRight={
                 isApprovedTrainer ? (
                   <TouchableOpacity
@@ -361,7 +389,16 @@ export default function App() {
             />
           )}
           {screen === 'category-practice-session' && categoryPracticeSession && (
-            <MainLayout title="" currentScreen="dashboard" onNavigate={handleNav} onLogout={handleLogout} hideNavButton>
+            <MainLayout
+              title=""
+              currentScreen="dashboard"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
+              hideNavButton
+              hideCreditsBar
+            >
               <CategoryPracticeSessionScreen
                 category={categoryPracticeSession.category}
                 warmups={categoryPracticeSession.warmups}
@@ -383,6 +420,26 @@ export default function App() {
                   setDashboardRefreshKey((k) => k + 1);
                 }}
               />
+            </MainLayout>
+          )}
+          {screen === 'top-up' && (
+            <MainLayout
+              title="Top Up"
+              currentScreen="dashboard"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={() => { setTopUpStep('packs'); setScreen('top-up'); }}
+              creditsBalance={0}
+              headerLeft="back"
+              onHeaderBack={() => {
+                if (topUpStep === 'payment') {
+                  setTopUpStep('packs');
+                } else {
+                  setScreen('dashboard');
+                }
+              }}
+            >
+              <TopUpScreen step={topUpStep} onStepChange={setTopUpStep} />
             </MainLayout>
           )}
         </UnreadMessagesProvider>

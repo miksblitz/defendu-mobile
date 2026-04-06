@@ -220,9 +220,16 @@ export const MessageController = {
   },
 
   async getBlockedUserIds(currentUserId: string): Promise<string[]> {
-    const refBlocked = ref(db, `userBlockedUsers/${currentUserId}`);
-    const snapshot = await get(refBlocked);
-    if (!snapshot.exists()) return [];
-    return Object.keys(snapshot.val());
+    try {
+      const refBlocked = ref(db, `userBlockedUsers/${currentUserId}`);
+      const snapshot = await get(refBlocked);
+      if (!snapshot.exists()) return [];
+      return Object.keys(snapshot.val());
+    } catch (error) {
+      const msg = (error as Error)?.message ?? '';
+      // Some DB rulesets may not allow this optional node yet; don't block chat loading.
+      if (msg.includes('Permission denied')) return [];
+      throw error;
+    }
   },
 };

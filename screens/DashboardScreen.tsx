@@ -31,6 +31,12 @@ import {
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
+import {
+  getPurchasedModuleIds,
+  getUserCreditsBalance,
+  purchaseModulesWithCredits,
+  type ModulePurchaseInvoice,
+} from '../lib/controllers/modulePurchases';
 
 // --- Constants ---
 /** Training category hero images (assets/images/training/). */
@@ -241,6 +247,7 @@ interface DashboardScreenProps {
   /** Shown once when landing on dashboard (e.g. after publishing a module). */
   initialToastMessage?: string | null;
   onClearInitialToast?: () => void;
+  onModulePurchaseComplete?: (payload: { invoice: ModulePurchaseInvoice; newCredits: number }) => void;
 }
 
 // --- Component ---
@@ -255,6 +262,7 @@ export default function DashboardScreen({
   onConsumeReturnToCategory,
   initialToastMessage,
   onClearInitialToast,
+  onModulePurchaseComplete,
 }: DashboardScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
@@ -274,6 +282,11 @@ export default function DashboardScreen({
   const [targetModulesPerWeek, setTargetModulesPerWeek] = useState(DEFAULT_MODULES_PER_WEEK_GOAL);
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
   const [refreshing, setRefreshing] = useState(false);
+  const [purchasedModuleIds, setPurchasedModuleIds] = useState<string[]>([]);
+  const [userCredits, setUserCredits] = useState(0);
+  const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
+  const [purchaseTargetModule, setPurchaseTargetModule] = useState<ModuleItem | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
 
   useEffect(() => {
     if (recommendationsReopenToken <= 0) return;
@@ -308,11 +321,13 @@ export default function DashboardScreen({
       }
 
       // Load modules and progress (query only approved, so payload is smaller).
-      const [list, progress, currentUser, fullProfile] = await Promise.all([
+      const [list, progress, currentUser, fullProfile, purchased, liveCredits] = await Promise.all([
         AuthController.getApprovedModules(),
         AuthController.getUserProgress(),
         AuthController.getCurrentUser(),
         AuthController.getFullSkillProfile(),
+        getPurchasedModuleIds(),
+        getUserCreditsBalance(),
       ]);
       if (done) return;
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
@@ -321,6 +336,8 @@ export default function DashboardScreen({
       setCompletedModuleIds(completedIds);
       setModuleTrainingStats(progress?.moduleTrainingStats ?? {});
       setSkillProfile(fullProfile);
+      setPurchasedModuleIds(purchased);
+      setUserCredits(liveCredits);
       const dailyTarget = currentUser?.targetModulesPerDay && currentUser.targetModulesPerDay > 0
         ? currentUser.targetModulesPerDay
         : DEFAULT_MODULES_PER_DAY_GOAL;
@@ -429,6 +446,42 @@ export default function DashboardScreen({
     if (bNum != null) return 1;
     return 0;
   });
+  const unlockedModuleIdsByCategory = React.useMemo(() => {
+    const byCategory = new Map<string, ModuleItem[]>();
+    for (const mod of modules) {
+      const key = normalizeCategory(mod.category);
+      const existing = byCategory.get(key);
+      if (existing) existing.push(mod);
+      else byCategory.set(key, [mod]);
+    }
+    const unlocked = new Set<string>();
+    for (const [, mods] of byCategory) {
+      const sorted = [...mods].sort((a, b) => {
+        const sa = (a as { sortOrder?: unknown }).sortOrder;
+        const sb = (b as { sortOrder?: unknown }).sortOrder;
+        const aNum = typeof sa === 'number' ? sa : Number.MAX_SAFE_INTEGER;
+        const bNum = typeof sb === 'number' ? sb : Number.MAX_SAFE_INTEGER;
+        if (aNum !== bNum) return aNum - bNum;
+        return String(a.moduleTitle ?? '').localeCompare(String(b.moduleTitle ?? ''));
+      });
+      if (sorted[0]?.moduleId) unlocked.add(sorted[0].moduleId);
+    }
+    return unlocked;
+  }, [modules]);
+  const isModuleLocked = React.useCallback(
+    (moduleId: string) => !unlockedModuleIdsByCategory.has(moduleId) && !purchasedModuleIds.includes(moduleId),
+    [unlockedModuleIdsByCategory, purchasedModuleIds]
+  );
+  const getPayableModulesForCategory = React.useCallback((category: string): ModuleItem[] => {
+    const categoryModules = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(category));
+    return categoryModules.filter((m) => !unlockedModuleIdsByCategory.has(m.moduleId));
+  }, [modules, unlockedModuleIdsByCategory]);
+  const getCategoryBuyAllPrice = React.useCallback((category: string): number => {
+    const payable = getPayableModulesForCategory(category);
+    const alreadyPurchasedCount = payable.filter((m) => purchasedModuleIds.includes(m.moduleId)).length;
+    const remainingCount = Math.max(0, payable.length - alreadyPurchasedCount);
+    return remainingCount * 50;
+  }, [getPayableModulesForCategory, purchasedModuleIds]);
 
   function top3MostCommon(values: (string | null | undefined)[]): string[] {
     const counts = new Map<string, { key: string; label: string; count: number }>();
@@ -516,10 +569,15 @@ export default function DashboardScreen({
     ]).start();
   };
 
-  const renderModuleCard = (mod: ModuleItem | Module, onPress: () => void): React.ReactNode => {
+  const renderModuleCard = (mod: ModuleItem | Module, onPress: () => void, locked = false): React.ReactNode => {
     const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
     return (
-      <TouchableOpacity key={mod.moduleId} style={styles.moduleCard} activeOpacity={0.8} onPress={onPress}>
+      <TouchableOpacity
+        key={mod.moduleId}
+        style={[styles.moduleCard, locked && styles.lockedModuleCard]}
+        activeOpacity={0.8}
+        onPress={onPress}
+      >
         <View style={styles.moduleHeader}>
           <Text style={styles.moduleCategory} numberOfLines={1}>{mod.category ?? 'Other'}</Text>
         </View>
@@ -533,6 +591,12 @@ export default function DashboardScreen({
           {mod.description ? <Text style={styles.moduleDesc} numberOfLines={2}>{mod.description}</Text> : null}
           {durationMin ? <Text style={styles.duration}>{durationMin}</Text> : null}
         </View>
+        {locked ? (
+          <View style={styles.lockedOverlay}>
+            <Text style={styles.lockedOverlayTitle}>Locked Module</Text>
+            <Text style={styles.lockedOverlaySubtitle}>Purchase module to unlock</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -555,12 +619,12 @@ export default function DashboardScreen({
     );
   };
 
-  const renderModuleListCard = (mod: ModuleItem | Module, onPress: () => void, sectionLabel?: string): React.ReactNode => {
+  const renderModuleListCard = (mod: ModuleItem | Module, onPress: () => void, sectionLabel?: string, locked = false): React.ReactNode => {
     const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
     return (
       <TouchableOpacity
         key={mod.moduleId}
-        style={styles.moduleListCard}
+        style={[styles.moduleListCard, locked && styles.lockedModuleCard]}
         activeOpacity={0.88}
         onPress={onPress}
       >
@@ -581,6 +645,12 @@ export default function DashboardScreen({
             <View style={styles.moduleListImagePlaceholder}><Text style={styles.moduleListImageIcon}>🥋</Text></View>
           )}
         </View>
+        {locked ? (
+          <View style={styles.lockedOverlayList}>
+            <Text style={styles.lockedOverlayTitle}>Locked Module</Text>
+            <Text style={styles.lockedOverlaySubtitle}>Purchase module to unlock</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -609,7 +679,21 @@ export default function DashboardScreen({
             <Text style={styles.recommendationsTitle}>Recommended for you</Text>
             <Text style={styles.recommendationsSubtext}>Best suited to your profile.</Text>
             <View style={styles.moduleGrid}>
-              {recommendedModules.slice(0, 4).map((mod: Module) => renderModuleCard(mod, () => onOpenModule(mod.moduleId, mod)))}
+              {recommendedModules.slice(0, 4).map((mod: Module) => {
+                const locked = isModuleLocked(mod.moduleId);
+                return renderModuleCard(
+                  mod,
+                  () => {
+                    if (locked) {
+                      setPurchaseTargetModule(mod as ModuleItem);
+                      setPurchaseModalVisible(true);
+                      return;
+                    }
+                    onOpenModule(mod.moduleId, mod);
+                  },
+                  locked
+                );
+              })}
             </View>
           </View>
         )}
@@ -878,6 +962,12 @@ export default function DashboardScreen({
                         {items.length > 0 &&
                           items.map((mod: ModuleItem, modIdx: number) =>
                             renderModuleListCard(mod, () => {
+                              const locked = label === 'Training' ? isModuleLocked(mod.moduleId) : false;
+                              if (locked) {
+                                setPurchaseTargetModule(mod);
+                                setPurchaseModalVisible(true);
+                                return;
+                              }
                               if (label === 'Training') {
                                 // Start category practice directly at the selected training module
                                 // (no module "introduction" page).
@@ -903,7 +993,7 @@ export default function DashboardScreen({
                               }
 
                               onOpenModule(mod.moduleId, mod);
-                            }, label)
+                            }, label, label === 'Training' ? isModuleLocked(mod.moduleId) : false)
                           )}
                       </View>
                     </View>
@@ -983,6 +1073,7 @@ export default function DashboardScreen({
                 keyboardShouldPersistTaps="handled"
               >
                 {personalizedRecModules.map((mod, idx) => {
+                  const locked = isModuleLocked(mod.moduleId);
                   const fails = moduleTrainingStats[mod.moduleId]?.failCount ?? 0;
                   const hint =
                     fails > 0
@@ -991,9 +1082,14 @@ export default function DashboardScreen({
                   return (
                     <TouchableOpacity
                       key={mod.moduleId}
-                      style={styles.recModalRow}
+                      style={[styles.recModalRow, locked && styles.lockedRecModalRow]}
                       activeOpacity={0.88}
                       onPress={() => {
+                        if (locked) {
+                          setPurchaseTargetModule(mod);
+                          setPurchaseModalVisible(true);
+                          return;
+                        }
                         setRecModalVisible(false);
                         if (onStartRecommendedSingleSession) {
                           onStartRecommendedSingleSession(mod);
@@ -1021,6 +1117,122 @@ export default function DashboardScreen({
             )}
             <Pressable style={styles.recModalClose} onPress={() => setRecModalVisible(false)}>
               <Text style={styles.recModalCloseText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={purchaseModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPurchaseModalVisible(false)}
+      >
+        <View style={styles.paywallBackdrop}>
+          <View style={styles.paywallCard}>
+            <Text style={styles.paywallEyebrow}>LIMITED ACCESS</Text>
+            <Text style={styles.paywallTitle}>Unlock Pro Training</Text>
+            <Text style={styles.paywallSub}>
+              You already unlocked the first module for free. Keep momentum going with full drills, progress loops, and complete category access.
+            </Text>
+
+            <View style={styles.paywallPriceBox}>
+              <Text style={styles.paywallPriceLabel}>Your balance</Text>
+              <Text style={styles.paywallCreditsValue}>{userCredits} credits</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.paywallPrimaryBtn, (purchasing || userCredits < 50) && styles.paywallBtnDisabled]}
+              disabled={purchasing || userCredits < 50 || !purchaseTargetModule}
+              onPress={async () => {
+                if (!purchaseTargetModule) return;
+                try {
+                  setPurchasing(true);
+                  const result = await purchaseModulesWithCredits({
+                    purchaseType: 'single',
+                    category: purchaseTargetModule.category ?? 'Other',
+                    moduleIdsToPurchase: [purchaseTargetModule.moduleId],
+                    amountCredits: 50,
+                    moduleId: purchaseTargetModule.moduleId,
+                    moduleTitle: purchaseTargetModule.moduleTitle,
+                  });
+                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setUserCredits(result.newCredits);
+                  setPurchaseModalVisible(false);
+                  onModulePurchaseComplete?.({ invoice: result.invoice, newCredits: result.newCredits });
+                } catch (e) {
+                  showToast((e as Error).message || 'Could not complete purchase.');
+                } finally {
+                  setPurchasing(false);
+                }
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.paywallPrimaryBtnText}>{purchasing ? 'Processing...' : 'Unlock This Module - 50 Credits'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.paywallSecondaryBtn,
+                (purchasing ||
+                  !purchaseTargetModule ||
+                  userCredits < (purchaseTargetModule ? getCategoryBuyAllPrice(purchaseTargetModule.category ?? '') : 0) ||
+                  (purchaseTargetModule ? getCategoryBuyAllPrice(purchaseTargetModule.category ?? '') <= 0 : true)) &&
+                  styles.paywallBtnDisabled,
+              ]}
+              disabled={
+                purchasing ||
+                !purchaseTargetModule ||
+                userCredits < (purchaseTargetModule ? getCategoryBuyAllPrice(purchaseTargetModule.category ?? '') : 0) ||
+                (purchaseTargetModule ? getCategoryBuyAllPrice(purchaseTargetModule.category ?? '') <= 0 : true)
+              }
+              onPress={async () => {
+                if (!purchaseTargetModule) return;
+                const category = purchaseTargetModule.category ?? 'Other';
+                const payable = getPayableModulesForCategory(category);
+                const remaining = payable.filter((m) => !purchasedModuleIds.includes(m.moduleId));
+                const price = remaining.length * 50;
+                if (price <= 0) {
+                  showToast('All modules in this category are already unlocked.');
+                  return;
+                }
+                try {
+                  setPurchasing(true);
+                  const result = await purchaseModulesWithCredits({
+                    purchaseType: 'category',
+                    category,
+                    moduleIdsToPurchase: remaining.map((m) => m.moduleId),
+                    amountCredits: price,
+                    moduleId: purchaseTargetModule.moduleId,
+                    moduleTitle: purchaseTargetModule.moduleTitle,
+                  });
+                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setUserCredits(result.newCredits);
+                  setPurchaseModalVisible(false);
+                  onModulePurchaseComplete?.({ invoice: result.invoice, newCredits: result.newCredits });
+                } catch (e) {
+                  showToast((e as Error).message || 'Could not complete purchase.');
+                } finally {
+                  setPurchasing(false);
+                }
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.paywallSecondaryBtnText}>
+                {purchasing
+                  ? 'Processing...'
+                  : `Unlock Entire Module - ${purchaseTargetModule ? getCategoryBuyAllPrice(purchaseTargetModule.category ?? '') : 0} Credits`}
+              </Text>
+            </TouchableOpacity>
+
+            <Pressable
+              style={styles.paywallClose}
+              onPress={() => {
+                if (purchasing) return;
+                setPurchaseModalVisible(false);
+              }}
+            >
+              <Text style={styles.paywallCloseText}>Not now</Text>
             </Pressable>
           </View>
         </View>
@@ -1083,6 +1295,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 10,
   },
+  lockedRecModalRow: {
+    opacity: 0.62,
+  },
   recModalRank: {
     width: 28,
     height: 28,
@@ -1104,6 +1319,60 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   recModalCloseText: { color: '#07bbc0', fontSize: 15, fontWeight: '700' },
+  paywallBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  paywallCard: {
+    backgroundColor: '#011f36',
+    borderWidth: 1.5,
+    borderColor: '#07bbc0',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    shadowColor: '#07bbc0',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  paywallEyebrow: { color: '#6b8693', fontSize: 11, letterSpacing: 1.5, fontWeight: '800', marginBottom: 8 },
+  paywallTitle: { color: '#07bbc0', fontSize: 28, fontWeight: '900', marginBottom: 8, letterSpacing: 0.2 },
+  paywallSub: { color: '#d7e3e8', fontSize: 13, lineHeight: 20, marginBottom: 16 },
+  paywallPriceBox: {
+    backgroundColor: 'rgba(4, 21, 39, 0.75)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#062731',
+    padding: 12,
+    marginBottom: 16,
+  },
+  paywallPriceLabel: { color: '#6b8693', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  paywallCreditsValue: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', marginBottom: 8 },
+  paywallPriceLine: { color: '#FFFFFF', fontSize: 13, marginBottom: 6 },
+  paywallPrimaryBtn: {
+    backgroundColor: '#07bbc0',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 11,
+  },
+  paywallPrimaryBtnText: { color: '#041527', fontSize: 15, fontWeight: '900', letterSpacing: 0.2 },
+  paywallSecondaryBtn: {
+    backgroundColor: '#041527',
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 9,
+  },
+  paywallSecondaryBtnText: { color: '#07bbc0', fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
+  paywallBtnDisabled: { opacity: 0.5 },
+  paywallClose: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12, marginTop: 2 },
+  paywallCloseText: { color: '#6b8693', fontSize: 13, fontWeight: '700' },
   weeklyGoalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   weeklyGoalTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   weeklyGoalSubtitle: { fontSize: 12, color: '#6b8693', marginTop: 2 },
@@ -1356,6 +1625,33 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
+  lockedModuleCard: {
+    opacity: 0.92,
+  },
+  lockedOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: 0,
+    backgroundColor: 'rgba(4, 21, 39, 0.68)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  lockedOverlayList: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: 0,
+    backgroundColor: 'rgba(4, 21, 39, 0.64)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  lockedOverlayTitle: { color: '#07bbc0', fontSize: 14, fontWeight: '800', marginBottom: 4 },
+  lockedOverlaySubtitle: { color: '#d7e3e8', fontSize: 12, fontWeight: '600' },
   moduleHeader: { backgroundColor: '#062731', paddingVertical: 10, paddingHorizontal: 12 },
   moduleCategory: { color: '#FFF', fontSize: 13, fontWeight: '700' },
   moduleBody: { padding: 12 },

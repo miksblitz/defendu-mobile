@@ -10,7 +10,7 @@ import {
 const CREDIT_PACKS = [
   { id: 'starter', credits: 250, price: 'PHP 99', bonus: '' },
   { id: 'popular', credits: 500, price: 'PHP 179', bonus: '+50 bonus' },
-  { id: 'pro', credits: 1200, price: 'PHP 399', bonus: '+200 bonus' },
+  { id: 'pro', credits: 1250, price: 'PHP 399', bonus: '+200 bonus' },
 ];
 
 type TopUpStep = 'packs' | 'payment';

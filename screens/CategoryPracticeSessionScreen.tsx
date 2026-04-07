@@ -20,6 +20,7 @@ import PoseCameraView from '../components/PoseCameraView';
 import { getRequiredReps } from '../utils/repRange';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
 import { getPunchingGuideSource } from '../lib/punchingGuideAssets';
+import { getPurchasedModuleIds, getUserCreditsBalance, purchaseModulesWithCredits } from '../lib/controllers/modulePurchases';
 
 type SessionStep =
   | 'warmup_countdown'
@@ -230,9 +231,24 @@ export default function CategoryPracticeSessionScreen({
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [hasShownTrainingSafety, setHasShownTrainingSafety] = useState(false);
   const [showTrainingFailed, setShowTrainingFailed] = useState(false);
+  const [purchasedModuleIds, setPurchasedModuleIds] = useState<string[]>([]);
+  const [userCredits, setUserCredits] = useState(0);
+  const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+  const [pendingLockedTrainingIndex, setPendingLockedTrainingIndex] = useState<number | null>(null);
 
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
   const matchThreshold = referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD;
+  const isTrainingModuleLocked = useCallback(
+    (index: number) => {
+      // first module in category stays free
+      if (index === 0) return false;
+      const mod = trainingModules[index];
+      if (!mod) return false;
+      return !purchasedModuleIds.includes(mod.moduleId);
+    },
+    [purchasedModuleIds, trainingModules]
+  );
 
   const requiredRepsRef = useRef<number>(requiredReps);
   const poseCorrectRepsRef = useRef<number>(poseCorrectReps);
@@ -340,13 +356,34 @@ export default function CategoryPracticeSessionScreen({
 
   const startTrainingCountdown = useCallback(
     (index: number) => {
+      if (isTrainingModuleLocked(index)) {
+        setPendingLockedTrainingIndex(index);
+        setPurchaseModalVisible(true);
+        return;
+      }
       setTrainingIndex(index);
       // Show safety protocol exactly once: before the first training module countdown.
       if (index === 0 && !hasShownTrainingSafety) setStep('training_safety');
       else setStep('training_countdown');
     },
-    [hasShownTrainingSafety]
+    [hasShownTrainingSafety, isTrainingModuleLocked]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [purchased, liveCredits] = await Promise.all([
+        getPurchasedModuleIds(),
+        getUserCreditsBalance(),
+      ]);
+      if (cancelled) return;
+      setUserCredits(liveCredits);
+      setPurchasedModuleIds(purchased);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadTrainingForCurrentModule = useCallback(async () => {
     if (!currentTrainingItem) {
@@ -995,6 +1032,104 @@ export default function CategoryPracticeSessionScreen({
     </Modal>
   );
 
+  const categoryBundlePrice = Math.max(
+    0,
+    trainingModules.filter((_, idx) => idx > 0 && !purchasedModuleIds.includes(trainingModules[idx].moduleId)).length * 50
+  );
+  const purchaseModal = (
+    <Modal transparent visible={purchaseModalVisible} animationType="fade" onRequestClose={() => setPurchaseModalVisible(false)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.paywallCard}>
+          <Text style={styles.paywallEyebrow}>LIMITED ACCESS</Text>
+          <Text style={styles.paywallTitle}>Unlock Pro Training</Text>
+          <Text style={styles.paywallSub}>
+            This next module is premium. Unlock this module now, or unlock the rest of this training path in one go.
+          </Text>
+          <View style={styles.paywallPriceBox}>
+            <Text style={styles.paywallPriceLabel}>Your balance</Text>
+            <Text style={styles.paywallCreditsValue}>{userCredits} credits</Text>
+          </View>
+          <View style={styles.modalActionsColumn}>
+            <Pressable
+              style={[styles.paywallPrimaryButton, (purchasing || userCredits < 50) && styles.modalDisabled]}
+              disabled={purchasing || userCredits < 50}
+              onPress={async () => {
+                const idx = pendingLockedTrainingIndex;
+                if (idx == null) return;
+                const target = trainingModules[idx];
+                if (!target) return;
+                try {
+                  setPurchasing(true);
+                  const result = await purchaseModulesWithCredits({
+                    purchaseType: 'single',
+                    category: target.category ?? category,
+                    moduleIdsToPurchase: [target.moduleId],
+                    amountCredits: 50,
+                    moduleId: target.moduleId,
+                    moduleTitle: target.moduleTitle,
+                  });
+                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setUserCredits(result.newCredits);
+                  setPurchaseModalVisible(false);
+                  setTrainingIndex(idx);
+                  setStep('training_countdown');
+                } catch (e) {
+                  // no-op: existing flow continues on failure
+                } finally {
+                  setPurchasing(false);
+                }
+              }}
+            >
+              <Text style={styles.paywallPrimaryButtonText}>{purchasing ? 'Processing...' : 'Unlock This Module - 50 Credits'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.paywallSecondaryButton, (purchasing || categoryBundlePrice <= 0 || userCredits < categoryBundlePrice) && styles.modalDisabled]}
+              disabled={purchasing || categoryBundlePrice <= 0 || userCredits < categoryBundlePrice}
+              onPress={async () => {
+                const remaining = trainingModules.filter((m, idx) => idx > 0 && !purchasedModuleIds.includes(m.moduleId));
+                const price = remaining.length * 50;
+                if (price <= 0) return;
+                try {
+                  setPurchasing(true);
+                  const result = await purchaseModulesWithCredits({
+                    purchaseType: 'category',
+                    category,
+                    moduleIdsToPurchase: remaining.map((m) => m.moduleId),
+                    amountCredits: price,
+                  });
+                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setUserCredits(result.newCredits);
+                  const idx = pendingLockedTrainingIndex;
+                  setPurchaseModalVisible(false);
+                  if (idx != null) {
+                    setTrainingIndex(idx);
+                    setStep('training_countdown');
+                  }
+                } finally {
+                  setPurchasing(false);
+                }
+              }}
+            >
+              <Text style={styles.paywallSecondaryButtonText}>
+                {purchasing ? 'Processing...' : `Unlock Entire Module - ${categoryBundlePrice} Credits`}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={styles.paywallClose}
+              onPress={() => {
+                if (purchasing) return;
+                setPurchaseModalVisible(false);
+                onExit();
+              }}
+            >
+              <Text style={styles.paywallCloseText}>Not now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (step === 'session_done') {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -1095,6 +1230,7 @@ export default function CategoryPracticeSessionScreen({
         {previousConfirmModal}
         {quitConfirmModal}
         {trainingFailedModal}
+        {purchaseModal}
       </SafeAreaView>
     );
   }
@@ -1153,6 +1289,7 @@ export default function CategoryPracticeSessionScreen({
         {skipConfirmModal}
         {previousConfirmModal}
         {quitConfirmModal}
+        {purchaseModal}
       </SafeAreaView>
     );
   }
@@ -1217,6 +1354,7 @@ export default function CategoryPracticeSessionScreen({
       {skipConfirmModal}
       {previousConfirmModal}
       {quitConfirmModal}
+      {purchaseModal}
     </SafeAreaView>
   );
 }
@@ -1436,4 +1574,56 @@ const styles = StyleSheet.create({
   modalPrimaryButtonText: { color: '#041527', fontWeight: '800', fontSize: 15 },
   modalOutlineButton: { width: '100%', borderWidth: 1.5, borderColor: '#07bbc0', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   modalOutlineButtonText: { color: '#07bbc0', fontWeight: '700', fontSize: 15 },
+  modalDisabled: { opacity: 0.5 },
+  purchaseBalanceText: { color: '#FFFFFF', fontSize: 13, marginTop: 4, marginBottom: 8, textAlign: 'center' },
+  paywallCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#011f36',
+    borderWidth: 1.5,
+    borderColor: '#07bbc0',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    shadowColor: '#07bbc0',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  paywallEyebrow: { color: '#6b8693', fontSize: 11, letterSpacing: 1.5, fontWeight: '800', marginBottom: 8 },
+  paywallTitle: { color: '#07bbc0', fontSize: 28, fontWeight: '900', marginBottom: 8, letterSpacing: 0.2 },
+  paywallSub: { color: '#d7e3e8', fontSize: 13, lineHeight: 20, marginBottom: 16 },
+  paywallPriceBox: {
+    backgroundColor: 'rgba(4, 21, 39, 0.75)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#062731',
+    padding: 12,
+    marginBottom: 16,
+  },
+  paywallPriceLabel: { color: '#6b8693', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  paywallCreditsValue: { color: '#FFFFFF', fontSize: 22, fontWeight: '900' },
+  paywallPrimaryButton: {
+    width: '100%',
+    backgroundColor: '#07bbc0',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  paywallPrimaryButtonText: { color: '#041527', fontWeight: '900', fontSize: 15, letterSpacing: 0.2 },
+  paywallSecondaryButton: {
+    width: '100%',
+    backgroundColor: '#041527',
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  paywallSecondaryButtonText: { color: '#07bbc0', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 },
+  paywallClose: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12, marginTop: 2 },
+  paywallCloseText: { color: '#6b8693', fontSize: 13, fontWeight: '700' },
 });

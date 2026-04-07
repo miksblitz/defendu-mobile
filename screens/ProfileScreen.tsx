@@ -20,6 +20,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthController } from '../lib/controllers/AuthController';
+import { getPurchasedModulesMeta } from '../lib/controllers/modulePurchases';
 import { MARTIAL_ARTS, BELT_BASED_MARTIAL_ARTS, BELT_SYSTEMS } from '../lib/constants/martialArts';
 
 // --- Constants ---
@@ -66,13 +67,18 @@ export default function ProfileScreen() {
   const [showBeltPicker, setShowBeltPicker] = useState(false);
   const [savingTrainerProfile, setSavingTrainerProfile] = useState(false);
   const [trainerProfileError, setTrainerProfileError] = useState('');
+  const [loadingPurchasedModules, setLoadingPurchasedModules] = useState(true);
+  const [purchasedModules, setPurchasedModules] = useState<Array<{ moduleId: string; moduleTitle: string; category: string; referenceNo?: string }>>([]);
+  const [purchasedModulesModalVisible, setPurchasedModulesModalVisible] = useState(false);
+  const [selectedPurchasedCategory, setSelectedPurchasedCategory] = useState('Punching');
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [user, skillProfile] = await Promise.all([
+      const [user, skillProfile, purchasedMeta] = await Promise.all([
         AuthController.getCurrentUser(),
         AuthController.getSkillProfile(),
+        getPurchasedModulesMeta(),
       ]);
       if (cancelled) return;
       if (user) {
@@ -88,6 +94,23 @@ export default function ProfileScreen() {
         setHeightInput(h != null ? String(h) : '');
         setWeightInput(w != null ? String(w) : '');
       }
+      if (purchasedMeta.length > 0) {
+        const purchasedIds = purchasedMeta.map((m) => m.moduleId);
+        const purchasedList = await AuthController.getModulesByIds(purchasedIds);
+        if (cancelled) return;
+        const byId = new Map(purchasedMeta.map((m) => [m.moduleId, m]));
+        setPurchasedModules(
+          purchasedList.map((m) => ({
+            moduleId: m.moduleId,
+            moduleTitle: m.moduleTitle || m.moduleId,
+            category: m.category || 'Other',
+            referenceNo: byId.get(m.moduleId)?.referenceNo,
+          }))
+        );
+      } else {
+        setPurchasedModules([]);
+      }
+      setLoadingPurchasedModules(false);
       setLoading(false);
     }
     load();
@@ -383,6 +406,13 @@ export default function ProfileScreen() {
     Linking.openURL(`mailto:${CONTACT_EMAIL}`).catch(() => Alert.alert('Error', 'Could not open email.'));
   };
 
+  const purchasedCategoryTabs = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes', 'Defensive Moves'];
+  const getCategoryCount = (category: string): number =>
+    purchasedModules.filter((m) => (m.category || '').trim().toLowerCase() === category.trim().toLowerCase()).length;
+  const purchasedInSelectedCategory = purchasedModules.filter(
+    (m) => (m.category || '').trim().toLowerCase() === selectedPurchasedCategory.trim().toLowerCase()
+  );
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -485,6 +515,22 @@ export default function ProfileScreen() {
             <Text style={styles.linkText}>Contact us</Text>
             <Text style={styles.linkChevron}>›</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Purchased Modules</Text>
+          <Text style={styles.sectionHint}>Modules you unlocked with credits ({purchasedModules.length}).</Text>
+          {loadingPurchasedModules ? (
+            <View style={styles.purchasedLoadingWrap}>
+              <ActivityIndicator size="small" color="#07bbc0" />
+            </View>
+          ) : purchasedModules.length === 0 ? (
+            <Text style={styles.purchasedEmpty}>No purchased modules yet.</Text>
+          ) : (
+            <TouchableOpacity style={styles.viewPurchasedBtn} onPress={() => setPurchasedModulesModalVisible(true)} activeOpacity={0.9}>
+              <Text style={styles.viewPurchasedBtnText}>View Purchased Modules</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <TouchableOpacity style={styles.resetButton} onPress={handleResetProgress}>
@@ -715,6 +761,52 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <Modal visible={purchasedModulesModalVisible} animationType="slide" transparent onRequestClose={() => setPurchasedModulesModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.purchasedModalContent]}>
+            <Text style={styles.modalTitle}>Purchased Modules</Text>
+            <View style={styles.categoryTabsWrap}>
+              {purchasedCategoryTabs.map((cat) => {
+                const isActive = selectedPurchasedCategory === cat;
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.categoryTabBtn, isActive && styles.categoryTabBtnActive]}
+                    onPress={() => setSelectedPurchasedCategory(cat)}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={[styles.categoryTabBtnText, isActive && styles.categoryTabBtnTextActive]}>
+                      {cat} ({getCategoryCount(cat)})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <ScrollView style={styles.purchasedModalScroll} contentContainerStyle={styles.purchasedModalScrollContent} showsVerticalScrollIndicator={false}>
+              {purchasedInSelectedCategory.length === 0 ? (
+                <View style={styles.purchasedEmptyCenterWrap}>
+                  <Text style={styles.purchasedEmptyCenterText}>No modules purchased</Text>
+                </View>
+              ) : (
+                purchasedInSelectedCategory.map((item) => (
+                  <View key={item.moduleId} style={styles.purchasedItem}>
+                    <View style={styles.purchasedTextWrap}>
+                      <Text style={styles.purchasedTitle} numberOfLines={1}>{item.moduleTitle}</Text>
+                      {item.referenceNo ? <Text style={styles.purchasedRef} numberOfLines={1}>Ref: {item.referenceNo}</Text> : null}
+                    </View>
+                    <View style={styles.purchasedBadge}>
+                      <Text style={styles.purchasedBadgeText}>Owned</Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+            <TouchableOpacity style={[styles.modalSaveBtn, styles.purchasedBackBtn]} onPress={() => setPurchasedModulesModalVisible(false)}>
+              <Text style={styles.modalSaveText}>Back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -813,6 +905,64 @@ const styles = StyleSheet.create({
   linkChevron: { color: '#6b8693', fontSize: 20 },
   resetButton: { paddingVertical: 14, paddingHorizontal: 20 },
   resetButtonText: { color: '#e57373', fontSize: 15, fontWeight: '600' },
+  purchasedLoadingWrap: { paddingVertical: 12, alignItems: 'center' },
+  purchasedEmpty: { color: '#6b8693', fontSize: 13, marginTop: 4 },
+  viewPurchasedBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  viewPurchasedBtnText: { color: '#07bbc0', fontSize: 14, fontWeight: '700' },
+  purchasedList: { marginTop: 6, gap: 8 },
+  purchasedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#041527',
+    borderWidth: 1,
+    borderColor: '#062731',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  purchasedTextWrap: { flex: 1, paddingRight: 10 },
+  purchasedTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  purchasedMeta: { color: '#6b8693', fontSize: 12, marginTop: 2 },
+  purchasedRef: { color: '#07bbc0', fontSize: 11, marginTop: 4, fontWeight: '700' },
+  purchasedModalContent: { maxHeight: '80%' },
+  categoryTabsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  categoryTabBtn: {
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(7, 187, 192, 0.08)',
+  },
+  categoryTabBtnActive: {
+    backgroundColor: '#07bbc0',
+  },
+  categoryTabBtnText: { color: '#07bbc0', fontSize: 12, fontWeight: '700' },
+  categoryTabBtnTextActive: { color: '#041527' },
+  purchasedModalScroll: { width: '100%', marginTop: 8, minHeight: 260, maxHeight: 260 },
+  purchasedModalScrollContent: { paddingBottom: 8, flexGrow: 1 },
+  purchasedCategoryBlock: { marginBottom: 16 },
+  purchasedCategoryTitle: { color: '#07bbc0', fontSize: 15, fontWeight: '800', marginBottom: 8 },
+  purchasedBackBtn: { marginTop: 16, minHeight: 52, justifyContent: 'center' },
+  purchasedEmptyCenterWrap: { flex: 1, minHeight: 244, justifyContent: 'center', alignItems: 'center' },
+  purchasedEmptyCenterText: { color: '#6b8693', fontSize: 26, fontWeight: '800', textAlign: 'center' },
+  purchasedBadge: {
+    backgroundColor: 'rgba(7, 187, 192, 0.18)',
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  purchasedBadgeText: { color: '#07bbc0', fontSize: 11, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalScroll: { maxHeight: '85%', width: '100%' },
   modalScrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },

@@ -20,6 +20,8 @@ import CategoryPracticeSessionScreen from './screens/CategoryPracticeSessionScre
 import TopUpScreen from './screens/TopUpScreen';
 import TopUpInvoiceScreen from './screens/TopUpInvoiceScreen';
 import type { TopUpInvoice } from './lib/controllers/payments';
+import ModulePurchaseInvoiceScreen from './screens/ModulePurchaseInvoiceScreen';
+import type { ModulePurchaseInvoice } from './lib/controllers/modulePurchases';
 import SkillProfilePhysicalScreen from './screens/SkillProfilePhysicalScreen';
 import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScreen';
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
@@ -49,6 +51,7 @@ type Screen =
   | 'publish-module'
   | 'top-up'
   | 'top-up-invoice'
+  | 'module-purchase-invoice'
   | 'category-practice-session'
   | 'skill-profile-step1'
   | 'skill-profile-step2'
@@ -83,6 +86,7 @@ export default function App() {
   const [topUpStep, setTopUpStep] = useState<'packs' | 'payment'>('packs');
   const [creditsBalance, setCreditsBalance] = useState(0);
   const [topUpReceipt, setTopUpReceipt] = useState<{ invoice: TopUpInvoice; newCredits: number } | null>(null);
+  const [modulePurchaseReceipt, setModulePurchaseReceipt] = useState<{ invoice: ModulePurchaseInvoice; newCredits: number } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
@@ -278,7 +282,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
-      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice') && (
+      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice' || screen === 'module-purchase-invoice') && (
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
             <MainLayout
@@ -308,6 +312,11 @@ export default function App() {
                 onConsumeReturnToCategory={() => setDashboardReturnToCategory(null)}
                 initialToastMessage={dashboardToastMessage}
                 onClearInitialToast={() => setDashboardToastMessage(null)}
+                onModulePurchaseComplete={(payload) => {
+                  setCreditsBalance(payload.newCredits);
+                  setModulePurchaseReceipt(payload);
+                  setScreen('module-purchase-invoice');
+                }}
                 onOpenModule={(moduleId: string, initialModule?: ModuleItem) => { setViewModuleId(moduleId); setViewModuleInitial(initialModule ?? null); setScreen('view-module'); }}
                 onStartCategorySession={(payload) => {
                   setCategoryPracticeSession(payload);
@@ -497,6 +506,30 @@ export default function App() {
                 onDone={() => {
                   setTopUpReceipt(null);
                   setTopUpStep('packs');
+                  setScreen('dashboard');
+                }}
+              />
+            </MainLayout>
+          )}
+          {screen === 'module-purchase-invoice' && modulePurchaseReceipt && (
+            <MainLayout
+              title=""
+              currentScreen="dashboard"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={openTopUp}
+              creditsBalance={creditsBalance}
+              headerLeft="back"
+              onHeaderBack={() => {
+                setModulePurchaseReceipt(null);
+                setScreen('dashboard');
+              }}
+            >
+              <ModulePurchaseInvoiceScreen
+                invoice={modulePurchaseReceipt.invoice}
+                newCredits={modulePurchaseReceipt.newCredits}
+                onDone={() => {
+                  setModulePurchaseReceipt(null);
                   setScreen('dashboard');
                 }}
               />

@@ -5,8 +5,8 @@
 
 import type { ModulePosePipeline } from '../../types';
 import type { PoseFocus } from '../../../types';
-import { createSlipRepDetector } from './slipRepDetector';
-import { compareRepWithFeedbackSlip, compareRepWithFeedbackAnySlip } from './slipComparator';
+import { createSlipRepDetectorForDirection } from './slipRepDetector';
+import { createSideSpecificSlipComparators } from './slipComparator';
 
 const poseFocus: PoseFocus = 'full';
 const SLIP_MATCH_THRESHOLD = 0.24;
@@ -14,15 +14,21 @@ const SLIP_MATCH_THRESHOLD = 0.24;
 export const SLIP_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774456878405';
 export const SLIP_MODULE_REGISTRY_KEY = `defensive_moves/${SLIP_MODULE_ID}`;
 
+const slipComparators = createSideSpecificSlipComparators('either');
+
 export const defensiveSlipPipeline: ModulePosePipeline = {
-  createRepDetector: () => createSlipRepDetector(),
-  compareRepWithFeedback: compareRepWithFeedbackSlip,
-  compareRepWithFeedbackAny: compareRepWithFeedbackAnySlip,
+  createRepDetector: () => createSlipRepDetectorForDirection('either'),
+  compareRepWithFeedback: slipComparators.compareRepWithFeedback,
+  compareRepWithFeedbackAny: slipComparators.compareRepWithFeedbackAny,
   defaultMatchThreshold: SLIP_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 4,
+  minFramesForRep: 3,
 };
 
-export { createSlipRepDetector } from './slipRepDetector';
+export { createSlipRepDetector, createSlipRepDetectorForDirection } from './slipRepDetector';
 export { getSlipFeedback, isSlipFormAcceptable } from './slipFeedback';
-export { compareRepWithFeedbackSlip, compareRepWithFeedbackAnySlip } from './slipComparator';
+export {
+  compareRepWithFeedbackSlip,
+  compareRepWithFeedbackAnySlip,
+  createSideSpecificSlipComparators,
+} from './slipComparator';

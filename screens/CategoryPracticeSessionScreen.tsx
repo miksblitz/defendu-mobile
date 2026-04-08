@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Platform,
@@ -1074,7 +1075,7 @@ export default function CategoryPracticeSessionScreen({
                   setTrainingIndex(idx);
                   setStep('training_countdown');
                 } catch (e) {
-                  // no-op: existing flow continues on failure
+                  Alert.alert('Purchase failed', (e as Error)?.message || 'Purchase could not be completed.');
                 } finally {
                   setPurchasing(false);
                 }
@@ -1105,6 +1106,8 @@ export default function CategoryPracticeSessionScreen({
                     setTrainingIndex(idx);
                     setStep('training_countdown');
                   }
+                } catch (e) {
+                  Alert.alert('Purchase failed', (e as Error)?.message || 'Purchase could not be completed.');
                 } finally {
                   setPurchasing(false);
                 }

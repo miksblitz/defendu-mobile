@@ -66,7 +66,6 @@ import { defensiveSlipPipeline, SLIP_MODULE_REGISTRY_KEY } from './defensive_mov
 import { defensiveParryPipeline, PARRY_MODULE_REGISTRY_KEY } from './defensive_moves/parry';
 import { defensiveDuckingPipeline, DUCKING_MODULE_REGISTRY_KEY } from './defensive_moves/ducking';
 import { defensiveRollPipeline, ROLL_MODULE_REGISTRY_KEY } from './defensive_moves/roll';
-import { defensiveSlipDuckPipeline, SLIP_DUCK_MODULE_REGISTRY_KEY } from './defensive_moves/slip_duck';
 
 /** App category display names -> folder key */
 const CATEGORY_TO_KEY: Record<string, string> = {
@@ -127,9 +126,6 @@ register(PARRY_MODULE_REGISTRY_KEY, defensiveParryPipeline);
 register(DUCKING_MODULE_REGISTRY_KEY, defensiveDuckingPipeline);
 // Slip + opposite-hand parry (Firebase id …72612042; folder name "roll" is legacy).
 register(ROLL_MODULE_REGISTRY_KEY, defensiveRollPipeline);
-// Slip + duck (Firebase): lateral slip then duck with guard.
-register(SLIP_DUCK_MODULE_REGISTRY_KEY, defensiveSlipDuckPipeline);
-
 // Cross Jab Test (Firebase module) – right punch, left guard.
 register('punching/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773558054093', crossJabPipeline);
 // Lead Hook Test (Firebase module) – left hook, right guard.

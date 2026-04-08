@@ -83,32 +83,31 @@ export async function purchaseModulesWithCredits(input: {
 
   const perModulePrice = 50;
   const expectedAmount = perModulePrice * remaining.length;
-  if (input.amountCredits !== expectedAmount) {
-    throw new Error('Purchase price changed. Please try again.');
-  }
+  // Always charge based on latest DB state to avoid stale UI totals.
+  const amountToCharge = expectedAmount;
 
   const creditsRef = ref(db, `users/${user.uid}/credits`);
   const beforePurchaseCredits = await getUserCreditsBalance();
-  if (beforePurchaseCredits < input.amountCredits) {
-    throw new Error(`Not enough credits. Required ${input.amountCredits}, available ${beforePurchaseCredits}.`);
+  if (beforePurchaseCredits < amountToCharge) {
+    throw new Error(`Not enough credits. Required ${amountToCharge}, available ${beforePurchaseCredits}.`);
   }
   let newCredits = beforePurchaseCredits;
   try {
     const tx = await runTransaction(creditsRef, (current) => {
       const safeCurrent = Number(current ?? 0);
       if (!Number.isFinite(safeCurrent)) return;
-      if (safeCurrent < input.amountCredits) return;
-      return safeCurrent - input.amountCredits;
+      if (safeCurrent < amountToCharge) return;
+      return safeCurrent - amountToCharge;
     });
     if (tx.committed) {
       newCredits = Number(tx.snapshot.val() ?? 0);
     } else {
       const latestCredits = await getUserCreditsBalance();
-      if (latestCredits < input.amountCredits) {
-        throw new Error(`Not enough credits. Required ${input.amountCredits}, available ${latestCredits}.`);
+      if (latestCredits < amountToCharge) {
+        throw new Error(`Not enough credits. Required ${amountToCharge}, available ${latestCredits}.`);
       }
       // Fallback write for client environments where transaction may abort unexpectedly.
-      newCredits = latestCredits - input.amountCredits;
+      newCredits = latestCredits - amountToCharge;
       await set(creditsRef, newCredits);
     }
   } catch (e) {
@@ -140,7 +139,7 @@ export async function purchaseModulesWithCredits(input: {
     moduleId: input.moduleId,
     moduleTitle: input.moduleTitle,
     category: input.category,
-    amountCredits: input.amountCredits,
+    amountCredits: amountToCharge,
     purchasedModuleIds: remaining,
     createdAt: now,
   };

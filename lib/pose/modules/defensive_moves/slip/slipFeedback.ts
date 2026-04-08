@@ -5,6 +5,7 @@
  */
 
 import type { PoseFrame, PoseFeedbackItem } from '../../../types';
+import type { SlipDirection } from './slipRepDetector';
 
 const MP = { ls: 11, rs: 12, lh: 23, rh: 24 };
 const SLIP_OFFSET_MIN = 0.075;
@@ -60,11 +61,32 @@ export function getSlipFeedback(userFrames: PoseFrame[], _referenceFrames: PoseF
 
 const SLIP_ERROR_IDS = ['slip-not-far-enough', 'hips-moving-too-much'];
 
+function isDirectionAcceptable(offset: number, expectedDirection: SlipDirection): boolean {
+  if (expectedDirection === 'either') return true;
+  if (expectedDirection === 'left') return offset < 0;
+  return offset > 0;
+}
+
 export function isSlipFormAcceptable(
   userFrames: PoseFrame[],
-  referenceFrames: PoseFrame[] | null
+  referenceFrames: PoseFrame[] | null,
+  expectedDirection: SlipDirection = 'either'
 ): { acceptable: boolean; feedback: PoseFeedbackItem[] } {
   const feedback = getSlipFeedback(userFrames, referenceFrames);
+  const first = getCenters(userFrames[0]!);
+  const mid = getCenters(userFrames[Math.floor(userFrames.length * 0.6)] ?? userFrames[userFrames.length - 1]!);
+  if (first && mid) {
+    const offset = mid.torsoX - mid.hipX;
+    if (!isDirectionAcceptable(offset, expectedDirection)) {
+      feedback.push({
+        id: 'wrong-slip-side',
+        message: expectedDirection === 'left' ? 'Slip to your left side for this drill' : 'Slip to your right side for this drill',
+        phase: 'impact',
+        severity: 'error',
+      });
+    }
+  }
   const errors = feedback.filter((f) => f.severity === 'error' && SLIP_ERROR_IDS.includes(f.id)).length;
-  return { acceptable: errors <= 0, feedback };
+  const hasWrongSideError = feedback.some((f) => f.id === 'wrong-slip-side' && f.severity === 'error');
+  return { acceptable: errors <= 0 && !hasWrongSideError, feedback };
 }

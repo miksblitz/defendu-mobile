@@ -8,11 +8,13 @@
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 
-const COOLDOWN_MS = 800;
-const MIN_REP_FRAMES = 4;
+const COOLDOWN_MS = 450;
+const MIN_REP_FRAMES = 3;
 const NEUTRAL_OFFSET_MAX = 0.04;
-const SLIP_OFFSET_MIN = 0.075;
+const SLIP_OFFSET_MIN = 0.06;
 const MAX_HIP_DRIFT = 0.04;
+
+export type SlipDirection = 'left' | 'right' | 'either';
 
 const MP = { ls: 11, rs: 12, lh: 23, rh: 24 };
 const MN17 = { ls: 5, rs: 6, lh: 11, rh: 12 };
@@ -54,6 +56,18 @@ function isNeutral(frame: PoseFrame): boolean {
 }
 
 export function createSlipRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
+  return createSlipRepDetectorForDirection('either');
+}
+
+function matchesExpectedDirection(offset: number, direction: SlipDirection): boolean {
+  if (direction === 'either') return true;
+  if (direction === 'left') return offset < 0;
+  return offset > 0;
+}
+
+export function createSlipRepDetectorForDirection(
+  expectedDirection: SlipDirection
+): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'slipping' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
@@ -73,7 +87,7 @@ export function createSlipRepDetector(): (frame: PoseFrame, now: number) => RepD
 
     if (phase === 'idle') {
       if (isNeutral(frame)) hasNeutralSinceRep = true;
-      if (hasNeutralSinceRep && m.absOffset >= SLIP_OFFSET_MIN) {
+      if (hasNeutralSinceRep && m.absOffset >= SLIP_OFFSET_MIN && matchesExpectedDirection(m.offset, expectedDirection)) {
         phase = 'slipping';
         segment = [frame];
         baseHipX = m.hipX;

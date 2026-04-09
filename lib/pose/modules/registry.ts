@@ -32,9 +32,9 @@ import {
   RIGHT_ELBOW_STRIKE_REGISTRY_KEY,
 } from './elbow_strikes/elbow-strike-right';
 import {
-  backwardsElbowStrikePipeline,
-  BACKWARDS_ELBOW_STRIKE_REGISTRY_KEY,
-} from './elbow_strikes/backwards-elbow-strike';
+  leftRightElbowStrikePipeline,
+  LEFT_RIGHT_ELBOW_STRIKE_REGISTRY_KEY,
+} from './elbow_strikes/elbow-strike-left-and-right';
 import { kneeStrikesDefaultPipeline } from './knee_strikes/default';
 import {
   lowLeadKneeStrikePipeline,
@@ -64,6 +64,10 @@ import { defensiveMovesDefaultPipeline } from './defensive_moves/default';
 import { defensiveBlockPipeline, BLOCK_MODULE_REGISTRY_KEY } from './defensive_moves/block';
 import { defensiveSlipPipeline, SLIP_MODULE_REGISTRY_KEY } from './defensive_moves/slip';
 import { defensiveParryPipeline, PARRY_MODULE_REGISTRY_KEY } from './defensive_moves/parry';
+import {
+  defensiveParryRightPipeline,
+  PARRY_RIGHT_MODULE_REGISTRY_KEY,
+} from './defensive_moves/parry (left)';
 import { defensiveDuckingPipeline, DUCKING_MODULE_REGISTRY_KEY } from './defensive_moves/ducking';
 import { defensiveRollPipeline, ROLL_MODULE_REGISTRY_KEY } from './defensive_moves/roll';
 
@@ -106,8 +110,8 @@ register('elbow_strikes/module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774763194879', rear
 register(LEAD_ELBOW_STRIKE_REGISTRY_KEY, leadElbowStrikePipeline);
 // Elbow Strike (Right) Firebase module — left landmark chain 11/13/15 (swapped vs lead for mirror/setup).
 register(RIGHT_ELBOW_STRIKE_REGISTRY_KEY, rightElbowStrikePipeline);
-// Backwards elbow strike — left chain 11/13/15; final pose from reference good_rep analysis.
-register(BACKWARDS_ELBOW_STRIKE_REGISTRY_KEY, backwardsElbowStrikePipeline);
+// Elbow Strike (Left and Right) combo — lead strike first, then right strike within 5 seconds.
+register(LEFT_RIGHT_ELBOW_STRIKE_REGISTRY_KEY, leftRightElbowStrikePipeline);
 register('knee_strikes/default', kneeStrikesDefaultPipeline);
 register(LOW_LEAD_KNEE_STRIKE_REGISTRY_KEY, lowLeadKneeStrikePipeline);
 register(LOW_REAR_KNEE_STRIKE_REGISTRY_KEY, lowRearKneeStrikePipeline);
@@ -122,6 +126,8 @@ register(BLOCK_MODULE_REGISTRY_KEY, defensiveBlockPipeline);
 register(SLIP_MODULE_REGISTRY_KEY, defensiveSlipPipeline);
 // Parry module (Firebase): left or right arm parry, with cooldown between reps.
 register(PARRY_MODULE_REGISTRY_KEY, defensiveParryPipeline);
+// Parry (Right) module (Firebase): right arm only.
+register(PARRY_RIGHT_MODULE_REGISTRY_KEY, defensiveParryRightPipeline);
 // Ducking module (Firebase): standing up/down detection with guard-up requirement.
 register(DUCKING_MODULE_REGISTRY_KEY, defensiveDuckingPipeline);
 // Slip + opposite-hand parry (Firebase id …72612042; folder name "roll" is legacy).

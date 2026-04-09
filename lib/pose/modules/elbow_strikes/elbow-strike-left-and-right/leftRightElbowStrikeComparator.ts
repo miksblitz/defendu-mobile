@@ -1,8 +1,7 @@
 import type { PoseFeedbackItem, PoseFocus, PoseFrame, PoseSequence } from '../../../types';
 import { compareRepsWithFocus, PUNCHING_MATCH_THRESHOLD } from '../../../comparator';
-import { isBackwardsElbowStrikeFormAcceptable } from './backwardsElbowStrikeFeedback';
 
-export function compareRepWithFeedbackBackwardsElbowStrike(
+export function compareRepWithFeedbackLeftRightElbowStrike(
   userFrames: PoseFrame[],
   referenceFrames: PoseFrame[],
   _threshold: number = PUNCHING_MATCH_THRESHOLD,
@@ -12,18 +11,19 @@ export function compareRepWithFeedbackBackwardsElbowStrike(
   if (userFrames.length === 0 || referenceFrames.length === 0) {
     return { match: false, distance, feedback: [] };
   }
-  const form = isBackwardsElbowStrikeFormAcceptable(userFrames);
-  return { match: form.acceptable, distance, feedback: form.feedback };
+  // Perfect-rep rule for this combo is enforced by the combo rep detector:
+  // lead elbow first, then right elbow within 5 seconds.
+  return { match: true, distance, feedback: [] };
 }
 
-export function compareRepWithFeedbackAnyBackwardsElbowStrike(
+export function compareRepWithFeedbackAnyLeftRightElbowStrike(
   userFrames: PoseFrame[],
   referenceSequences: PoseSequence[],
   _threshold: number = PUNCHING_MATCH_THRESHOLD,
   focus?: PoseFocus
 ): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
   if (referenceSequences.length === 0) {
-    return { match: false, distance: Infinity, feedback: [] };
+    return { match: true, distance: 0, feedback: [] };
   }
 
   let bestDistance = Infinity;
@@ -33,6 +33,5 @@ export function compareRepWithFeedbackAnyBackwardsElbowStrike(
     if (d < bestDistance) bestDistance = d;
   }
 
-  const form = isBackwardsElbowStrikeFormAcceptable(userFrames);
-  return { match: form.acceptable, distance: bestDistance, feedback: form.feedback };
+  return { match: true, distance: bestDistance, feedback: [] };
 }

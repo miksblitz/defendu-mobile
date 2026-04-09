@@ -38,6 +38,14 @@ export function createLeadElbowStrikeRepDetector(): (frame: PoseFrame, now: numb
     if (state === 'idle') {
       state = 'holding';
       segment = [frame];
+      if (segment.length >= MIN_HOLD_FRAMES) {
+        const out = [...segment];
+        segment = [];
+        state = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        retractFrames = 0;
+        return { done: true, segment: out };
+      }
       return { done: false };
     }
 

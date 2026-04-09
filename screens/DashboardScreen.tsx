@@ -799,6 +799,14 @@ export default function DashboardScreen({
             nestedScrollEnabled
             removeClippedSubviews
             scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#07bbc0"
+                colors={['#07bbc0']}
+              />
+            }
           >
             {/* Performance: avoid rendering offscreen content while scrolling. */}
             <Animated.View

@@ -11,14 +11,14 @@ import { createSideSpecificParryComparators } from './parryComparator';
 const poseFocus: PoseFocus = 'full';
 const PARRY_MATCH_THRESHOLD = 0.24;
 
-export const PARRY_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774762044307';
-export const PARRY_MODULE_REGISTRY_KEY = `defensive_moves/${PARRY_MODULE_ID}`;
-const leftComparators = createSideSpecificParryComparators('left');
+export const PARRY_RIGHT_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1775654919396';
+export const PARRY_RIGHT_MODULE_REGISTRY_KEY = `defensive_moves/${PARRY_RIGHT_MODULE_ID}`;
+const rightComparators = createSideSpecificParryComparators('right');
 
-export const defensiveParryPipeline: ModulePosePipeline = {
-  createRepDetector: () => createParryRepDetectorForSide('left'),
-  compareRepWithFeedback: leftComparators.compareRepWithFeedback,
-  compareRepWithFeedbackAny: leftComparators.compareRepWithFeedbackAny,
+export const defensiveParryRightPipeline: ModulePosePipeline = {
+  createRepDetector: () => createParryRepDetectorForSide('right'),
+  compareRepWithFeedback: rightComparators.compareRepWithFeedback,
+  compareRepWithFeedbackAny: rightComparators.compareRepWithFeedbackAny,
   defaultMatchThreshold: PARRY_MATCH_THRESHOLD,
   poseFocus,
   minFramesForRep: 4,

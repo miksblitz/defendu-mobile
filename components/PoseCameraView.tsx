@@ -21,6 +21,8 @@ import { getModulePosePipeline } from '../lib/pose/modules/registry';
 import type { PoseFeedbackItem } from '../lib/pose/types';
 import { armExtensionDistances } from '../lib/pose/phaseDetection';
 import { leadArm } from '../lib/pose/jabFeedback';
+import { getLeadArmSnapshot, isLeadElbowFinalPose } from '../lib/pose/modules/elbow_strikes/lead-elbow-strike/leadElbowStrikeFormRules';
+import { getRightElbowStrikeArmSnapshot, isRightElbowStrikeFinalPose } from '../lib/pose/modules/elbow_strikes/elbow-strike-right/rightElbowStrikeFormRules';
 
 type SwitchCameraFn = (() => void) | null;
 
@@ -81,6 +83,8 @@ const ARM_SMOOTH_WINDOW = 3;
 /** Require this many consecutive same-direction updates before changing state (hysteresis). */
 const ARM_STATE_CONFIRM_COUNT = 2;
 const ELBOW_BENT_MAX_ANGLE_DEG = 150;
+const LEFT_RIGHT_ELBOW_COMBO_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774765697890';
+const LEFT_RIGHT_ELBOW_COMBO_WINDOW_MS = 5000;
 
 export type ArmMotionState = 'extending' | 'contracting' | 'neutral';
 export type RealtimeArmState = {
@@ -267,6 +271,11 @@ export default function PoseCameraView({
   const [lastRepArm, setLastRepArm] = useState<'left' | 'right' | null>(null);
   const [extensionValues, setExtensionValues] = useState<{ left: number; right: number } | null>(null);
   const [poseStatus, setPoseStatus] = useState<{ landmarkCount: number; hasArmData: boolean } | null>(null);
+  const [comboDebug, setComboDebug] = useState<{ leadDetected: boolean; rightDetected: boolean; remainingMs: number }>({
+    leadDetected: false,
+    rightDetected: false,
+    remainingMs: 0,
+  });
   const poseStatusTimeRef = useRef<number>(0);
   const successFadeAnim = useRef(new Animated.Value(0)).current;
   const wrongFadeAnim = useRef(new Animated.Value(0)).current;
@@ -287,6 +296,9 @@ export default function PoseCameraView({
     pendingLeft: { trend: 'neutral', count: 0 },
     pendingRight: { trend: 'neutral', count: 0 },
   });
+  const comboLeadSeenRef = useRef(false);
+  const comboRightSeenRef = useRef(false);
+  const comboWindowDeadlineRef = useRef<number | null>(null);
   const POSE_STATUS_THROTTLE_MS = 500;
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -498,6 +510,12 @@ export default function PoseCameraView({
 
     if (match) {
       const newCount = currentCount + 1;
+      if (moduleId === LEFT_RIGHT_ELBOW_COMBO_MODULE_ID) {
+        comboLeadSeenRef.current = false;
+        comboRightSeenRef.current = false;
+        comboWindowDeadlineRef.current = null;
+        setComboDebug({ leadDetected: false, rightDetected: false, remainingMs: 0 });
+      }
       lastSuccessCountRef.current = newCount;
       onCorrectRepsUpdateRef.current(newCount, true);
       setSuccessCount(newCount);
@@ -549,6 +567,30 @@ export default function PoseCameraView({
       }
 
       if (frame.length > 0) {
+        if (moduleId === LEFT_RIGHT_ELBOW_COMBO_MODULE_ID) {
+          const leadNow = isLeadElbowFinalPose(getLeadArmSnapshot(frame), false);
+          const rightNow = isRightElbowStrikeFinalPose(getRightElbowStrikeArmSnapshot(frame), false);
+          if (!comboLeadSeenRef.current && leadNow) {
+            comboLeadSeenRef.current = true;
+            comboRightSeenRef.current = false;
+            comboWindowDeadlineRef.current = now + LEFT_RIGHT_ELBOW_COMBO_WINDOW_MS;
+          }
+          if (comboLeadSeenRef.current && !comboRightSeenRef.current && rightNow) {
+            comboRightSeenRef.current = true;
+          }
+          const remaining = comboWindowDeadlineRef.current
+            ? Math.max(0, comboWindowDeadlineRef.current - now)
+            : 0;
+          if (comboLeadSeenRef.current && !comboRightSeenRef.current && remaining <= 0) {
+            comboLeadSeenRef.current = false;
+            comboWindowDeadlineRef.current = null;
+          }
+          setComboDebug({
+            leadDetected: comboLeadSeenRef.current,
+            rightDetected: comboRightSeenRef.current,
+            remainingMs: comboLeadSeenRef.current && !comboRightSeenRef.current ? remaining : 0,
+          });
+        }
         pushFrame(frame);
         setRealtimeElbowState(getRealtimeElbowState(frame));
         const ext = armExtensionDistances(frame);
@@ -816,6 +858,13 @@ export default function PoseCameraView({
                 )}
                 {lastRepArm != null && (
                   <Text style={styles.armStateLastRep}>Last rep: {lastRepArm === 'left' ? 'Left' : 'Right'} jab</Text>
+                )}
+                {moduleId === LEFT_RIGHT_ELBOW_COMBO_MODULE_ID && (
+                  <>
+                    <Text style={styles.armStateLastRep}>lead detected: {comboDebug.leadDetected ? 'yes' : 'no'}</Text>
+                    <Text style={styles.armStateLastRep}>right detected: {comboDebug.rightDetected ? 'yes' : 'no'}</Text>
+                    <Text style={styles.armStateLastRep}>right window time remaining (ms): {Math.round(comboDebug.remainingMs)}</Text>
+                  </>
                 )}
               </>
             )}

@@ -20,7 +20,7 @@ import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import PoseCameraView from '../components/PoseCameraView';
 import { getRequiredReps } from '../utils/repRange';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
-import { getPunchingGuideSource } from '../lib/punchingGuideAssets';
+import { TrainingGuidePreloader, TrainingPoseGuideOverlay, type TrainingGuideModuleFields } from '../lib/trainingGuideMedia';
 import { getPurchasedModuleIds, getUserCreditsBalance, purchaseModulesWithCredits } from '../lib/controllers/modulePurchases';
 
 type SessionStep =
@@ -205,6 +205,8 @@ export default function CategoryPracticeSessionScreen({
   const hasInitializedSessionRef = useRef(false);
 
   const hasRecordedCompletionRef = useRef(false);
+  /** Synchronous guard: training timer expiry vs rep effect must not skip GOOD JOB + completion write. */
+  const trainingSuccessLatchRef = useRef(false);
   // Prevent restarting the timer interval on re-renders while still on `training_pose`.
   const trainingTimerEpochRef = useRef<number>(-1);
   const [trainingTimerEndTimeMs, setTrainingTimerEndTimeMs] = useState<number | null>(null);
@@ -227,6 +229,8 @@ export default function CategoryPracticeSessionScreen({
   useEffect(() => {
     hasRecordedCompletionRef.current = hasRecordedCompletion;
   }, [hasRecordedCompletion]);
+  const pendingCompletionWritesRef = useRef<Set<Promise<unknown>>>(new Set());
+  const exitRequestedRef = useRef(false);
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [showPreviousConfirm, setShowPreviousConfirm] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
@@ -343,17 +347,36 @@ export default function CategoryPracticeSessionScreen({
     countdownTimeoutsRef.current.push(finalTid);
   };
 
+  const recordCompletionInBackground = useCallback((moduleId: string) => {
+    const id = String(moduleId ?? '').trim();
+    if (!id) return;
+    const write = AuthController.recordModuleCompletion(id)
+      .catch(() => {})
+      .finally(() => {
+        pendingCompletionWritesRef.current.delete(write);
+      });
+    pendingCompletionWritesRef.current.add(write);
+  }, []);
+
+  const exitSession = useCallback(async () => {
+    if (exitRequestedRef.current) return;
+    exitRequestedRef.current = true;
+    const pending = Array.from(pendingCompletionWritesRef.current);
+    if (pending.length > 0) await Promise.allSettled(pending);
+    onExit();
+  }, [onExit]);
+
   const exitTrainingToCooldownOrDone = useCallback(() => {
     if (cooldownNames.length > 0) {
       setCooldownIndex(0);
       setActiveExerciseName(cooldownNames[0] ?? '');
       setStep('cooldown_countdown');
     } else if (hideSessionNav) {
-      onExit();
+      void exitSession();
     } else {
       setStep('session_done');
     }
-  }, [cooldownNames, hideSessionNav, onExit]);
+  }, [cooldownNames, hideSessionNav, exitSession]);
 
   const startTrainingCountdown = useCallback(
     (index: number) => {
@@ -422,6 +445,7 @@ export default function CategoryPracticeSessionScreen({
       setReferencePoseFocus(
         currentTrainingItem.category === 'Punching' ? 'punching' : currentTrainingItem.category === 'Kicking' ? 'kicking' : 'full'
       );
+      const slim = currentTrainingItem as ModuleItem;
       setModule({
         moduleId: modId,
         trainerId: '',
@@ -432,12 +456,15 @@ export default function CategoryPracticeSessionScreen({
         createdAt: new Date(),
         updatedAt: new Date(),
         repRange: 'default',
+        referenceGuideUrl: slim.referenceGuideUrl,
+        trainingDurationSeconds: slim.trainingDurationSeconds,
       } as unknown as Module);
       setIsTrainingPrepared(true);
     }
   }, [category, currentTrainingItem, exitTrainingToCooldownOrDone]);
 
   const proceedAfterTraining = useCallback(() => {
+    trainingSuccessLatchRef.current = false;
     setHasRecordedCompletion(false);
     setShowTrainingFailed(false);
     clearSuccessTimeout();
@@ -453,8 +480,24 @@ export default function CategoryPracticeSessionScreen({
     }
   }, [exitTrainingToCooldownOrDone, startTrainingCountdown, clearTimer, trainingIndex, trainingModules.length]);
 
+  const commitTrainingSuccess = useCallback(() => {
+    const mod = moduleRef.current;
+    const mid = mod?.moduleId ? String(mod.moduleId).trim() : '';
+    if (!mid) return;
+    if (trainingSuccessLatchRef.current) return;
+    trainingSuccessLatchRef.current = true;
+    hasRecordedCompletionRef.current = true;
+    setHasRecordedCompletion(true);
+    clearSuccessTimeout();
+    setStep('training_success');
+    recordCompletionInBackground(mid);
+    successTimeoutRef.current = setTimeout(() => {
+      proceedAfterTraining();
+    }, 3000);
+  }, [recordCompletionInBackground, proceedAfterTraining]);
+
   const handleTrainingTimerExpired = useCallback(() => {
-    if (hasRecordedCompletionRef.current) return;
+    if (trainingSuccessLatchRef.current) return;
     const required = requiredRepsRef.current;
     const achieved = poseCorrectRepsRef.current;
     if (required > 0 && achieved < required) {
@@ -462,8 +505,8 @@ export default function CategoryPracticeSessionScreen({
       setShowTrainingFailed(true);
       return;
     }
-    proceedAfterTraining();
-  }, [logTrainingFailureOnce, proceedAfterTraining]);
+    commitTrainingSuccess();
+  }, [commitTrainingSuccess, logTrainingFailureOnce]);
 
   const skipCurrentWorkout = useCallback(() => {
     clearCountdown();
@@ -517,6 +560,7 @@ export default function CategoryPracticeSessionScreen({
         }
       }
       trainingPrepRequestRef.current += 1;
+      trainingSuccessLatchRef.current = false;
       setHasRecordedCompletion(false);
       setIsTrainingPrepared(false);
       setModule(null);
@@ -537,7 +581,7 @@ export default function CategoryPracticeSessionScreen({
         // Skip should trigger a single countdown only once.
         setStep('cooldown_countdown');
       } else if (hideSessionNav) {
-        onExit();
+        void exitSession();
       } else {
         setStep('session_done');
       }
@@ -549,7 +593,7 @@ export default function CategoryPracticeSessionScreen({
     hasShownTrainingSafety,
     hideSessionNav,
     logTrainingFailureOnce,
-    onExit,
+    exitSession,
     step,
     startTrainingCountdown,
     trainingIndex,
@@ -561,6 +605,7 @@ export default function CategoryPracticeSessionScreen({
   const handleRetryTraining = useCallback(() => {
     // Retry the same module: reset pose evaluation counters + timer, then restart pose loading.
     setShowTrainingFailed(false);
+    trainingSuccessLatchRef.current = false;
     setHasRecordedCompletion(false);
     clearSuccessTimeout();
     setPoseCorrectReps(0);
@@ -593,6 +638,7 @@ export default function CategoryPracticeSessionScreen({
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
     trainingPrepRequestRef.current += 1;
+    trainingSuccessLatchRef.current = false;
     setHasRecordedCompletion(false);
     setIsTrainingPrepared(false);
     setModule(null);
@@ -703,8 +749,8 @@ export default function CategoryPracticeSessionScreen({
   const handleQuitNo = useCallback(() => setShowQuitConfirm(false), []);
   const handleQuitYes = useCallback(() => {
     setShowQuitConfirm(false);
-    onExit();
-  }, [onExit]);
+    void exitSession();
+  }, [exitSession]);
 
   const confirmQuit = useCallback(() => {
     setShowQuitConfirm(true);
@@ -833,7 +879,7 @@ export default function CategoryPracticeSessionScreen({
           setActiveExerciseName(cooldownNames[next] ?? '');
           setStep('cooldown_between_countdown');
         } else if (hideSessionNav) {
-          onExit();
+          void exitSession();
         } else {
           setStep('session_done');
         }
@@ -841,7 +887,7 @@ export default function CategoryPracticeSessionScreen({
     });
     return () => clearCountdown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, cooldownIndex, cooldownNames.length, hideSessionNav, onExit]);
+  }, [step, cooldownIndex, cooldownNames.length, hideSessionNav, exitSession]);
 
   // Between cooldowns: countdown then next cooldown.
   useEffect(() => {
@@ -868,22 +914,10 @@ export default function CategoryPracticeSessionScreen({
     if (step !== 'training_pose') return;
     if (!module) return;
     if (showTrainingFailed) return;
-    if (hasRecordedCompletion) return;
     if (poseCorrectReps >= requiredReps && requiredReps > 0) {
-      setHasRecordedCompletion(true);
-      AuthController.recordModuleCompletion(module.moduleId)
-        .catch(() => {})
-        .finally(() => {
-          clearSuccessTimeout();
-          setStep('training_success');
-          successTimeoutRef.current = setTimeout(() => {
-            // Move directly to the next module countdown so we only show
-            // "3 → 2 → 1 → Are you ready? → Ready your stance" once per module.
-            proceedAfterTraining();
-          }, 3000);
-        });
+      commitTrainingSuccess();
     }
-  }, [hasRecordedCompletion, module, poseCorrectReps, requiredReps, proceedAfterTraining, showTrainingFailed, step]);
+  }, [commitTrainingSuccess, module, poseCorrectReps, requiredReps, showTrainingFailed, step]);
 
   // Training timer: provide an end timestamp to PoseCameraView.
   // PoseCameraView updates the displayed time during its pose frame loop.
@@ -902,6 +936,31 @@ export default function CategoryPracticeSessionScreen({
 
     setTrainingTimerEndTimeMs(Date.now() + durationSeconds * 1000);
   }, [module, step, trainingIndex, trainingTimerEndTimeMs]);
+
+  const guideFieldsForPreload = useMemo((): TrainingGuideModuleFields | null => {
+    if (!currentTrainingItem) return null;
+    const cat = currentTrainingItem.category?.trim() ? currentTrainingItem.category : category;
+    return {
+      moduleId: currentTrainingItem.moduleId,
+      moduleTitle: currentTrainingItem.moduleTitle ?? null,
+      category: cat,
+      referenceGuideUrl: module?.referenceGuideUrl ?? currentTrainingItem.referenceGuideUrl ?? null,
+    };
+  }, [currentTrainingItem, category, module?.referenceGuideUrl, module?.moduleId]);
+
+  const trainGuidePreloadActive =
+    guideFieldsForPreload != null &&
+    (step === 'training_safety' ||
+      step === 'training_countdown' ||
+      step === 'training_stance' ||
+      step === 'training_between_countdown' ||
+      step === 'training_between_stance' ||
+      step === 'training_pose_loading');
+
+  const trainingGuidePreloadLayer =
+    guideFieldsForPreload != null ? (
+      <TrainingGuidePreloader module={guideFieldsForPreload} active={trainGuidePreloadActive} />
+    ) : null;
 
   const quitButton = (
     <TouchableOpacity
@@ -1122,7 +1181,7 @@ export default function CategoryPracticeSessionScreen({
               onPress={() => {
                 if (purchasing) return;
                 setPurchaseModalVisible(false);
-                onExit();
+                void exitSession();
               }}
             >
               <Text style={styles.paywallCloseText}>Not now</Text>
@@ -1151,6 +1210,7 @@ export default function CategoryPracticeSessionScreen({
   if (step === 'training_safety') {
     return (
       <SafeAreaView style={styles.safeArea}>
+        {trainingGuidePreloadLayer}
         {quitButton}
         <View style={styles.center}>
           <View style={styles.safetyCard}>
@@ -1185,9 +1245,6 @@ export default function CategoryPracticeSessionScreen({
     const rawDuration = module.trainingDurationSeconds ?? 30;
     const durationSeconds =
       typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0 ? Math.floor(rawDuration) : 30;
-    const moduleCategory =
-      module.category && String(module.category).trim() ? String(module.category).trim() : category;
-    const guideGifSource = getPunchingGuideSource(module.moduleId, module.moduleTitle, moduleCategory);
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={{ flex: 1 }}>
@@ -1216,11 +1273,16 @@ export default function CategoryPracticeSessionScreen({
             showArmState={true}
             showOverlayHint={false}
           />
-          {guideGifSource ? (
-            <View style={styles.trainingPoseGuideWrap} pointerEvents="none">
-              <Image source={guideGifSource} style={styles.trainingPoseGuideImage} resizeMode="contain" />
-            </View>
-          ) : null}
+          <TrainingPoseGuideOverlay
+            module={{
+              moduleId: module.moduleId,
+              moduleTitle: module.moduleTitle,
+              category: module.category && module.category.trim() ? module.category : category,
+              referenceGuideUrl: module.referenceGuideUrl,
+            }}
+            wrapStyle={styles.trainingPoseGuideWrap}
+            mediaStyle={styles.trainingPoseGuideImage}
+          />
           {!hideSessionNav ? (
             <View style={styles.bottomControlsRow}>
               {previousButton}
@@ -1262,6 +1324,7 @@ export default function CategoryPracticeSessionScreen({
 
     return (
       <SafeAreaView style={styles.safeArea}>
+        {trainingGuidePreloadLayer}
         {!hideControls && !isSuccessStep && (
           <View style={styles.floatingControlsRow}>
             {previousButton}
@@ -1313,6 +1376,7 @@ export default function CategoryPracticeSessionScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {trainingGuidePreloadLayer}
       {!hideSessionNav ? (
         <View style={styles.floatingControlsRow}>
           {previousButton}
@@ -1630,3 +1694,4 @@ const styles = StyleSheet.create({
   paywallClose: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12, marginTop: 2 },
   paywallCloseText: { color: '#6b8693', fontSize: 13, fontWeight: '700' },
 });
+

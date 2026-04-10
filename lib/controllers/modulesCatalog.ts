@@ -21,6 +21,16 @@ export interface ModuleItem {
   cooldownExercises?: string[];
   /** Optional explicit sort order from admin table (lower = earlier in list). */
   sortOrder?: number;
+  /** Guide media URL shown in training overlay (modules/{id}/referenceGuideUrl). */
+  referenceGuideUrl?: string;
+  /** Reference / technique media URLs for in-session guide overlay (Firebase). */
+  referencePoseVideoUrlSide1?: string;
+  referencePoseVideoUrlSide2?: string;
+  techniqueVideoUrl?: string;
+  techniqueVideoUrl2?: string;
+  introductionVideoUrl?: string;
+  /** Pose training timer length (seconds). */
+  trainingDurationSeconds?: number;
   createdAt?: Date;
   updatedAt?: Date;
   status?: string;
@@ -38,16 +48,10 @@ function processModulesList(data: Record<string, Record<string, unknown>>): Modu
       referencePoseSequences: _s,
       referencePoseSequence: _s2,
       introduction,
-      introductionVideoUrl: _iv,
-      techniqueVideoUrl: _tv,
-      techniqueVideoUrl2: _tv2,
       techniqueVideoLink: _tvl,
       referencePoseSequenceUrl: _rpu,
-      referencePoseVideoUrlSide1: _rv1,
-      referencePoseVideoUrlSide2: _rv2,
       videoDuration: _vd,
       spaceRequirements: _sr,
-      trainingDurationSeconds: _td,
       submittedAt: _sa,
       reviewedAt: _ra,
       reviewedBy: _rb,
@@ -125,3 +129,4 @@ export async function getApprovedModules(): Promise<ModuleItem[]> {
     return [];
   }
 }
+

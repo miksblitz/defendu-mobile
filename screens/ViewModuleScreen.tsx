@@ -27,7 +27,7 @@ import PoseCameraView from '../components/PoseCameraView';
 import type { PoseSequence, PoseFocus, PoseFrame } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
-import { getPunchingGuideSource } from '../lib/punchingGuideAssets';
+import { TrainingPoseGuideOverlay } from '../lib/trainingGuideMedia';
 
 // --- Types & props ---
 type Step = 'intro' | 'safety' | 'video' | 'tryIt' | 'tryItPoseLoading' | 'tryItPose' | 'complete';
@@ -243,7 +243,13 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     handleTryWithPose();
   };
 
-  const handleIntroDone = () => setStep('complete');
+  const handleIntroDone = () => setStep('complete'); // no completion sync — user skipped hands-on training
+
+  const recordCompletionForModuleView = useCallback(() => {
+    const mid = moduleId ?? module?.moduleId;
+    if (!mid) return;
+    AuthController.recordModuleCompletion(mid).catch(() => {});
+  }, [module?.moduleId, moduleId]);
 
   const handleTryItYourself = () => {
     const total = module?.trainingDurationSeconds ?? 60;
@@ -428,6 +434,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
   const handleSaveProgress = async () => {
     if (moduleId) {
       try {
+        // Idempotent: may already be synced when opening Module Complete from training.
         const newCount = await AuthController.recordModuleCompletion(moduleId);
         if (newCount > 0 && newCount % 5 === 0) {
           Alert.alert('Recommendations updated!', 'Your recommended modules have been refreshed. Check your dashboard.', [{ text: 'OK' }]);
@@ -505,7 +512,6 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
   if (step === 'tryItPose' && module) {
     const categoryKey = module.category && String(module.category).trim() ? module.category : 'Punching';
-    const guideGifSource = getPunchingGuideSource(moduleId ?? module.moduleId, module.moduleTitle, categoryKey);
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
@@ -530,15 +536,23 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
             showArmState={false}
             showOverlayHint={false}
           />
-          {guideGifSource ? (
-            <View style={styles.poseGuideWrap} pointerEvents="none">
-              <Image source={guideGifSource} style={styles.poseGuideImage} resizeMode="contain" />
-            </View>
-          ) : null}
+          <TrainingPoseGuideOverlay
+            module={{
+              moduleId: moduleId ?? module.moduleId,
+              moduleTitle: module.moduleTitle,
+              category: categoryKey,
+              referenceGuideUrl: module.referenceGuideUrl,
+            }}
+            wrapStyle={styles.poseGuideWrap}
+            mediaStyle={styles.poseGuideImage}
+          />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity
               style={styles.continueOverlayButton}
-              onPress={() => setStep('complete')}
+              onPress={() => {
+                recordCompletionForModuleView();
+                setStep('complete');
+              }}
             >
               <Text style={styles.primaryButtonText}>Continue to Complete</Text>
             </TouchableOpacity>
@@ -636,14 +650,26 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
                 <TouchableOpacity style={styles.secondaryButton} onPress={() => setTryItPaused(!tryItPaused)}>
                   <Text style={styles.secondaryButtonText}>{tryItPaused ? 'Resume' : 'Pause'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.primaryButton} onPress={() => setStep('complete')}>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => {
+                    recordCompletionForModuleView();
+                    setStep('complete');
+                  }}
+                >
                   <Text style={styles.primaryButtonText}>Finish</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
                 <Text style={styles.timesUpText}>Time's up!</Text>
-                <TouchableOpacity style={styles.primaryButton} onPress={() => setStep('complete')}>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => {
+                    recordCompletionForModuleView();
+                    setStep('complete');
+                  }}
+                >
                   <Text style={styles.primaryButtonText}>Continue to Complete</Text>
                 </TouchableOpacity>
               </>
@@ -865,3 +891,4 @@ const styles = StyleSheet.create({
   reviewAuthor: { color: '#FFF', fontSize: 14, fontWeight: '600', marginBottom: 4 },
   reviewComment: { color: '#6b8693', fontSize: 14 },
 });
+

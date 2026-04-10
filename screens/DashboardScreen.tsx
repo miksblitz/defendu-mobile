@@ -18,6 +18,7 @@ import {
   RefreshControl,
   Modal,
   Pressable,
+  AppState,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
@@ -86,6 +87,10 @@ function getCurrentWeekRange(): { start: number; end: number } {
   return { start: start.getTime(), end: end.getTime() };
 }
 
+function getCurrentWeekStartMs(): number {
+  return getCurrentWeekRange().start;
+}
+
 /** Day index 0=Mon .. 6=Sun from a timestamp. */
 function getDayIndex(ts: number): number {
   const d = new Date(ts);
@@ -101,6 +106,43 @@ function getDayCountsThisWeek(completionTimestamps: Record<string, number>): num
   }
   return counts;
 }
+
+/**
+ * First-completion entries for one weekday (Mon=0 .. Sun=6) in the current local week; one row per module.
+ * Same Monday 00:00 – Sunday 23:59:59 window as {@link getDayCountsThisWeek} / weekly goal; past weeks are excluded.
+ */
+function getCompletedModulesForWeekdayThisWeek(
+  dayIndex: number,
+  completionTimestamps: Record<string, number>
+): { moduleId: string; completedAt: number }[] {
+  const { start, end } = getCurrentWeekRange();
+  const out: { moduleId: string; completedAt: number }[] = [];
+  for (const [moduleId, ts] of Object.entries(completionTimestamps)) {
+    if (ts >= start && ts <= end && getDayIndex(ts) === dayIndex) {
+      out.push({ moduleId, completedAt: ts });
+    }
+  }
+  out.sort((a, b) => b.completedAt - a.completedAt);
+  return out;
+}
+
+function formatCompletionTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** Calendar label for a weekday column in the current week (e.g. "Tue, Apr 8"). */
+function getWeekdayColumnDateLabel(dayIndex: number): string {
+  const start = getCurrentWeekStartMs();
+  const d = new Date(start);
+  d.setDate(d.getDate() + dayIndex);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** How often to check if the local calendar week rolled (Mon → new week), while the dashboard is mounted. */
+const WEEK_BOUNDARY_POLL_MS = 30_000;
+
+const DAY_DOUBLE_TAP_MS = 320;
 
 const MODULES_CACHE_KEY = 'dashboard_modules_cache';
 
@@ -233,6 +275,9 @@ interface DashboardScreenProps {
     trainingModules: ModuleItem[];
     startPhase?: 'warmup' | 'cooldown';
     mannequinGifUri?: string | null;
+    sessionVariant?: 'default' | 'recommendedSingle';
+    /** When false, returning from the session does not reopen the category overlay (e.g. opened from day history). */
+    returnToCategoryAfterExit?: boolean;
   }) => void;
   /** Category-style session (safety → countdown → pose) for a single pick from Recommended modal. */
   onStartRecommendedSingleSession?: (module: ModuleItem) => void;
@@ -278,6 +323,12 @@ export default function DashboardScreen({
   const [skillProfile, setSkillProfile] = useState<SkillProfile | null>(null);
   const [mlRecommendedModuleIds, setMlRecommendedModuleIds] = useState<string[]>([]);
   const [recModalVisible, setRecModalVisible] = useState(false);
+  const [dayHistoryModalVisible, setDayHistoryModalVisible] = useState(false);
+  const [dayHistoryDayIndex, setDayHistoryDayIndex] = useState(0);
+  const lastWeekdayTapRef = useRef<{ index: number; at: number } | null>(null);
+  /** Bumps when the local Mon–Sun week rolls so weekly bars + day history match the new window (same as weekly goal). */
+  const [weekBoundaryTick, setWeekBoundaryTick] = useState(0);
+  const lastWeekStartMsRef = useRef(getCurrentWeekStartMs());
   const [targetModulesPerDay, setTargetModulesPerDay] = useState(DEFAULT_MODULES_PER_DAY_GOAL);
   const [targetModulesPerWeek, setTargetModulesPerWeek] = useState(DEFAULT_MODULES_PER_WEEK_GOAL);
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
@@ -293,6 +344,26 @@ export default function DashboardScreen({
     setRecModalVisible(true);
     onConsumeRecommendationsReopen?.();
   }, [recommendationsReopenToken, onConsumeRecommendationsReopen]);
+
+  useEffect(() => {
+    const syncWeekBoundary = () => {
+      const start = getCurrentWeekStartMs();
+      if (lastWeekStartMsRef.current === start) return;
+      lastWeekStartMsRef.current = start;
+      setWeekBoundaryTick((n) => n + 1);
+      setDayHistoryModalVisible(false);
+      lastWeekdayTapRef.current = null;
+    };
+
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncWeekBoundary();
+    });
+    const interval = setInterval(syncWeekBoundary, WEEK_BOUNDARY_POLL_MS);
+    return () => {
+      sub.remove();
+      clearInterval(interval);
+    };
+  }, []);
 
   const loadDashboardData = React.useCallback(async () => {
     const LOAD_TIMEOUT_MS = 10000;
@@ -409,6 +480,20 @@ export default function DashboardScreen({
     await loadDashboardData();
   }, [loadDashboardData]);
 
+  const handleWeekdayPress = React.useCallback((dayIndex: number) => {
+    const now = Date.now();
+    const prev = lastWeekdayTapRef.current;
+    if (prev && prev.index === dayIndex && now - prev.at < DAY_DOUBLE_TAP_MS) {
+      lastWeekdayTapRef.current = null;
+      setSelectedDay(dayIndex);
+      setDayHistoryDayIndex(dayIndex);
+      setDayHistoryModalVisible(true);
+      return;
+    }
+    lastWeekdayTapRef.current = { index: dayIndex, at: now };
+    setSelectedDay(dayIndex);
+  }, []);
+
   const todayIndex = (new Date().getDay() + 6) % 7;
   const dayCounts = getDayCountsThisWeek(completionTimestamps);
   const dayProgress = dayCounts.map((c) => Math.min(1, c / targetModulesPerDay));
@@ -432,6 +517,11 @@ export default function DashboardScreen({
     const byId = new Map(modules.map((m) => [m.moduleId, m]));
     return personalizedRecIds.map((id) => byId.get(id)).filter((m): m is ModuleItem => m != null);
   }, [modules, personalizedRecIds]);
+
+  const dayHistoryEntries = React.useMemo(
+    () => getCompletedModulesForWeekdayThisWeek(dayHistoryDayIndex, completionTimestamps),
+    [dayHistoryDayIndex, completionTimestamps, weekBoundaryTick]
+  );
 
   const modulesInCategoryRaw = selectedCategory
     ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
@@ -725,9 +815,12 @@ export default function DashboardScreen({
             {DAYS.map((day, i) => (
               <TouchableOpacity
                 key={day}
-                onPress={() => setSelectedDay(i)}
+                onPress={() => handleWeekdayPress(i)}
                 style={[styles.dayProgressTouch, i === selectedDay && styles.dayProgressTouchSelected]}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`${day}${i === todayIndex ? ', today' : ''}`}
+                accessibilityHint="Double tap to see training modules you completed on this day this week"
               >
                 <View style={styles.dayProgressBarBg}>
                   <View style={[styles.dayProgressBarFill, { width: `${(dayProgress[i] ?? 0) * 100}%` }]} />
@@ -739,6 +832,9 @@ export default function DashboardScreen({
               </TouchableOpacity>
             ))}
           </View>
+          <Text style={styles.weekHistoryHint}>
+            Double-tap a day for this week&apos;s completed training.
+          </Text>
         </View>
 
         <View style={styles.section}>
@@ -1131,6 +1227,84 @@ export default function DashboardScreen({
       </Modal>
 
       <Modal
+        visible={dayHistoryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDayHistoryModalVisible(false)}
+      >
+        <View style={styles.recModalBackdrop}>
+          <View style={styles.recModalCard}>
+            <Text style={styles.recModalTitle}>{getWeekdayColumnDateLabel(dayHistoryDayIndex)}</Text>
+            <Text style={styles.recModalSub}>
+              {dayHistoryEntries.length === 0
+                ? 'Module completions logged for this week on this weekday.'
+                : `${dayHistoryEntries.length} module${dayHistoryEntries.length === 1 ? '' : 's'} completed this week — each listed once, newest at the top.`}
+            </Text>
+            {dayHistoryEntries.length === 0 ? (
+              <Text style={styles.recModalEmpty}>
+                Nothing for this weekday in the current week yet. Finish a module and it will match the bar above — then it appears here until the week ends.
+              </Text>
+            ) : (
+              <ScrollView
+                style={styles.recModalList}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {dayHistoryEntries.map((entry) => {
+                  const mod = modules.find((m) => m.moduleId === entry.moduleId) ?? null;
+                  const title = mod?.moduleTitle ?? entry.moduleId;
+                  const category = mod?.category ?? 'Training';
+                  const locked = mod ? isModuleLocked(mod.moduleId) : false;
+                  return (
+                    <TouchableOpacity
+                      key={entry.moduleId}
+                      style={[styles.recModalRow, locked && styles.lockedRecModalRow, !mod && styles.historyModalRowDisabled]}
+                      activeOpacity={mod ? 0.88 : 1}
+                      disabled={!mod}
+                      onPress={() => {
+                        if (!mod) return;
+                        if (locked) {
+                          setPurchaseTargetModule(mod);
+                          setPurchaseModalVisible(true);
+                          return;
+                        }
+                        setDayHistoryModalVisible(false);
+                        const cat = mod.category?.trim() ? mod.category.trim() : 'Punching';
+                        onStartCategorySession({
+                          category: cat,
+                          warmups: [],
+                          cooldowns: [],
+                          trainingModules: [mod],
+                          mannequinGifUri: null,
+                          returnToCategoryAfterExit: false,
+                        });
+                      }}
+                    >
+                      <View style={styles.historyModalDoneBadge}>
+                        <Text style={styles.historyModalDoneMark}>✓</Text>
+                      </View>
+                      <View style={styles.recModalRowBody}>
+                        <Text style={styles.recModalModuleTitle} numberOfLines={2}>
+                          {title}
+                        </Text>
+                        <Text style={styles.recModalModuleMeta} numberOfLines={2}>
+                          {category} · {formatCompletionTime(entry.completedAt)}
+                        </Text>
+                      </View>
+                      {mod ? <Text style={styles.recModalChevron}>›</Text> : <View style={styles.recModalChevronSpacer} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <Pressable style={styles.recModalClose} onPress={() => setDayHistoryModalVisible(false)}>
+              <Text style={styles.recModalCloseText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={purchaseModalVisible}
         transparent
         animationType="fade"
@@ -1320,6 +1494,20 @@ const styles = StyleSheet.create({
   recModalModuleTitle: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   recModalModuleMeta: { color: '#6b8693', fontSize: 12, marginTop: 4 },
   recModalChevron: { color: 'rgba(255,255,255,0.45)', fontSize: 22, marginLeft: 6 },
+  recModalChevronSpacer: { width: 22, marginLeft: 6 },
+  historyModalDoneBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(34, 197, 94, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  historyModalDoneMark: { color: '#4ade80', fontSize: 14, fontWeight: '800' },
+  historyModalRowDisabled: { opacity: 0.55 },
   recModalClose: {
     marginTop: 6,
     alignSelf: 'center',
@@ -1389,6 +1577,13 @@ const styles = StyleSheet.create({
   progressBarBackground: { height: 8, backgroundColor: '#0a3645', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },
   progressBarFill: { height: 8, backgroundColor: '#07bbc0', borderRadius: 8 },
   weekDaysRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
+  weekHistoryHint: {
+    marginTop: 10,
+    fontSize: 11,
+    color: 'rgba(107, 134, 147, 0.9)',
+    textAlign: 'center',
+    lineHeight: 15,
+  },
   dayProgressTouch: {
     flex: 1,
     alignItems: 'center',

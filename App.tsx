@@ -100,6 +100,7 @@ export default function App() {
     startPhase?: 'warmup' | 'cooldown';
     mannequinGifUri?: string | null;
     sessionVariant?: 'default' | 'recommendedSingle';
+    returnToCategoryAfterExit?: boolean;
   } | null>(null);
   const [dashboardRecommendationsReopenToken, setDashboardRecommendationsReopenToken] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -448,7 +449,9 @@ export default function App() {
                     setDashboardRecommendationsReopenToken((t) => t + 1);
                   } else {
                     setDashboardRecommendationsReopenToken(0);
-                    setDashboardReturnToCategory(categoryPracticeSession.category);
+                    if (categoryPracticeSession.returnToCategoryAfterExit !== false) {
+                      setDashboardReturnToCategory(categoryPracticeSession.category);
+                    }
                   }
                   setCategoryPracticeSession(null);
                   setScreen('dashboard');

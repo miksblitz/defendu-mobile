@@ -1,3 +1,11 @@
+/**
+ * Per-user progress lives in a single RTDB node: `userProgress/{uid}`.
+ * Growth is bounded by catalog size, not by how often someone trains:
+ * - `completionTimestamps`: one timestamp per module; updated on each successful completion so weekly/day UI reflects latest finish time.
+ * - `completedModuleIds` / `completedCount`: same bound.
+ * - `moduleTrainingStats`: one small object per module the user has failed at least once.
+ * Weekly UI windows filter by date client-side; old timestamps are not duplicated.
+ */
 import { ref, get, set } from 'firebase/database';
 import { db } from '../config/firebaseConfig';
 import { getCurrentUser } from './authSession';
@@ -55,10 +63,15 @@ export async function getUserProgress(): Promise<{
     const data = snap.val();
     const completedModuleIds = Array.isArray(data?.completedModuleIds) ? data.completedModuleIds : [];
     const completedCount = typeof data?.completedCount === 'number' ? data.completedCount : completedModuleIds.length;
-    const completionTimestamps =
-      data?.completionTimestamps && typeof data.completionTimestamps === 'object'
-        ? data.completionTimestamps
-        : {};
+    const rawTs = data?.completionTimestamps;
+    const completionTimestamps: Record<string, number> = {};
+    if (rawTs && typeof rawTs === 'object' && !Array.isArray(rawTs)) {
+      for (const [k, v] of Object.entries(rawTs as Record<string, unknown>)) {
+        if (!k) continue;
+        const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+        if (Number.isFinite(n)) completionTimestamps[k] = n;
+      }
+    }
     const moduleTrainingStats = parseModuleTrainingStats(data?.moduleTrainingStats);
     return { completedModuleIds, completedCount, completionTimestamps, moduleTrainingStats };
   } catch (e) {
@@ -70,13 +83,17 @@ export async function getUserProgress(): Promise<{
 export async function recordModuleCompletion(moduleId: string): Promise<number> {
   const currentUser = await getCurrentUser();
   if (!currentUser) throw new Error('User not authenticated');
+  const id = String(moduleId ?? '').trim();
+  if (!id) throw new Error('Missing moduleId');
+
   const existing = await readProgressForWrite();
-  if (existing.completedModuleIds.includes(moduleId)) return existing.completedCount;
-  const completedModuleIds = [...existing.completedModuleIds, moduleId];
+  const alreadyCompleted = existing.completedModuleIds.includes(id);
+  const completedModuleIds = alreadyCompleted ? existing.completedModuleIds : [...existing.completedModuleIds, id];
   const completedCount = completedModuleIds.length;
-  const completionTimestamps = { ...existing.completionTimestamps, [moduleId]: Date.now() };
+  // Always bump timestamp so dashboard weekly/day views show this completion (repeat finishes count for "this week").
+  const completionTimestamps = { ...existing.completionTimestamps, [id]: Date.now() };
   const moduleTrainingStats = { ...existing.moduleTrainingStats };
-  delete moduleTrainingStats[moduleId];
+  delete moduleTrainingStats[id];
   await set(ref(db, `userProgress/${currentUser.uid}`), {
     completedModuleIds,
     completedCount,

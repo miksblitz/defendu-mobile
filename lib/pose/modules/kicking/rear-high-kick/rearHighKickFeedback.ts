@@ -1,16 +1,16 @@
 /**
- * Lead high kick — form hints (right MP chain / mirrored lead; knee and foot above hip).
+ * Rear high kick — form hints (MP left chain / mirrored rear; knee and foot above hip).
  */
 
 import type { PoseFrame, PoseFeedbackItem } from '../../../types';
-import { getIdx, rightKneeInteriorAngleDeg } from '../lead-low-kick/leadLowKickGeometry';
+import { getIdx, leftKneeInteriorAngleDeg } from '../lead-low-kick/leadLowKickGeometry';
 import {
-  inLeadHighKickStrikePose,
-  HIGH_KICK_KNEE_INTERIOR_MIN_DEG,
   HIGH_KICK_KNEE_INTERIOR_MAX_DEG,
-} from './leadHighKickGeometry';
+  HIGH_KICK_KNEE_INTERIOR_MIN_DEG,
+} from '../lead-high-kick/leadHighKickGeometry';
+import { inRearHighKickStrikePose } from './rearHighKickGeometry';
 
-export function getLeadHighKickFormFeedback(
+export function getRearHighKickFormFeedback(
   userFrames: PoseFrame[]
 ): { passed: boolean; feedback: PoseFeedbackItem[] } {
   const idx = userFrames.length > 0 ? getIdx(userFrames[0]!) : null;
@@ -26,8 +26,8 @@ export function getLeadHighKickFormFeedback(
   let chainMax = -1.0;
 
   for (const f of userFrames) {
-    if (inLeadHighKickStrikePose(f, idx)) sawStrike = true;
-    const a = rightKneeInteriorAngleDeg(f, idx);
+    if (inRearHighKickStrikePose(f, idx)) sawStrike = true;
+    const a = leftKneeInteriorAngleDeg(f, idx);
     if (a != null) {
       chainMin = Math.min(chainMin, a);
       chainMax = Math.max(chainMax, a);
@@ -37,9 +37,9 @@ export function getLeadHighKickFormFeedback(
   const feedback: PoseFeedbackItem[] = [];
   if (!sawStrike) {
     feedback.push({
-      id: 'lead-high-kick',
+      id: 'rear-high-kick',
       message:
-        'Lead high kick: lift the knee toward hip height or a bit higher and bring the leg up — it doesn’t need to be perfect, straight, or as high as a pro. Do what your body allows',
+        'Rear high kick: lift the rear knee toward hip height or a bit higher and bring the leg up — imperfect form is okay; the leg doesn’t need to be straight or very high',
       severity: 'hint',
     });
   }

@@ -1,5 +1,5 @@
 /**
- * Lead high kick — left leg; knee and foot above hip, upward “\\” diagonal.
+ * Lead high kick — MP right leg chain (mirrored selfie ≈ orthodox lead); knee above hip, foot high.
  */
 
 import type { ModulePosePipeline } from '../../types';

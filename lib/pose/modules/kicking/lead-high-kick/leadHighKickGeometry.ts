@@ -1,40 +1,45 @@
 /**
- * Lead high kick — left leg only. Opposite of low kick: knee and ankle stay *above* hip height,
- * with an upward diagonal like "\\" (hip/leg base lower, ankle toward the upper part of the slash).
+ * Lead high kick — same **mirror/selfie** leg as lead low kick: MediaPipe **right** hip/knee/ankle
+ * (orthodox lead on a mirrored preview). Unlike low kick, the chamber/extension must read **high**:
+ * kicking knee clearly **above** the hip line, foot lifted on an upward diagonal.
  *
- * MediaPipe y grows downward; smaller y = higher on screen. Support = right ankle.
+ * MediaPipe y grows downward (smaller y = higher on screen). Support = left ankle.
+ *
+ * Thresholds are very forgiving: partial height, bent knees, and imperfect lines still count.
  */
 
 import type { PoseFrame } from '../../../types';
 import { midHipY, validPoint, MP, MN17 } from '../lead-low-kick/leadLowKickGeometry';
 
-/** Knee must be clearly above hip line (high chamber / extension). */
-export const HIGH_KICK_KNEE_MIN_ABOVE_HIP_Y = 0.042;
+/** Knee above hip line — small margin so “almost hip height” or noisy landmarks still pass. */
+export const HIGH_KICK_KNEE_MIN_ABOVE_HIP_Y = 0.011;
 
-/** Ankle must sit clearly above hip (foot is “high” — top of the diagonal). */
-export const HIGH_KICK_ANKLE_MIN_ABOVE_HIP_Y = 0.028;
+/** Ankle: only a hint above hip; full extension not required. */
+export const HIGH_KICK_ANKLE_MIN_ABOVE_HIP_Y = 0.003;
 
-/** Kicking foot well above planted right ankle. */
-export const HIGH_KICK_ANKLE_MIN_CLEAR_ABOVE_SUPPORT_Y = 0.095;
+/** Kicking foot above support — lower bar than before so shorter lifts still register. */
+export const HIGH_KICK_ANKLE_MIN_CLEAR_ABOVE_SUPPORT_Y = 0.045;
 
-/**
- * "\\" from left hip: ankle shifts toward +x (up–right in a typical front/slight-angle frame).
- */
-export const HIGH_KICK_ANKLE_MIN_FORWARD_OF_HIP_X = 0.022;
+/** Lateral spread from hip (either direction). */
+export const HIGH_KICK_ANKLE_MIN_ABS_DX = 0.006;
 
-/** hip→ankle direction: strong upward component (hip.y − ankle.y) / len. */
-export const HIGH_KICK_MIN_UPWARD_UNIT = 0.36;
+/** hip→ankle upward component — allows more “out” and less “up” than a strict high kick. */
+export const HIGH_KICK_MIN_UPWARD_UNIT = 0.17;
 
-/** Avoid pure vertical lift: need horizontal spread. */
-export const HIGH_KICK_MIN_HORIZONTAL_UNIT = 0.1;
+/** Horizontal component — allows steeper / more tucked shapes. */
+export const HIGH_KICK_MIN_HORIZONTAL_UNIT = 0.028;
 
-export const HIGH_KICK_HIP_ANKLE_MIN_LEN = 0.03;
+export const HIGH_KICK_HIP_ANKLE_MIN_LEN = 0.012;
 
-export const HIGH_KICK_KNEE_INTERIOR_MIN_DEG = 38;
-export const HIGH_KICK_KNEE_INTERIOR_MAX_DEG = 178;
+/** Wide angle band: very bent chamber through nearly straight — leg does not need to look “straight”. */
+export const HIGH_KICK_KNEE_INTERIOR_MIN_DEG = 15;
+export const HIGH_KICK_KNEE_INTERIOR_MAX_DEG = 180;
 
-/** Ankle should stay near top of chain vs knee (not hanging far below knee). */
-export const HIGH_KICK_ANKLE_MAX_BELOW_KNEE_Y = 0.055;
+/** Foot may trail well below knee (snap, flexibility, camera). */
+export const HIGH_KICK_ANKLE_MAX_BELOW_KNEE_Y = 0.11;
+
+/** vs mid-hip: only reject when the foot has clearly dropped to standing-like height. */
+export const HIGH_KICK_ANKLE_MAX_BELOW_MIDHIP_Y = 0.15;
 
 function angleDeg(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): number {
   const baX = a.x - b.x;
@@ -48,26 +53,38 @@ function angleDeg(a: { x: number; y: number }, b: { x: number; y: number }, c: {
   return (Math.acos(cos) * 180) / Math.PI;
 }
 
-/** Left leg high kick strike (orthodox lead leg). */
-export function inLeadHighKickStrikePose(frame: PoseFrame, idx: typeof MP | typeof MN17): boolean {
-  const hip = frame[idx.lh];
-  const knee = frame[idx.lk];
-  const ankle = frame[idx.la];
-  const supportAnkle = frame[idx.ra];
+/** Shared high-kick strike test (lead = right chain, rear = left chain). */
+export function oneLegHighKickShape(
+  frame: PoseFrame,
+  idx: typeof MP | typeof MN17,
+  hipIdx: number,
+  kneeIdx: number,
+  ankleIdx: number,
+  supportAnkleIdx: number
+): boolean {
+  const hip = frame[hipIdx];
+  const knee = frame[kneeIdx];
+  const ankle = frame[ankleIdx];
+  const supportAnkle = frame[supportAnkleIdx];
   const line = midHipY(frame, idx);
 
-  if (!validPoint(hip) || !validPoint(knee) || !validPoint(ankle) || !validPoint(supportAnkle) || line == null) {
+  if (!validPoint(hip) || !validPoint(knee) || !validPoint(ankle) || !validPoint(supportAnkle)) {
     return false;
   }
+  if (line == null) return false;
 
+  // High kick: knee above hip line (reject if knee not lifted enough).
   if (knee.y > hip.y - HIGH_KICK_KNEE_MIN_ABOVE_HIP_Y) return false;
   if (ankle.y > hip.y - HIGH_KICK_ANKLE_MIN_ABOVE_HIP_Y) return false;
 
   if (ankle.y > knee.y + HIGH_KICK_ANKLE_MAX_BELOW_KNEE_Y) return false;
 
-  if (ankle.x <= hip.x + HIGH_KICK_ANKLE_MIN_FORWARD_OF_HIP_X) return false;
+  if (Math.abs(ankle.x - hip.x) < HIGH_KICK_ANKLE_MIN_ABS_DX) return false;
 
   if (ankle.y > supportAnkle.y - HIGH_KICK_ANKLE_MIN_CLEAR_ABOVE_SUPPORT_Y) return false;
+
+  // Lenient: foot should still read above the overall hip band (handles lean / short clips).
+  if (ankle.y > line + HIGH_KICK_ANKLE_MAX_BELOW_MIDHIP_Y) return false;
 
   const dx = ankle.x - hip.x;
   const dy = ankle.y - hip.y;
@@ -86,4 +103,9 @@ export function inLeadHighKickStrikePose(frame: PoseFrame, idx: typeof MP | type
   }
 
   return true;
+}
+
+/** Lead high kick — MP **right** leg chain (mirrored preview ≈ orthodox lead leg), same as lead low. */
+export function inLeadHighKickStrikePose(frame: PoseFrame, idx: typeof MP | typeof MN17): boolean {
+  return oneLegHighKickShape(frame, idx, idx.rh, idx.rk, idx.ra, idx.la);
 }

@@ -1,16 +1,16 @@
 /**
- * Lead high kick — rep detector (MP right leg / mirrored lead; same state machine as lead low kick).
+ * Rear high kick — rep detector (MP left chain / mirrored rear leg; same state machine as lead high).
  */
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { getIdx, leadLowKickResetPose } from '../lead-low-kick/leadLowKickGeometry';
-import { inLeadHighKickStrikePose } from './leadHighKickGeometry';
+import { inRearHighKickStrikePose } from './rearHighKickGeometry';
 
 const COOLDOWN_MS = 700;
 const MIN_REP_FRAMES = 3;
 
-export function createLeadHighKickRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
+export function createRearHighKickRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'striking' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
@@ -25,12 +25,12 @@ export function createLeadHighKickRepDetector(): (frame: PoseFrame, now: number)
       if (now < cooldownUntil) return { done: false };
       phase = 'idle';
       segment = [];
-      prevStrike = inLeadHighKickStrikePose(frame, idx);
+      prevStrike = inRearHighKickStrikePose(frame, idx);
       prevReset = leadLowKickResetPose(frame, idx);
       return { done: false };
     }
 
-    const strike = inLeadHighKickStrikePose(frame, idx);
+    const strike = inRearHighKickStrikePose(frame, idx);
     const reset = leadLowKickResetPose(frame, idx);
 
     if (phase === 'idle') {

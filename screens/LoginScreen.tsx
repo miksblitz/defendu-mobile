@@ -21,21 +21,6 @@ import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
 
-// --- Helpers ---
-function getLoginToastMessage(rawMessage: string): string {
-  if (!rawMessage || typeof rawMessage !== 'string') return 'Login failed. Please try again.';
-  const msg = rawMessage.toLowerCase();
-  if (msg.includes('user not found') || msg.includes('no account found')) return 'No account found with this email. Please check your email or create an account.';
-  if (msg.includes('wrong password') || msg.includes('incorrect password')) return 'Incorrect password. Please try again.';
-  if (msg.includes('invalid') && (msg.includes('credential') || msg.includes('email'))) return 'Please enter a valid email address.';
-  if (msg.includes('invalid email or password') || msg.includes('invalid credentials')) return 'Invalid email or password. Please check your details and try again.';
-  if (msg.includes('network') || msg.includes('connection') || msg.includes('fetch')) return 'Connection error. Please check your internet and try again.';
-  if (msg.includes('too many')) return 'Too many attempts. Please wait a moment and try again.';
-  if (msg.includes('blocked')) return 'This account has been blocked. Please contact support.';
-  if (msg.includes('permission') || msg.includes('auth/')) return 'Something went wrong. Please try again later.';
-  return 'Invalid email or password. Please check your details and try again.';
-}
-
 // --- Types ---
 interface LoginScreenProps {
   onForgotPassword?: () => void;
@@ -66,8 +51,7 @@ export default function LoginScreen({ onForgotPassword, onRegister, onLoginSucce
         showToast('Login successful');
       }
     } catch (error) {
-      const raw = (error as Error)?.message ?? '';
-      const msg = getLoginToastMessage(raw);
+      const msg = (error as Error)?.message?.trim() || 'Could not sign you in. Please try again.';
       showToast(msg);
     } finally {
       setLoading(false);

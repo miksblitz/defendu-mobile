@@ -17,7 +17,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PANEL_WIDTH = Math.min(280, SCREEN_WIDTH * 0.78);
 const ANDROID_STATUS_PADDING = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 0;
 
-export type NavScreen = 'dashboard' | 'profile' | 'trainer' | 'messages';
+export type NavScreen = 'dashboard' | 'profile' | 'trainer' | 'messages' | 'settings';
 
 interface NavPanelProps {
   visible: boolean;
@@ -34,6 +34,7 @@ const NAV_ITEMS: { key: NavScreen; label: string; icon: number | 'messages' }[] 
   { key: 'trainer', label: 'Trainers', icon: require('../assets/images/icon-profile.png') },
   { key: 'profile', label: 'Profile', icon: require('../assets/images/icon-trainer.png') },
   { key: 'messages', label: 'Messages', icon: 'messages' },
+  { key: 'settings', label: 'Settings', icon: require('../assets/images/settings.png') },
 ];
 const ICON_COLOR = '#07bbc0';
 const BG_DARK = '#011f36';

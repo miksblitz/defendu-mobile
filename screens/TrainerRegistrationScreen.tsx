@@ -24,6 +24,8 @@ import { useToast } from '../hooks/useToast';
 
 // --- Constants ---
 const yearsOptions = Array.from({ length: 51 }, (_, i) => i.toString());
+const FACEBOOK_LOGO = require('../assets/images/facebooklogo.png');
+const INSTAGRAM_LOGO = require('../assets/images/instagramlogo.png');
 
 // --- Types ---
 interface TrainerRegistrationScreenProps {
@@ -525,9 +527,18 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
             )}
 
             <Text style={styles.label}>Social links (optional)</Text>
-            <TextInput style={styles.input} placeholder="Facebook URL" placeholderTextColor="#6b8693" value={facebookLink} onChangeText={setFacebookLink} />
-            <TextInput style={styles.input} placeholder="Instagram URL" placeholderTextColor="#6b8693" value={instagramLink} onChangeText={setInstagramLink} />
-            <TextInput style={styles.input} placeholder="Other (website, etc.)" placeholderTextColor="#6b8693" value={otherLink} onChangeText={setOtherLink} />
+            <View style={styles.socialLabelRow}>
+              <Image source={FACEBOOK_LOGO} style={styles.socialLabelIcon} resizeMode="contain" />
+              <Text style={styles.socialFieldLabel}>Facebook</Text>
+            </View>
+            <TextInput style={styles.input} placeholder="Profile or page URL" placeholderTextColor="#6b8693" value={facebookLink} onChangeText={setFacebookLink} autoCapitalize="none" keyboardType="url" />
+            <View style={[styles.socialLabelRow, styles.socialFieldSpacer]}>
+              <Image source={INSTAGRAM_LOGO} style={styles.socialLabelIcon} resizeMode="contain" />
+              <Text style={styles.socialFieldLabel}>Instagram</Text>
+            </View>
+            <TextInput style={styles.input} placeholder="Profile URL" placeholderTextColor="#6b8693" value={instagramLink} onChangeText={setInstagramLink} autoCapitalize="none" keyboardType="url" />
+            <Text style={[styles.label, styles.socialFieldSpacer]}>Other link</Text>
+            <TextInput style={styles.input} placeholder="Website or other URL" placeholderTextColor="#6b8693" value={otherLink} onChangeText={setOtherLink} autoCapitalize="none" keyboardType="url" />
           </View>
 
           {/* Step 3: Certification files */}
@@ -711,6 +722,10 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#07bbc0', marginBottom: 8, textTransform: 'uppercase' },
   sectionHint: { fontSize: 13, color: '#8fa3b0', marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '500', color: '#FFF', marginBottom: 8 },
+  socialLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  socialLabelIcon: { width: 22, height: 22 },
+  socialFieldLabel: { fontSize: 14, fontWeight: '500', color: '#FFF' },
+  socialFieldSpacer: { marginTop: 8 },
   input: {
     backgroundColor: '#011f36',
     borderRadius: 8,

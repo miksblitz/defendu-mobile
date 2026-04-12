@@ -24,6 +24,7 @@ import type { Module } from '../lib/models/Module';
 import type { ModuleReview } from '../lib/models/ModuleReview';
 import { getRequiredReps } from '../utils/repRange';
 import PoseCameraView from '../components/PoseCameraView';
+import SessionNavMenu from '../components/SessionNavMenu';
 import type { PoseSequence, PoseFocus, PoseFrame } from '../lib/pose/types';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
@@ -108,6 +109,8 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
   const [showAllReviewsModal, setShowAllReviewsModal] = useState(false);
   const [poseCorrectReps, setPoseCorrectReps] = useState(0);
   const [poseCurrentRepCorrect, setPoseCurrentRepCorrect] = useState<boolean | null>(null);
+  const [tryItPoseSessionKey, setTryItPoseSessionKey] = useState(0);
+  const [tryItPosePaused, setTryItPosePaused] = useState(false);
   const [referencePoseSequence, setReferencePoseSequence] = useState<PoseSequence | PoseSequence[] | null>(null);
   const [referencePoseFocus, setReferencePoseFocus] = useState<PoseFocus>(DEFAULT_POSE_FOCUS);
   const [referencePoseLoading, setReferencePoseLoading] = useState(false);
@@ -512,17 +515,30 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 
   if (step === 'tryItPose' && module) {
     const categoryKey = module.category && String(module.category).trim() ? module.category : 'Punching';
+    const exitTryPoseToSafety = () => {
+      logPosePracticeBailOnce();
+      setTryItPosePaused(false);
+      setStep('safety');
+    };
+    const restartTryPose = () => {
+      setTryItPosePaused(false);
+      setTryItPoseSessionKey((k) => k + 1);
+      setPoseCorrectReps(0);
+      setPoseCurrentRepCorrect(null);
+    };
+    const toggleTryPosePause = () => {
+      setTryItPosePaused((p) => !p);
+    };
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.poseFullScreen}>
           <PoseCameraView
+            key={tryItPoseSessionKey}
             requiredReps={getRequiredReps(module.repRange)}
             correctReps={poseCorrectReps}
             isCurrentRepCorrect={poseCurrentRepCorrect}
-            onBack={() => {
-              logPosePracticeBailOnce();
-              setStep('safety');
-            }}
+            onBack={exitTryPoseToSafety}
+            showBackButton={false}
             onCorrectRepsUpdate={(count, lastCorrect) => {
               setPoseCorrectReps(count);
               setPoseCurrentRepCorrect(lastCorrect);
@@ -534,17 +550,28 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
             moduleId={moduleId ?? undefined}
             category={categoryKey}
             showArmState={false}
+            suppressBottomPoseHint
             showOverlayHint={false}
+            paused={tryItPosePaused}
+          />
+          <SessionNavMenu
+            containerStyle={styles.poseSessionNavPosition}
+            onQuit={exitTryPoseToSafety}
+            restartVisible
+            onRestart={restartTryPose}
+            pauseVisible
+            paused={tryItPosePaused}
+            onTogglePause={toggleTryPosePause}
           />
           <TrainingPoseGuideOverlay
             module={{
               moduleId: moduleId ?? module.moduleId,
               moduleTitle: module.moduleTitle,
               category: categoryKey,
+              difficultyLevel: module.difficultyLevel ?? null,
               referenceGuideUrl: module.referenceGuideUrl,
             }}
             wrapStyle={styles.poseGuideWrap}
-            mediaStyle={styles.poseGuideImage}
           />
           {poseCorrectReps >= getRequiredReps(module.repRange) && (
             <TouchableOpacity
@@ -793,23 +820,30 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
 }
 
 // --- Styles ---
+const IS_ANDROID_VM = Platform.OS === 'android';
+const VM_TOP_LEFT = IS_ANDROID_VM ? 10 : 4;
+const VM_ELEV_60 = IS_ANDROID_VM ? { elevation: 60 as const } : {};
+const VM_ELEV_50 = IS_ANDROID_VM ? { elevation: 50 as const } : {};
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   poseFullScreen: { flex: 1 },
   // Top-center pose guide gif for known punching modules.
+  poseSessionNavPosition: {
+    position: 'absolute',
+    top: VM_TOP_LEFT,
+    left: 16,
+    zIndex: 60,
+    ...VM_ELEV_60,
+  },
   poseGuideWrap: {
     position: 'absolute',
-    top: 10,
+    top: 8,
     left: 0,
     right: 0,
     zIndex: 50,
-    ...(Platform.OS === 'android' ? { elevation: 50 } : {}),
+    ...VM_ELEV_50,
     alignItems: 'center',
-    pointerEvents: 'none',
-  },
-  poseGuideImage: {
-    width: 220,
-    height: 125,
   },
   continueOverlayButton: {
     position: 'absolute',
@@ -817,7 +851,7 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     zIndex: 60,
-    ...(Platform.OS === 'android' ? { elevation: 60 } : {}),
+    ...VM_ELEV_60,
     backgroundColor: '#07bbc0',
     paddingVertical: 14,
     borderRadius: 12,

@@ -19,7 +19,12 @@ export {
   updateStoredUserCredits,
 } from './authSession';
 
-export { saveSkillProfile, getSkillProfile, getFullSkillProfile } from './skillProfile';
+export {
+  saveSkillProfile,
+  getSkillProfile,
+  getFullSkillProfile,
+  updateSkillProfilePartial,
+} from './skillProfile';
 
 export {
   forgotPassword,
@@ -69,7 +74,12 @@ export {
 
 import { isDemoMode, setDemoModeAndUser, clearDemoMode } from './demoMode';
 import { register, login, getCurrentUser, logout, updateStoredUserCredits } from './authSession';
-import { saveSkillProfile, getSkillProfile, getFullSkillProfile } from './skillProfile';
+import {
+  saveSkillProfile,
+  getSkillProfile,
+  getFullSkillProfile,
+  updateSkillProfilePartial,
+} from './skillProfile';
 import {
   forgotPassword,
   sendRegistrationOtp,
@@ -120,6 +130,7 @@ export const AuthController = {
   saveSkillProfile,
   getSkillProfile,
   getFullSkillProfile,
+  updateSkillProfilePartial,
   updateUserProfile,
   updateProfilePicture,
   resetUserProgress,

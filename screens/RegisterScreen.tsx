@@ -18,6 +18,7 @@ import {
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { AuthController } from '../lib/controllers/AuthController';
+import { SKIP_REGISTRATION_EMAIL_VERIFICATION } from '../lib/config/featureFlags';
 import type { RegisterData } from '../lib/models/User';
 
 // --- Validation helpers ---
@@ -77,10 +78,12 @@ interface ErrorsState {
 interface RegisterScreenProps {
   onLogin?: () => void;
   onOtpRequested?: (data: RegisterData) => void;
+  /** Called after account is created when OTP is skipped (same destination as OTP success → login). */
+  onRegistered?: () => void;
 }
 
 // --- Component ---
-export default function RegisterScreen({ onLogin, onOtpRequested }: RegisterScreenProps) {
+export default function RegisterScreen({ onLogin, onOtpRequested, onRegistered }: RegisterScreenProps) {
   const [form, setForm] = useState<FormState>({
     username: '',
     firstName: '',
@@ -155,6 +158,15 @@ export default function RegisterScreen({ onLogin, onOtpRequested }: RegisterScre
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
       };
+      if (SKIP_REGISTRATION_EMAIL_VERIFICATION) {
+        await AuthController.register(registerData);
+        showToast('Account created! Please log in to continue.');
+        setTimeout(() => {
+          setLoading(false);
+          onRegistered?.();
+        }, 1000);
+        return;
+      }
       await AuthController.sendRegistrationOtp(registerData.email);
       showToast('OTP sent to your email. Enter the code to confirm your account.');
       setTimeout(() => {

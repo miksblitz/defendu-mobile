@@ -1,7 +1,7 @@
 import { ref, set, update, get } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../config/firebaseConfig';
-import type { SkillProfile } from '../models/SkillProfile';
+import type { FitnessCapabilities, Preferences, SkillProfile } from '../models/SkillProfile';
 import type { User } from '../models/User';
 import { getCurrentUser } from './authSession';
 
@@ -68,6 +68,24 @@ export async function saveSkillProfile(profile: SkillProfile): Promise<void> {
   const currentUser = await getCurrentUser();
   const updatedUser = { ...currentUser, ...userUpdates, uid } as User;
   await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+}
+
+/** Merge preference / fitness fields into the saved skill profile and sync `users/` (same paths as full save). */
+export async function updateSkillProfilePartial(updates: {
+  preferences?: Partial<Pick<Preferences, 'targetModulesPerDay' | 'targetModulesPerWeek'>>;
+  fitnessCapabilities?: Partial<Pick<FitnessCapabilities, 'trainingFrequency'>>;
+}): Promise<void> {
+  const full = await getFullSkillProfile();
+  if (!full) {
+    throw new Error('No skill profile found. Complete setup first.');
+  }
+  const merged: SkillProfile = {
+    ...full,
+    preferences: { ...full.preferences, ...(updates.preferences ?? {}) },
+    fitnessCapabilities: { ...full.fitnessCapabilities, ...(updates.fitnessCapabilities ?? {}) },
+    completedAt: full.completedAt,
+  };
+  await saveSkillProfile(merged);
 }
 
 /** Fetch skill profile for current user (e.g. for height/weight fallback). */

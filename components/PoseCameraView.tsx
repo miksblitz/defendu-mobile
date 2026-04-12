@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -23,8 +23,30 @@ import { armExtensionDistances } from '../lib/pose/phaseDetection';
 import { leadArm } from '../lib/pose/jabFeedback';
 import { getLeadArmSnapshot, isLeadElbowFinalPose } from '../lib/pose/modules/elbow_strikes/lead-elbow-strike/leadElbowStrikeFormRules';
 import { getRightElbowStrikeArmSnapshot, isRightElbowStrikeFinalPose } from '../lib/pose/modules/elbow_strikes/elbow-strike-right/rightElbowStrikeFormRules';
+import { usePoseSkeletonOverlay } from '../lib/contexts/PoseSkeletonContext';
 
 type SwitchCameraFn = (() => void) | null;
+
+/** Whole seconds left until deadline (same as Math.ceil(ms / 1000) for integral ms). */
+function wholeSecondsLeft(remainingMs: number): number {
+  if (remainingMs <= 0) return 0;
+  return Math.ceil(remainingMs / 1000);
+}
+
+const MAX_MONOTONIC_CATCHUP_GAP = 5;
+
+/**
+ * Avoid skipping a second when JS/native stalls: if the true remaining seconds drop by 2+ in one tick
+ * but by at most MAX_MONOTONIC_CATCHUP_GAP, only step the display by one second until caught up.
+ * Larger gaps mean a new deadline or long stall — use raw seconds.
+ */
+function monotonicWholeSecondsLeft(raw: number, prev: number | null): number {
+  if (prev == null) return raw;
+  if (raw >= prev) return raw;
+  if (prev <= 0) return raw;
+  if (prev - raw > MAX_MONOTONIC_CATCHUP_GAP) return raw;
+  return Math.max(raw, prev - 1);
+}
 
 export interface PoseCameraViewProps {
   requiredReps: number;
@@ -56,8 +78,10 @@ export interface PoseCameraViewProps {
   poseFocus?: PoseFocus;
   /** Optional: match threshold for comparison (default 0.20). */
   matchThreshold?: number;
-  /** Show the "Hand state" debug panel. Defaults to true. */
+  /** Show the "Hand state" debug panel. Defaults to false (hidden unless enabled). */
   showArmState?: boolean;
+  /** When true, hide the default bottom pose hint when there is no form feedback (e.g. module header covers it). */
+  suppressBottomPoseHint?: boolean;
   /** Show the overlay hint text. Defaults to true. */
   showOverlayHint?: boolean;
   /** When 'lead-jab', use lead-jab rep logic (left extended sideways, right contracted wrist-up); no reference. */
@@ -68,6 +92,8 @@ export interface PoseCameraViewProps {
   category?: string;
   /** Show startup 3-2-1 countdown overlay before detection starts. Defaults to true. */
   showStartCountdown?: boolean;
+  /** When true, pose frames are ignored (no reps, no timer tick, no overlays from pose). */
+  paused?: boolean;
 }
 
 const POSE_THROTTLE_MS = 100;
@@ -182,13 +208,21 @@ export default function PoseCameraView({
   referenceSequence,
   poseFocus = 'full',
   matchThreshold = DEFAULT_MATCH_THRESHOLD,
-  showArmState = true,
+  showArmState = false,
+  suppressBottomPoseHint = false,
   showOverlayHint = true,
   poseVariant = 'default',
   moduleId,
   category,
   showStartCountdown = true,
+  paused = false,
 }: PoseCameraViewProps) {
+  const { skeletonVisible: showPoseSkeleton } = usePoseSkeletonOverlay();
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const trainingTimerEndTimeMsRef = useRef(trainingTimerEndTimeMs);
+  trainingTimerEndTimeMsRef.current = trainingTimerEndTimeMs;
+
   const formatTime = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -245,12 +279,12 @@ export default function PoseCameraView({
   const lastTrainingTimerTickMsRef = useRef<number>(0);
   const trainingTimerExpiredRef = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     trainingTimerExpiredRef.current = false;
     lastTrainingTimerTickMsRef.current = 0;
     if (trainingTimerEndTimeMs != null && trainingTimerEndTimeMs > 0) {
       const remainingMs = trainingTimerEndTimeMs - Date.now();
-      const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      const remainingSeconds = wholeSecondsLeft(remainingMs);
       lastTrainingTimerSecondsRef.current = remainingSeconds;
       setComputedTrainingTimerText(formatTime(remainingSeconds));
     } else {
@@ -543,23 +577,27 @@ export default function PoseCameraView({
   const handleLandmark = useCallback(
     (data: unknown) => {
       if (!countdownDoneRef.current) return;
+      if (pausedRef.current) return;
       const frame = thinksysLandmarksToFrame(data);
       const now = Date.now();
 
       // Update training timer from the same frame loop as pose detection.
       // This avoids relying on JS timers that can get starved while camera callbacks are busy.
-      if (trainingTimerEndTimeMs != null && trainingTimerEndTimeMs > 0) {
+      // Read deadline from a ref so native callbacks never use a stale end time after pause/clearProps.
+      const endMs = trainingTimerEndTimeMsRef.current;
+      if (endMs != null && endMs > 0) {
         if (now - lastTrainingTimerTickMsRef.current >= 250) {
           lastTrainingTimerTickMsRef.current = now;
-          const remainingMs = trainingTimerEndTimeMs - now;
-          const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+          const remainingMs = endMs - now;
+          const rawSeconds = wholeSecondsLeft(remainingMs);
+          const displaySeconds = monotonicWholeSecondsLeft(rawSeconds, lastTrainingTimerSecondsRef.current);
 
-          if (lastTrainingTimerSecondsRef.current !== remainingSeconds) {
-            lastTrainingTimerSecondsRef.current = remainingSeconds;
-            setComputedTrainingTimerText(formatTime(remainingSeconds));
+          if (lastTrainingTimerSecondsRef.current !== displaySeconds) {
+            lastTrainingTimerSecondsRef.current = displaySeconds;
+            setComputedTrainingTimerText(formatTime(displaySeconds));
           }
 
-          if (remainingSeconds <= 0 && !trainingTimerExpiredRef.current) {
+          if (remainingMs <= 0 && !trainingTimerExpiredRef.current) {
             trainingTimerExpiredRef.current = true;
             onTrainingTimerExpired?.();
           }
@@ -667,7 +705,7 @@ export default function PoseCameraView({
         }
       }
     },
-    [pushFrame, trainingTimerEndTimeMs, onTrainingTimerExpired]
+    [pushFrame, onTrainingTimerExpired]
   );
 
   if (!ready || error) {
@@ -759,16 +797,16 @@ export default function PoseCameraView({
         width={Math.round(screenWidth)}
         height={Math.round(screenHeight)}
         onLandmark={handleLandmark}
-        face={true}
-        leftArm={true}
-        rightArm={true}
-        leftWrist={true}
-        rightWrist={true}
-        torso={true}
-        leftLeg={true}
-        rightLeg={true}
-        leftAnkle={true}
-        rightAnkle={true}
+        face={showPoseSkeleton}
+        leftArm={showPoseSkeleton}
+        rightArm={showPoseSkeleton}
+        leftWrist={showPoseSkeleton}
+        rightWrist={showPoseSkeleton}
+        torso={showPoseSkeleton}
+        leftLeg={showPoseSkeleton}
+        rightLeg={showPoseSkeleton}
+        leftAnkle={showPoseSkeleton}
+        rightAnkle={showPoseSkeleton}
       />
       {!countdownDone && (
         <Animated.View
@@ -870,17 +908,21 @@ export default function PoseCameraView({
             )}
           </View>
         )}
-        <Text style={[styles.overlayTitle, poseFocus === 'full' ? styles.overlayTitleFull : null]}>
-          {lastFeedback.length > 0
-            ? lastFeedback[0]?.message ?? ''
-            : poseVariant === 'lead-jab'
+        {lastFeedback.length > 0 ? (
+          <Text style={[styles.overlayTitle, poseFocus === 'full' ? styles.overlayTitleFull : null]}>
+            {lastFeedback[0]?.message ?? ''}
+          </Text>
+        ) : suppressBottomPoseHint ? null : (
+          <Text style={[styles.overlayTitle, poseFocus === 'full' ? styles.overlayTitleFull : null]}>
+            {poseVariant === 'lead-jab'
               ? 'Lead jab: left hand out to the side, right hand in guard (wrist up)'
               : poseFocus === 'punching'
                 ? 'Upper body in frame — each full extension = 1 rep'
                 : poseFocus === 'kicking'
                   ? 'Legs in frame — raise leg then lower'
                   : 'Full body in frame — reps count automatically'}
-        </Text>
+          </Text>
+        )}
         {showOverlayHint && (
           <Text style={styles.overlayHint}>
             Do a clear down–up movement so your hips go lower then back up
@@ -918,6 +960,9 @@ export default function PoseCameraView({
     </View>
   );
 }
+
+const IS_ANDROID_POSE = Platform.OS === 'android';
+const POSE_BACK_BUTTON_TOP = IS_ANDROID_POSE ? 24 : 50;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#041527' },
@@ -1051,7 +1096,7 @@ const styles = StyleSheet.create({
   repText: { color: '#07bbc0', fontSize: 22, fontWeight: '700' },
   backButton: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? 24 : 50,
+    top: POSE_BACK_BUTTON_TOP,
     left: 16,
     // Keep consistent button sizing across all session steps.
     width: 60,

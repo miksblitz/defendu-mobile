@@ -7,7 +7,7 @@ import { ref, set, get, update } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../config/firebaseConfig';
 import type { User, RegisterData, LoginData } from '../models/User';
-import { getErrorMessage } from './errors';
+import { formatAuthError } from './errors';
 import { normalizeArray, normalizeNumber } from './normalize';
 
 export async function register(data: RegisterData): Promise<User> {
@@ -46,9 +46,7 @@ export async function register(data: RegisterData): Promise<User> {
     await signOut(auth).catch(() => {});
     return userData;
   } catch (error: unknown) {
-    const err = error as { code?: string; message?: string };
-    const code = err?.code ?? err?.message ?? '';
-    throw new Error(getErrorMessage(String(code)), { cause: error });
+    throw new Error(formatAuthError(error), { cause: error });
   }
 }
 
@@ -100,9 +98,7 @@ export async function login(data: LoginData): Promise<User> {
     await AsyncStorage.setItem('user', JSON.stringify(userData));
     return userData;
   } catch (error: unknown) {
-    const err = error as { code?: string; message?: string };
-    const code = err?.code ?? err?.message ?? '';
-    throw new Error(getErrorMessage(String(code)), { cause: error });
+    throw new Error(formatAuthError(error), { cause: error });
   }
 }
 

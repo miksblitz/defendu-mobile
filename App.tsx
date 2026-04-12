@@ -12,6 +12,7 @@ import RegisterOtpScreen from './screens/RegisterOtpScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import ViewModuleScreen from './screens/ViewModuleScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import SettingsScreen from './screens/SettingsScreen';
 import MessagesScreen from './screens/MessagesScreen';
 import TrainerScreen from './screens/TrainerScreen';
 import TrainerRegistrationScreen from './screens/TrainerRegistrationScreen';
@@ -31,6 +32,7 @@ import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import MainLayout from './components/MainLayout';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
 import { UnreadMessagesProvider } from './lib/contexts/UnreadMessagesContext';
+import { PoseSkeletonProvider } from './lib/contexts/PoseSkeletonContext';
 import { AuthController, type ModuleItem } from './lib/controllers/AuthController';
 import type { RegisterData, User } from './lib/models/User';
 
@@ -45,6 +47,7 @@ type Screen =
   | 'dashboard'
   | 'view-module'
   | 'profile'
+  | 'settings'
   | 'messages'
   | 'trainer'
   | 'trainer-registration'
@@ -195,7 +198,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [loggingOut]);
 
-  const handleNav = (screen: 'dashboard' | 'profile' | 'trainer' | 'messages') => {
+  const handleNav = (screen: 'dashboard' | 'profile' | 'trainer' | 'messages' | 'settings') => {
     if (screen === 'messages') setMessagesOpenWith(null);
     setScreen(screen);
   };
@@ -264,6 +267,10 @@ export default function App() {
             setPendingRegistration(data);
             setScreen('register-otp');
           }}
+          onRegistered={() => {
+            setPendingRegistration(null);
+            setScreen('login');
+          }}
         />
       )}
       {screen === 'register-otp' && pendingRegistration && (
@@ -283,7 +290,8 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
-      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice' || screen === 'module-purchase-invoice') && (
+      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'settings' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice' || screen === 'module-purchase-invoice') && (
+        <PoseSkeletonProvider>
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
             <MainLayout
@@ -368,6 +376,18 @@ export default function App() {
               creditsBalance={creditsBalance}
             >
               <ProfileScreen />
+            </MainLayout>
+          )}
+          {screen === 'settings' && (
+            <MainLayout
+              title="Settings"
+              currentScreen="settings"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={openTopUp}
+              creditsBalance={creditsBalance}
+            >
+              <SettingsScreen />
             </MainLayout>
           )}
           {screen === 'messages' && (
@@ -539,6 +559,7 @@ export default function App() {
             </MainLayout>
           )}
         </UnreadMessagesProvider>
+        </PoseSkeletonProvider>
       )}
       {(screen === 'skill-profile-step1' || screen === 'skill-profile-step2' || screen === 'skill-profile-step3' || screen === 'skill-profile-step4') && (
         <SkillProfileProvider>

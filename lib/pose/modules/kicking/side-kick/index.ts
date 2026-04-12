@@ -1,5 +1,5 @@
 /**
- * Side kick — left leg: charge (high knee) then extend to the side.
+ * Side kick — left leg out to the **side** (image left), straight leg; same pipeline shape as low/high kicks.
  */
 
 import type { ModulePosePipeline } from '../../types';

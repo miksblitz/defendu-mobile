@@ -20,6 +20,9 @@ import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
 import type { TrainerApplication } from '../lib/models/TrainerApplication';
 
+const FACEBOOK_LOGO = require('../assets/images/facebooklogo.png');
+const INSTAGRAM_LOGO = require('../assets/images/instagramlogo.png');
+
 // --- Types ---
 interface TrainerWithData extends User {
   applicationData?: TrainerApplication | null;
@@ -197,15 +200,37 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                   {hasSocialLinks(selectedTrainer.applicationData) ? (
                     <View style={styles.detailSocialBlock}>
                       <Text style={styles.detailLabel}>Social media</Text>
-                      {selectedTrainer.applicationData?.facebookLink?.trim() ? (
-                        <TouchableOpacity onPress={() => openLink(selectedTrainer.applicationData!.facebookLink!)} style={styles.detailSocialLink} activeOpacity={0.7}>
-                          <Text style={styles.detailSocialLinkText}>Facebook</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                      {selectedTrainer.applicationData?.instagramLink?.trim() ? (
-                        <TouchableOpacity onPress={() => openLink(selectedTrainer.applicationData!.instagramLink!)} style={styles.detailSocialLink} activeOpacity={0.7}>
-                          <Text style={styles.detailSocialLinkText}>Instagram</Text>
-                        </TouchableOpacity>
+                      {selectedTrainer.applicationData?.facebookLink?.trim() ||
+                      selectedTrainer.applicationData?.instagramLink?.trim() ? (
+                        <View style={styles.detailSocialIconsRow}>
+                          {selectedTrainer.applicationData?.facebookLink?.trim() ? (
+                            <TouchableOpacity
+                              onPress={() => openLink(selectedTrainer.applicationData!.facebookLink!)}
+                              style={[
+                                styles.socialIconTouchable,
+                                selectedTrainer.applicationData?.instagramLink?.trim()
+                                  ? styles.socialIconTouchableSpaced
+                                  : null,
+                              ]}
+                              activeOpacity={0.7}
+                              accessibilityRole="link"
+                              accessibilityLabel="Open Facebook profile"
+                            >
+                              <Image source={FACEBOOK_LOGO} style={styles.socialIcon} resizeMode="contain" />
+                            </TouchableOpacity>
+                          ) : null}
+                          {selectedTrainer.applicationData?.instagramLink?.trim() ? (
+                            <TouchableOpacity
+                              onPress={() => openLink(selectedTrainer.applicationData!.instagramLink!)}
+                              style={styles.socialIconTouchable}
+                              activeOpacity={0.7}
+                              accessibilityRole="link"
+                              accessibilityLabel="Open Instagram profile"
+                            >
+                              <Image source={INSTAGRAM_LOGO} style={styles.socialIcon} resizeMode="contain" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
                       ) : null}
                       {selectedTrainer.applicationData?.otherLink?.trim() ? (
                         <TouchableOpacity onPress={() => openLink(selectedTrainer.applicationData!.otherLink!)} style={styles.detailSocialLink} activeOpacity={0.7}>
@@ -311,6 +336,26 @@ const styles = StyleSheet.create({
   detailLabel: { color: '#07bbc0', fontSize: 14, fontWeight: '700', marginTop: 12, marginBottom: 4 },
   detailText: { color: '#FFF', fontSize: 14, marginBottom: 8, lineHeight: 20 },
   detailSocialBlock: { marginTop: 4, marginBottom: 16 },
+  detailSocialIconsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    flexWrap: 'nowrap',
+    marginBottom: 10,
+  },
+  socialIconTouchable: {
+    padding: 6,
+  },
+  /** Space between Facebook and Instagram when both are shown (`gap` is unreliable on some RN builds). */
+  socialIconTouchableSpaced: {
+    marginRight: 14,
+  },
+  /** Circular brand assets: no extra plate — sized for consistent visual weight and tap target. */
+  socialIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
   detailSocialLink: { marginBottom: 8 },
   detailSocialLinkText: { color: '#07bbc0', fontSize: 15, fontWeight: '600' },
   detailAboutBlock: { marginTop: 4, marginBottom: 16 },

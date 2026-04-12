@@ -75,6 +75,9 @@ export async function updateTrainerProfile(
     currentRank?: string;
     aboutMe?: string;
     aboutMeImageUrl?: string;
+    facebookLink?: string;
+    instagramLink?: string;
+    otherLink?: string;
   }
 ): Promise<void> {
   const currentUser = await getCurrentUser();
@@ -88,6 +91,9 @@ export async function updateTrainerProfile(
   if (updates.currentRank !== undefined) patch.currentRank = updates.currentRank;
   if (updates.aboutMe !== undefined) patch.aboutMe = updates.aboutMe;
   if (updates.aboutMeImageUrl !== undefined) patch.aboutMeImageUrl = updates.aboutMeImageUrl;
+  if (updates.facebookLink !== undefined) patch.facebookLink = updates.facebookLink.trim();
+  if (updates.instagramLink !== undefined) patch.instagramLink = updates.instagramLink.trim();
+  if (updates.otherLink !== undefined) patch.otherLink = updates.otherLink.trim();
   if (Object.keys(patch).length === 0) return;
   await update(applicationRef, patch);
 }

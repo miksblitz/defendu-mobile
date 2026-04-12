@@ -14,7 +14,6 @@ import {
   TextInput,
   Modal,
   Alert,
-  Linking,
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -23,10 +22,8 @@ import { AuthController } from '../lib/controllers/AuthController';
 import { getPurchasedModulesMeta } from '../lib/controllers/modulePurchases';
 import { MARTIAL_ARTS, BELT_BASED_MARTIAL_ARTS, BELT_SYSTEMS } from '../lib/constants/martialArts';
 
-// --- Constants ---
-const PRIVACY_URL = 'https://defendu.com/privacy';
-const TERMS_URL = 'https://defendu.com/terms';
-const CONTACT_EMAIL = 'support@defendu.com';
+const FACEBOOK_LOGO = require('../assets/images/facebooklogo.png');
+const INSTAGRAM_LOGO = require('../assets/images/instagramlogo.png');
 
 // --- Component ---
 export default function ProfileScreen() {
@@ -34,11 +31,6 @@ export default function ProfileScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
-  const [height, setHeight] = useState<string>('');
-  const [weight, setWeight] = useState<string>('');
-  const [heightInput, setHeightInput] = useState('');
-  const [weightInput, setWeightInput] = useState('');
-  const [savingStats, setSavingStats] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editFirstName, setEditFirstName] = useState('');
@@ -62,6 +54,9 @@ export default function ProfileScreen() {
   const [trainerAboutMe, setTrainerAboutMe] = useState('');
   const [trainerAboutMeImageUrl, setTrainerAboutMeImageUrl] = useState<string | null>(null);
   const [trainerAboutMeImageName, setTrainerAboutMeImageName] = useState<string | null>(null);
+  const [trainerFacebookLink, setTrainerFacebookLink] = useState('');
+  const [trainerInstagramLink, setTrainerInstagramLink] = useState('');
+  const [trainerOtherLink, setTrainerOtherLink] = useState('');
   const [uploadingAboutMeAttachment, setUploadingAboutMeAttachment] = useState(false);
   const [showDefenseStylesPicker, setShowDefenseStylesPicker] = useState(false);
   const [showBeltPicker, setShowBeltPicker] = useState(false);
@@ -71,13 +66,17 @@ export default function ProfileScreen() {
   const [purchasedModules, setPurchasedModules] = useState<Array<{ moduleId: string; moduleTitle: string; category: string; referenceNo?: string }>>([]);
   const [purchasedModulesModalVisible, setPurchasedModulesModalVisible] = useState(false);
   const [selectedPurchasedCategory, setSelectedPurchasedCategory] = useState('Punching');
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+  const [showResetResultModal, setShowResetResultModal] = useState(false);
+  const [resetResultIsError, setResetResultIsError] = useState(false);
+  const [resetResultMessage, setResetResultMessage] = useState('');
+  const [resettingProgress, setResettingProgress] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [user, skillProfile, purchasedMeta] = await Promise.all([
+      const [user, purchasedMeta] = await Promise.all([
         AuthController.getCurrentUser(),
-        AuthController.getSkillProfile(),
         getPurchasedModulesMeta(),
       ]);
       if (cancelled) return;
@@ -87,12 +86,6 @@ export default function ProfileScreen() {
         setLastName(user.lastName || '');
         setProfilePicture(user.profilePicture || null);
         setIsApprovedTrainer(user.role === 'trainer' && user.trainerApproved === true);
-        const h = user.height ?? skillProfile?.height;
-        const w = user.weight ?? skillProfile?.weight;
-        setHeight(h != null ? String(h) : '');
-        setWeight(w != null ? String(w) : '');
-        setHeightInput(h != null ? String(h) : '');
-        setWeightInput(w != null ? String(w) : '');
       }
       if (purchasedMeta.length > 0) {
         const purchasedIds = purchasedMeta.map((m) => m.moduleId);
@@ -118,40 +111,12 @@ export default function ProfileScreen() {
   }, []);
 
   const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'User';
-  const hasHeightWeightChanges = heightInput !== height || weightInput !== weight;
   const hasEditProfileChanges =
     editFirstName !== firstName ||
     editLastName !== lastName ||
     currentPassword.length > 0 ||
     newPassword.length > 0 ||
     confirmPassword.length > 0;
-
-  const handleSaveHeightWeight = async () => {
-    const h = heightInput.trim() ? Number(heightInput.trim()) : undefined;
-    const w = weightInput.trim() ? Number(weightInput.trim()) : undefined;
-    if (h !== undefined && (isNaN(h) || h < 50 || h > 250)) {
-      Alert.alert('Invalid height', 'Please enter a height between 50 and 250 cm.');
-      return;
-    }
-    if (w !== undefined && (isNaN(w) || w < 20 || w > 300)) {
-      Alert.alert('Invalid weight', 'Please enter a weight between 20 and 300 kg.');
-      return;
-    }
-    setSavingStats(true);
-    try {
-      await AuthController.updateUserProfile({
-        ...(h !== undefined && { height: h }),
-        ...(w !== undefined && { weight: w }),
-      });
-      if (h !== undefined) setHeight(String(h));
-      if (w !== undefined) setWeight(String(w));
-    } catch (e) {
-      console.error('updateUserProfile:', e);
-      Alert.alert('Error', 'Could not save. Please try again.');
-    } finally {
-      setSavingStats(false);
-    }
-  };
 
   const openEditModal = () => {
     setEditFirstName(firstName);
@@ -180,12 +145,18 @@ export default function ProfileScreen() {
         setTrainerAboutMe(app.aboutMe || '');
         setTrainerAboutMeImageUrl(app.aboutMeImageUrl || null);
         setTrainerAboutMeImageName(app.aboutMeImageUrl ? 'Attached' : null);
+        setTrainerFacebookLink(app.facebookLink || '');
+        setTrainerInstagramLink(app.instagramLink || '');
+        setTrainerOtherLink(app.otherLink || '');
       } else {
         setSelectedDefenseStyles([]);
         setTrainerCurrentRank('');
         setTrainerAboutMe('');
         setTrainerAboutMeImageUrl(null);
         setTrainerAboutMeImageName(null);
+        setTrainerFacebookLink('');
+        setTrainerInstagramLink('');
+        setTrainerOtherLink('');
       }
       setTrainerProfileModalVisible(true);
     } catch (e) {
@@ -250,6 +221,9 @@ export default function ProfileScreen() {
         currentRank: trainerCurrentRank.trim() || undefined,
         aboutMe: trainerAboutMe.trim() || undefined,
         aboutMeImageUrl: trainerAboutMeImageUrl || undefined,
+        facebookLink: trainerFacebookLink.trim(),
+        instagramLink: trainerInstagramLink.trim(),
+        otherLink: trainerOtherLink.trim(),
       });
       setTrainerProfileModalVisible(false);
     } catch (e) {
@@ -317,31 +291,27 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleResetProgress = () => {
-    Alert.alert(
-      'Reset all progress',
-      'This will clear all completed modules and weekly goal data. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AuthController.resetUserProgress();
-              Alert.alert('Done', 'Your progress has been reset.');
-            } catch (e) {
-              console.error('resetUserProgress:', e);
-              Alert.alert('Error', 'Could not reset progress. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+  const openResetProgressConfirm = () => {
+    setShowResetConfirmModal(true);
   };
 
-  const openLink = (url: string) => {
-    Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open link.'));
+  const performResetProgress = async () => {
+    setResettingProgress(true);
+    try {
+      await AuthController.resetUserProgress();
+      setShowResetConfirmModal(false);
+      setResetResultIsError(false);
+      setResetResultMessage('Your progress has been reset.');
+      setShowResetResultModal(true);
+    } catch (e) {
+      console.error('resetUserProgress:', e);
+      setShowResetConfirmModal(false);
+      setResetResultIsError(true);
+      setResetResultMessage('Could not reset progress. Please try again.');
+      setShowResetResultModal(true);
+    } finally {
+      setResettingProgress(false);
+    }
   };
 
   const handleImagePickerPress = () => {
@@ -402,10 +372,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const openContact = () => {
-    Linking.openURL(`mailto:${CONTACT_EMAIL}`).catch(() => Alert.alert('Error', 'Could not open email.'));
-  };
-
   const purchasedCategoryTabs = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes', 'Defensive Moves'];
   const getCategoryCount = (category: string): number =>
     purchasedModules.filter((m) => (m.category || '').trim().toLowerCase() === category.trim().toLowerCase()).length;
@@ -451,40 +417,6 @@ export default function ProfileScreen() {
         <Text style={styles.displayName}>{fullName}</Text>
         <Text style={styles.username}>{username}</Text>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Height & Weight</Text>
-          <Text style={styles.sectionHint}>From your skill profile; you can update them here.</Text>
-          <View style={styles.row}>
-            <Text style={styles.label}>Height (cm)</Text>
-            <TextInput
-              style={styles.input}
-              value={heightInput}
-              onChangeText={setHeightInput}
-              placeholder="e.g. 170"
-              placeholderTextColor="#6b8693"
-              keyboardType="numeric"
-            />
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Weight (kg)</Text>
-            <TextInput
-              style={styles.input}
-              value={weightInput}
-              onChangeText={setWeightInput}
-              placeholder="e.g. 70"
-              placeholderTextColor="#6b8693"
-              keyboardType="numeric"
-            />
-          </View>
-          <TouchableOpacity
-            style={[styles.saveStatsBtn, (savingStats || !hasHeightWeightChanges) && styles.buttonDisabled]}
-            onPress={handleSaveHeightWeight}
-            disabled={savingStats || !hasHeightWeightChanges}
-          >
-            <Text style={styles.saveStatsBtnText}>{savingStats ? 'Saving…' : 'Save'}</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.editButtonRow}>
           {isApprovedTrainer && (
             <TouchableOpacity style={styles.editButtonHalf} onPress={openTrainerProfileModal}>
@@ -502,21 +434,6 @@ export default function ProfileScreen() {
           {isApprovedTrainer ? 'Trainer page info · Name & password' : 'Change your name and password'}
         </Text>
 
-        <View style={styles.linksSection}>
-          <TouchableOpacity style={styles.linkRow} onPress={() => openLink(PRIVACY_URL)}>
-            <Text style={styles.linkText}>Privacy Policy</Text>
-            <Text style={styles.linkChevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.linkRow} onPress={() => openLink(TERMS_URL)}>
-            <Text style={styles.linkText}>Terms of Service</Text>
-            <Text style={styles.linkChevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.linkRow, styles.linkRowLast]} onPress={openContact}>
-            <Text style={styles.linkText}>Contact us</Text>
-            <Text style={styles.linkChevron}>›</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Purchased Modules</Text>
           <Text style={styles.sectionHint}>Modules you unlocked with credits ({purchasedModules.length}).</Text>
@@ -533,7 +450,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        <TouchableOpacity style={styles.resetButton} onPress={handleResetProgress}>
+        <TouchableOpacity style={styles.resetButton} onPress={openResetProgressConfirm}>
           <Text style={styles.resetButtonText}>Reset all progress</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -680,6 +597,54 @@ export default function ProfileScreen() {
               </View>
             )}
             <View style={styles.modalFieldWrap}>
+              <Text style={styles.labelSecondary}>Social links (shown on Trainers with icons)</Text>
+              <View style={styles.trainerSocialRow}>
+                <View style={styles.trainerSocialCol}>
+                  <View style={styles.trainerSocialLabelRow}>
+                    <Image source={FACEBOOK_LOGO} style={styles.trainerSocialLabelIcon} resizeMode="contain" />
+                    <Text style={styles.label}>Facebook</Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, styles.modalInput, styles.trainerSocialColInput]}
+                    value={trainerFacebookLink}
+                    onChangeText={setTrainerFacebookLink}
+                    placeholder="URL"
+                    placeholderTextColor="#6b8693"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                  />
+                </View>
+                <View style={[styles.trainerSocialCol, styles.trainerSocialColSecond]}>
+                  <View style={styles.trainerSocialLabelRow}>
+                    <Image source={INSTAGRAM_LOGO} style={styles.trainerSocialLabelIcon} resizeMode="contain" />
+                    <Text style={styles.label}>Instagram</Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, styles.modalInput, styles.trainerSocialColInput]}
+                    value={trainerInstagramLink}
+                    onChangeText={setTrainerInstagramLink}
+                    placeholder="URL"
+                    placeholderTextColor="#6b8693"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                  />
+                </View>
+              </View>
+              <Text style={[styles.label, styles.trainerSocialFieldSpacer]}>Other link</Text>
+              <TextInput
+                style={[styles.input, styles.modalInput]}
+                value={trainerOtherLink}
+                onChangeText={setTrainerOtherLink}
+                placeholder="Website or other URL (optional)"
+                placeholderTextColor="#6b8693"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+            </View>
+            <View style={styles.modalFieldWrap}>
               <Text style={styles.label}>About you</Text>
               <TextInput
                 style={[styles.input, styles.modalInput, styles.modalInputMultiline]}
@@ -761,6 +726,47 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <Modal visible={showResetConfirmModal} animationType="fade" transparent onRequestClose={() => !resettingProgress && setShowResetConfirmModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reset all progress</Text>
+            <Text style={styles.resetConfirmMessage}>
+              This will clear all completed modules and weekly goal data. This cannot be undone.
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, resettingProgress && styles.buttonDisabled]}
+                onPress={() => !resettingProgress && setShowResetConfirmModal(false)}
+                disabled={resettingProgress}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalDangerBtn, resettingProgress && styles.buttonDisabled]}
+                onPress={() => void performResetProgress()}
+                disabled={resettingProgress}
+              >
+                <Text style={styles.modalDangerText}>{resettingProgress ? 'Resetting…' : 'Reset'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showResetResultModal} animationType="fade" transparent onRequestClose={() => setShowResetResultModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={[styles.modalTitle, resetResultIsError && styles.modalTitleError]}>
+              {resetResultIsError ? 'Error' : 'Done'}
+            </Text>
+            <Text style={styles.resetConfirmMessage}>{resetResultMessage}</Text>
+            <TouchableOpacity style={[styles.modalSaveBtn, styles.resetResultOkBtn]} onPress={() => setShowResetResultModal(false)}>
+              <Text style={styles.modalSaveText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={purchasedModulesModalVisible} animationType="slide" transparent onRequestClose={() => setPurchasedModulesModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, styles.purchasedModalContent]}>
@@ -889,8 +895,6 @@ const styles = StyleSheet.create({
   row: { marginBottom: 12 },
   label: { fontSize: 14, color: '#6b8693', marginBottom: 4 },
   input: { backgroundColor: '#062731', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: '#FFF', borderWidth: 1, borderColor: '#0a3645' },
-  saveStatsBtn: { backgroundColor: '#07bbc0', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-  saveStatsBtnText: { color: '#041527', fontSize: 16, fontWeight: '600' },
   buttonDisabled: { opacity: 0.6 },
   editButtonRow: { flexDirection: 'row', gap: 10, marginBottom: 6, flexWrap: 'wrap' },
   editButtonHalf: { borderWidth: 1.5, borderColor: '#07bbc0', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, flex: 1, minWidth: 100, alignItems: 'center' },
@@ -898,11 +902,6 @@ const styles = StyleSheet.create({
   editButton: { borderWidth: 2, borderColor: '#07bbc0', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, marginBottom: 6 },
   editButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   editHint: { color: '#6b8693', fontSize: 12, marginBottom: 28 },
-  linksSection: { width: '100%', backgroundColor: '#011f36', borderRadius: 16, padding: 4, borderWidth: 1, borderColor: '#062731', marginBottom: 20 },
-  linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#062731' },
-  linkRowLast: { borderBottomWidth: 0 },
-  linkText: { color: '#FFF', fontSize: 16 },
-  linkChevron: { color: '#6b8693', fontSize: 20 },
   resetButton: { paddingVertical: 14, paddingHorizontal: 20 },
   resetButtonText: { color: '#e57373', fontSize: 15, fontWeight: '600' },
   purchasedLoadingWrap: { paddingVertical: 12, alignItems: 'center' },
@@ -992,6 +991,13 @@ const styles = StyleSheet.create({
   pickerItemText: { color: '#FFF', fontSize: 15 },
   check: { color: '#07bbc0', fontSize: 16, fontWeight: '700' },
   labelSecondary: { fontSize: 13, color: '#6b8693', marginTop: 12, marginBottom: 8 },
+  trainerSocialRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  trainerSocialCol: { flex: 1, minWidth: 0 },
+  trainerSocialColSecond: { marginLeft: 12 },
+  trainerSocialColInput: { fontSize: 13 },
+  trainerSocialLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  trainerSocialFieldSpacer: { marginTop: 12 },
+  trainerSocialLabelIcon: { width: 22, height: 22 },
   attachmentRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, padding: 12, backgroundColor: '#062731', borderRadius: 10, gap: 10 },
   aboutMeThumb: { width: 40, height: 40, borderRadius: 6 },
   attachmentName: { flex: 1, color: '#FFF', fontSize: 14 },
@@ -1007,4 +1013,23 @@ const styles = StyleSheet.create({
   modalCancelText: { color: '#6b8693', fontSize: 16 },
   modalSaveBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 10, backgroundColor: '#07bbc0' },
   modalSaveText: { color: '#041527', fontSize: 16, fontWeight: '600' },
+  resetConfirmMessage: {
+    fontSize: 14,
+    color: '#6b8693',
+    lineHeight: 22,
+    marginBottom: 8,
+    fontWeight: '400',
+  },
+  modalTitleError: { color: '#e57373' },
+  modalDangerBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e57373',
+    backgroundColor: 'rgba(229, 115, 115, 0.12)',
+  },
+  modalDangerText: { color: '#e57373', fontSize: 16, fontWeight: '600' },
+  resetResultOkBtn: { flex: 0, width: '100%', marginTop: 20, minHeight: 48, justifyContent: 'center' },
 });

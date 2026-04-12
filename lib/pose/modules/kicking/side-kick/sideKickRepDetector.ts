@@ -1,25 +1,30 @@
 /**
- * Side kick — require charge (chamber) then lateral extension for a rep.
+ * Side kick — cooldown after each counted rep, and both feet must be **planted** (neutral stance)
+ * for several consecutive frames before another rep can start, so the counter cannot spam.
  */
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { getIdx, leadLowKickResetPose } from '../lead-low-kick/leadLowKickGeometry';
-import { inSideKickChargePose, inSideKickStrikePose } from './sideKickGeometry';
+import { inSideKickStrikePose } from './sideKickGeometry';
 
-const COOLDOWN_MS = 750;
+/** Minimum time after a finished rep before strike logic can count again. */
+const COOLDOWN_MS = 1000;
+
 const MIN_REP_FRAMES = 3;
-const MIN_CHARGE_FRAMES = 2;
-const ARMED_TIMEOUT_MS = 2800;
 
-type Phase = 'idle' | 'armed' | 'striking' | 'cooldown';
+/** Consecutive “feet down / neutral” frames required after a rep before the next kick can register. */
+const MIN_PLANTED_STREAK = 5;
 
 export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
-  let phase: Phase = 'idle';
+  let phase: 'idle' | 'striking' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
-  let chargeStreak = 0;
-  let armedUntil = 0;
+  let prevStrike = false;
+  let prevReset = false;
+  /** After a completed rep: true until we see a solid planted streak in idle. */
+  let needsReplantAfterRep = false;
+  let plantedStreak = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const idx = getIdx(frame);
@@ -29,59 +34,42 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       if (now < cooldownUntil) return { done: false };
       phase = 'idle';
       segment = [];
-      chargeStreak = 0;
-      armedUntil = 0;
+      prevStrike = inSideKickStrikePose(frame, idx);
+      prevReset = leadLowKickResetPose(frame, idx);
+      plantedStreak = 0;
       return { done: false };
     }
 
     const strike = inSideKickStrikePose(frame, idx);
-    const charge = inSideKickChargePose(frame, idx);
     const reset = leadLowKickResetPose(frame, idx);
 
     if (phase === 'idle') {
-      if (charge) {
-        chargeStreak += 1;
-        if (chargeStreak >= MIN_CHARGE_FRAMES) {
-          phase = 'armed';
-          armedUntil = now + ARMED_TIMEOUT_MS;
-          chargeStreak = 0;
+      if (needsReplantAfterRep) {
+        if (reset) plantedStreak += 1;
+        else plantedStreak = 0;
+        if (plantedStreak >= MIN_PLANTED_STREAK) {
+          needsReplantAfterRep = false;
+          plantedStreak = 0;
         }
       } else {
-        chargeStreak = 0;
-      }
-      return { done: false };
-    }
-
-    if (phase === 'armed') {
-      if (now > armedUntil) {
-        phase = 'idle';
-        chargeStreak = 0;
-        armedUntil = 0;
-        return { done: false };
+        plantedStreak = 0;
       }
 
-      if (reset && !charge && !strike) {
-        phase = 'idle';
-        chargeStreak = 0;
-        armedUntil = 0;
-        return { done: false };
-      }
-
-      if (strike) {
+      const replantOk = !needsReplantAfterRep;
+      if (replantOk && strike && (!prevStrike || prevReset)) {
         phase = 'striking';
         segment = [frame];
-        return { done: false };
       }
-
+      prevStrike = strike;
+      prevReset = reset;
       return { done: false };
     }
 
-    // striking
     if (!strike) {
       phase = 'idle';
       segment = [];
-      chargeStreak = 0;
-      armedUntil = 0;
+      prevStrike = false;
+      prevReset = reset;
       return { done: false };
     }
 
@@ -91,8 +79,8 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       segment = [];
       phase = 'cooldown';
       cooldownUntil = now + COOLDOWN_MS;
-      chargeStreak = 0;
-      armedUntil = 0;
+      needsReplantAfterRep = true;
+      plantedStreak = 0;
       return { done: true, segment: out };
     }
 

@@ -1,5 +1,15 @@
-import React, { useEffect, useMemo } from 'react';
-import { Image, StyleSheet, View, type ImageStyle, type ViewStyle } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Image,
+  StyleSheet,
+  View,
+  Text,
+  Pressable,
+  Modal,
+  Dimensions,
+  type ImageStyle,
+  type ViewStyle,
+} from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { getPunchingGuideSource } from './punchingGuideAssets';
 
@@ -7,6 +17,8 @@ export type TrainingGuideModuleFields = {
   moduleId: string;
   moduleTitle?: string | null;
   category?: string | null;
+  /** basic | intermediate | advanced — shown above the module title */
+  difficultyLevel?: 'basic' | 'intermediate' | 'advanced' | null;
   /** Pose reference guide media from Firebase only. */
   referenceGuideUrl?: string | null;
 };
@@ -40,6 +52,13 @@ export function getTrainingGuideRemoteDesc(module: TrainingGuideModuleFields): R
   if (!uri) return { mode: 'none' };
   if (isProbablyStreamableVideoUri(uri)) return { mode: 'video', uri };
   return { mode: 'image', uri };
+}
+
+function difficultyLabel(level: TrainingGuideModuleFields['difficultyLevel']): string | null {
+  if (level === 'basic') return 'Basic';
+  if (level === 'intermediate') return 'Intermediate';
+  if (level === 'advanced') return 'Advanced';
+  return null;
 }
 
 /**
@@ -96,50 +115,140 @@ const preloadStyles = StyleSheet.create({
   },
 });
 
+function getGuideLayout() {
+  const { width: winW, height: winH } = Dimensions.get('window');
+  const baseW = Math.min(winW * 0.84, 380);
+  const baseH = Math.min(Math.round(baseW * 0.56), 240);
+  const expandedW = winW * 0.92;
+  const expandedH = Math.min(winH * 0.68, Math.round(expandedW * 0.62));
+  return { baseW, baseH, expandedW, expandedH };
+}
+
 /**
- * Top-center reference guide during pose training: bundled punching GIFs first, then Firebase
- * reference guide URL only (`referenceGuideUrl`). GIF/PNG/JPG use Image; obvious video URLs use expo-av.
+ * Top-center reference guide during pose training: difficulty + module title,
+ * tappable GIF/video (tap for full-screen preview; tap anywhere to dismiss).
  */
 export function TrainingPoseGuideOverlay({
   module,
   wrapStyle,
-  mediaStyle,
+  mediaStyle: _legacyMediaStyle,
 }: {
   module: TrainingGuideModuleFields;
   wrapStyle: ViewStyle;
-  mediaStyle: ImageStyle;
+  /** @deprecated sizes are computed from screen; kept for call-site compatibility */
+  mediaStyle?: ImageStyle;
 }) {
+  void _legacyMediaStyle;
+  const [expanded, setExpanded] = useState(false);
+  const { baseW, baseH, expandedW, expandedH } = getGuideLayout();
+
   const bundled = getPunchingGuideSource(module.moduleId, module.moduleTitle ?? undefined, module.category ?? undefined);
-  if (bundled) {
-    return (
-      <View style={wrapStyle} pointerEvents="none">
-        <Image source={bundled} style={mediaStyle} resizeMode="contain" />
-      </View>
-    );
-  }
-
   const uri = pickRemoteGuideUri(module);
-  if (!uri) return null;
+  const tier = difficultyLabel(module.difficultyLevel ?? undefined);
+  const title = typeof module.moduleTitle === 'string' ? module.moduleTitle.trim() : '';
 
-  if (isProbablyStreamableVideoUri(uri)) {
-    return (
-      <View style={wrapStyle} pointerEvents="none">
+  const renderMedia = (w: number, h: number) => {
+    if (bundled) {
+      return <Image source={bundled} style={{ width: w, height: h }} resizeMode="contain" />;
+    }
+    if (!uri) return null;
+    if (isProbablyStreamableVideoUri(uri)) {
+      return (
         <Video
           source={{ uri }}
-          style={mediaStyle}
+          style={{ width: w, height: h }}
           resizeMode={ResizeMode.CONTAIN}
           shouldPlay
           isLooping
           isMuted
         />
-      </View>
-    );
-  }
+      );
+    }
+    return <Image source={{ uri }} style={{ width: w, height: h }} resizeMode="contain" />;
+  };
+
+  const hasMedia = bundled != null || (uri != null && uri.length > 0);
 
   return (
-    <View style={wrapStyle} pointerEvents="none">
-      <Image source={{ uri }} style={mediaStyle} resizeMode="contain" />
-    </View>
+    <>
+      <View style={[wrapStyle, guideStyles.wrap, { pointerEvents: 'box-none' }]}>
+        {tier ? <Text style={guideStyles.tier}>{tier}</Text> : null}
+        {title ? (
+          <Text style={guideStyles.moduleTitle} numberOfLines={2}>
+            {title}
+          </Text>
+        ) : null}
+        {hasMedia ? (
+          <Pressable
+            onPress={() => setExpanded(true)}
+            style={({ pressed }) => [guideStyles.mediaTap, pressed && guideStyles.mediaTapPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Enlarge technique guide"
+          >
+            {renderMedia(baseW, baseH)}
+          </Pressable>
+        ) : null}
+      </View>
+
+      <Modal
+        visible={expanded}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExpanded(false)}
+        statusBarTranslucent
+      >
+        <Pressable style={guideStyles.modalBackdrop} onPress={() => setExpanded(false)} accessibilityLabel="Close guide">
+          {hasMedia ? renderMedia(expandedW, expandedH) : null}
+          <Text style={guideStyles.modalHint}>Tap anywhere to close</Text>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
+const guideStyles = StyleSheet.create({
+  wrap: {
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  tier: {
+    color: '#07bbc0',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  moduleTitle: {
+    color: '#FFF',
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 8,
+    lineHeight: 22,
+  },
+  /** Plain hit target around the guide — no border or caption. */
+  mediaTap: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+  },
+  mediaTapPressed: {
+    opacity: 0.88,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  modalHint: {
+    marginTop: 16,
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});

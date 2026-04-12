@@ -18,6 +18,7 @@ import type { PoseFocus, PoseFrame, PoseSequence } from '../lib/pose/types';
 import { DEFAULT_MATCH_THRESHOLD, PUNCHING_MATCH_THRESHOLD } from '../lib/pose/comparator';
 import { DEFAULT_POSE_FOCUS } from '../lib/pose/types';
 import PoseCameraView from '../components/PoseCameraView';
+import SessionNavMenu from '../components/SessionNavMenu';
 import { getRequiredReps } from '../utils/repRange';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
 import { TrainingGuidePreloader, TrainingPoseGuideOverlay, type TrainingGuideModuleFields } from '../lib/trainingGuideMedia';
@@ -202,6 +203,8 @@ export default function CategoryPracticeSessionScreen({
 
   const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(30);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** When true, warmup/cooldown 30s interval does not decrement (pause). */
+  const segmentTimerPauseRef = useRef(false);
   const hasInitializedSessionRef = useRef(false);
 
   const hasRecordedCompletionRef = useRef(false);
@@ -210,6 +213,10 @@ export default function CategoryPracticeSessionScreen({
   // Prevent restarting the timer interval on re-renders while still on `training_pose`.
   const trainingTimerEpochRef = useRef<number>(-1);
   const [trainingTimerEndTimeMs, setTrainingTimerEndTimeMs] = useState<number | null>(null);
+  const [trainingPaused, setTrainingPaused] = useState(false);
+  const [frozenTrainingTimerText, setFrozenTrainingTimerText] = useState<string | null>(null);
+  const pauseRemainingMsRef = useRef(0);
+  const [segmentTimerPaused, setSegmentTimerPaused] = useState(false);
 
   const currentTrainingItem = trainingModules[trainingIndex] ?? null;
   const [module, setModule] = useState<Module | null>(null);
@@ -236,6 +243,16 @@ export default function CategoryPracticeSessionScreen({
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [hasShownTrainingSafety, setHasShownTrainingSafety] = useState(false);
   const [showTrainingFailed, setShowTrainingFailed] = useState(false);
+  /** True after timer failure until Retry / Skip / Quit / leave training — keeps pose + reps frozen even if the fail modal is dismissed. */
+  const [trainingDefeatLocked, setTrainingDefeatLocked] = useState(false);
+  const showTrainingFailedRef = useRef(false);
+  const trainingDefeatLockedRef = useRef(false);
+  useEffect(() => {
+    showTrainingFailedRef.current = showTrainingFailed;
+  }, [showTrainingFailed]);
+  useEffect(() => {
+    trainingDefeatLockedRef.current = trainingDefeatLocked;
+  }, [trainingDefeatLocked]);
   const [purchasedModuleIds, setPurchasedModuleIds] = useState<string[]>([]);
   const [userCredits, setUserCredits] = useState(0);
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
@@ -315,8 +332,11 @@ export default function CategoryPracticeSessionScreen({
 
   const startTimer = (seconds: number, onDone: () => void) => {
     clearTimer();
+    segmentTimerPauseRef.current = false;
+    setSegmentTimerPaused(false);
     setTimerRemainingSeconds(seconds);
     timerIntervalRef.current = setInterval(() => {
+      if (segmentTimerPauseRef.current) return;
       setTimerRemainingSeconds((prev) => {
         if (prev <= 1) {
           clearTimer();
@@ -467,6 +487,7 @@ export default function CategoryPracticeSessionScreen({
     trainingSuccessLatchRef.current = false;
     setHasRecordedCompletion(false);
     setShowTrainingFailed(false);
+    setTrainingDefeatLocked(false);
     clearSuccessTimeout();
     clearTimer();
     // Reset the pose timer so returning to this module starts fresh.
@@ -498,10 +519,14 @@ export default function CategoryPracticeSessionScreen({
 
   const handleTrainingTimerExpired = useCallback(() => {
     if (trainingSuccessLatchRef.current) return;
+    if (showTrainingFailedRef.current || trainingDefeatLockedRef.current) return;
     const required = requiredRepsRef.current;
     const achieved = poseCorrectRepsRef.current;
     if (required > 0 && achieved < required) {
       logTrainingFailureOnce();
+      setTrainingTimerEndTimeMs(null);
+      trainingDefeatLockedRef.current = true;
+      setTrainingDefeatLocked(true);
       setShowTrainingFailed(true);
       return;
     }
@@ -513,6 +538,7 @@ export default function CategoryPracticeSessionScreen({
     clearTimer();
     clearSuccessTimeout();
     setShowTrainingFailed(false);
+    setTrainingDefeatLocked(false);
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
 
@@ -604,7 +630,9 @@ export default function CategoryPracticeSessionScreen({
 
   const handleRetryTraining = useCallback(() => {
     // Retry the same module: reset pose evaluation counters + timer, then restart pose loading.
+    trainingDefeatLockedRef.current = false;
     setShowTrainingFailed(false);
+    setTrainingDefeatLocked(false);
     trainingSuccessLatchRef.current = false;
     setHasRecordedCompletion(false);
     clearSuccessTimeout();
@@ -612,11 +640,51 @@ export default function CategoryPracticeSessionScreen({
     setPoseCurrentRepCorrect(null);
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
+    setTrainingPaused(false);
+    setFrozenTrainingTimerText(null);
     // Force PoseCameraView remount to reset its internal state.
     setPoseSessionKey((k) => k + 1);
     // Go back to module's pose phase without changing trainingIndex.
     setStep('training_pose_loading');
   }, []);
+
+  const toggleTrainingPosePause = useCallback(() => {
+    if (!trainingPaused) {
+      if (trainingTimerEndTimeMs == null) return;
+      const rem = Math.max(0, trainingTimerEndTimeMs - Date.now());
+      pauseRemainingMsRef.current = rem;
+      setFrozenTrainingTimerText(formatTime(Math.ceil(rem / 1000)));
+      setTrainingTimerEndTimeMs(null);
+      setTrainingPaused(true);
+    } else {
+      setTrainingTimerEndTimeMs(Date.now() + pauseRemainingMsRef.current);
+      setFrozenTrainingTimerText(null);
+      setTrainingPaused(false);
+    }
+  }, [trainingPaused, trainingTimerEndTimeMs]);
+
+  const toggleSegmentTimerPause = useCallback(() => {
+    segmentTimerPauseRef.current = !segmentTimerPauseRef.current;
+    setSegmentTimerPaused((p) => !p);
+  }, []);
+
+  const handleSessionMenuTogglePause = useCallback(() => {
+    if (step === 'training_pose') {
+      toggleTrainingPosePause();
+    } else if (step === 'warmup_timer' || step === 'cooldown_timer') {
+      toggleSegmentTimerPause();
+    }
+  }, [step, toggleTrainingPosePause, toggleSegmentTimerPause]);
+
+  useEffect(() => {
+    if (step !== 'training_pose') {
+      setTrainingPaused(false);
+      setFrozenTrainingTimerText(null);
+      setTrainingDefeatLocked(false);
+    }
+    segmentTimerPauseRef.current = false;
+    setSegmentTimerPaused(false);
+  }, [step]);
 
   useEffect(() => {
     return () => {
@@ -635,6 +703,7 @@ export default function CategoryPracticeSessionScreen({
     clearTimer();
     clearSuccessTimeout();
     setShowTrainingFailed(false);
+    setTrainingDefeatLocked(false);
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
     trainingPrepRequestRef.current += 1;
@@ -749,6 +818,7 @@ export default function CategoryPracticeSessionScreen({
   const handleQuitNo = useCallback(() => setShowQuitConfirm(false), []);
   const handleQuitYes = useCallback(() => {
     setShowQuitConfirm(false);
+    setTrainingDefeatLocked(false);
     void exitSession();
   }, [exitSession]);
 
@@ -913,17 +983,19 @@ export default function CategoryPracticeSessionScreen({
   useEffect(() => {
     if (step !== 'training_pose') return;
     if (!module) return;
-    if (showTrainingFailed) return;
+    if (showTrainingFailed || trainingDefeatLocked) return;
     if (poseCorrectReps >= requiredReps && requiredReps > 0) {
       commitTrainingSuccess();
     }
-  }, [commitTrainingSuccess, module, poseCorrectReps, requiredReps, showTrainingFailed, step]);
+  }, [commitTrainingSuccess, module, poseCorrectReps, requiredReps, showTrainingFailed, trainingDefeatLocked, step]);
 
   // Training timer: provide an end timestamp to PoseCameraView.
   // PoseCameraView updates the displayed time during its pose frame loop.
   useEffect(() => {
     if (step !== 'training_pose') return;
     if (!module) return;
+    if (trainingPaused) return;
+    if (showTrainingFailed || trainingDefeatLocked) return;
 
     // Only start once per module.
     if (trainingTimerEpochRef.current === trainingIndex && trainingTimerEndTimeMs != null) return;
@@ -935,7 +1007,7 @@ export default function CategoryPracticeSessionScreen({
       typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0 ? Math.floor(rawDuration) : 30;
 
     setTrainingTimerEndTimeMs(Date.now() + durationSeconds * 1000);
-  }, [module, step, trainingIndex, trainingTimerEndTimeMs]);
+  }, [module, step, trainingIndex, trainingTimerEndTimeMs, trainingPaused, showTrainingFailed, trainingDefeatLocked]);
 
   const guideFieldsForPreload = useMemo((): TrainingGuideModuleFields | null => {
     if (!currentTrainingItem) return null;
@@ -944,9 +1016,10 @@ export default function CategoryPracticeSessionScreen({
       moduleId: currentTrainingItem.moduleId,
       moduleTitle: currentTrainingItem.moduleTitle ?? null,
       category: cat,
+      difficultyLevel: module?.difficultyLevel ?? currentTrainingItem.difficultyLevel ?? null,
       referenceGuideUrl: module?.referenceGuideUrl ?? currentTrainingItem.referenceGuideUrl ?? null,
     };
-  }, [currentTrainingItem, category, module?.referenceGuideUrl, module?.moduleId]);
+  }, [currentTrainingItem, category, module?.referenceGuideUrl, module?.moduleId, module?.difficultyLevel]);
 
   const trainGuidePreloadActive =
     guideFieldsForPreload != null &&
@@ -962,15 +1035,35 @@ export default function CategoryPracticeSessionScreen({
       <TrainingGuidePreloader module={guideFieldsForPreload} active={trainGuidePreloadActive} />
     ) : null;
 
-  const quitButton = (
-    <TouchableOpacity
-      style={styles.topLeftQuitButton}
-      onPress={confirmQuit}
-      activeOpacity={0.85}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-    >
-      <Image source={require('../assets/images/logouticon.png')} style={styles.iconButtonImage} />
-    </TouchableOpacity>
+  const sessionNav = useMemo(
+    () => (
+      <SessionNavMenu
+        containerStyle={styles.sessionNavPosition}
+        onQuit={confirmQuit}
+        restartVisible={step === 'training_pose' && !!module && !trainingDefeatLocked}
+        onRestart={step === 'training_pose' && module ? handleRetryTraining : undefined}
+        pauseVisible={
+          (((step === 'training_pose' && !!module) || step === 'warmup_timer' || step === 'cooldown_timer') &&
+            !trainingDefeatLocked)
+        }
+        paused={step === 'training_pose' ? trainingPaused : segmentTimerPaused}
+        onTogglePause={
+          (step === 'training_pose' && module) || step === 'warmup_timer' || step === 'cooldown_timer'
+            ? handleSessionMenuTogglePause
+            : undefined
+        }
+      />
+    ),
+    [
+      step,
+      module,
+      trainingPaused,
+      segmentTimerPaused,
+      trainingDefeatLocked,
+      confirmQuit,
+      handleRetryTraining,
+      handleSessionMenuTogglePause,
+    ]
   );
 
   const previousButton = (
@@ -1072,6 +1165,7 @@ export default function CategoryPracticeSessionScreen({
               style={styles.modalOutlineButton}
               onPress={() => {
                 setShowTrainingFailed(false);
+                setTrainingDefeatLocked(false);
                 confirmQuit();
               }}
             >
@@ -1081,6 +1175,7 @@ export default function CategoryPracticeSessionScreen({
               style={styles.modalOutlineButton}
               onPress={() => {
                 setShowTrainingFailed(false);
+                setTrainingDefeatLocked(false);
                 skipCurrentWorkout();
               }}
             >
@@ -1195,7 +1290,7 @@ export default function CategoryPracticeSessionScreen({
   if (step === 'session_done') {
     return (
       <SafeAreaView style={styles.safeArea}>
-        {quitButton}
+        {sessionNav}
         <View style={styles.center}>
           <Text style={styles.sessionTitle}>Session Complete</Text>
           <Text style={styles.sessionSubtitle}>Nice work. You finished Warmup → Training → Cooldown.</Text>
@@ -1211,7 +1306,7 @@ export default function CategoryPracticeSessionScreen({
     return (
       <SafeAreaView style={styles.safeArea}>
         {trainingGuidePreloadLayer}
-        {quitButton}
+        {sessionNav}
         <View style={styles.center}>
           <View style={styles.safetyCard}>
             <Text style={styles.safetyTitle}>Safety Protocol</Text>
@@ -1256,10 +1351,18 @@ export default function CategoryPracticeSessionScreen({
             onBack={hideSessionNav ? () => {} : confirmQuit}
             backLabel="Quit"
             showBackButton={false}
-            trainingTimerText={formatTime(durationSeconds)}
-            trainingTimerEndTimeMs={trainingTimerEndTimeMs}
+            trainingTimerText={
+              trainingDefeatLocked
+                ? '0:00'
+                : trainingPaused && frozenTrainingTimerText != null
+                  ? frozenTrainingTimerText
+                  : formatTime(durationSeconds)
+            }
+            trainingTimerEndTimeMs={trainingPaused || trainingDefeatLocked ? null : trainingTimerEndTimeMs}
             onTrainingTimerExpired={handleTrainingTimerExpired}
+            paused={trainingPaused || trainingDefeatLocked}
             onCorrectRepsUpdate={(count, lastCorrect) => {
+              if (trainingDefeatLocked) return;
               setPoseCorrectReps(count);
               setPoseCurrentRepCorrect(lastCorrect);
             }}
@@ -1270,7 +1373,8 @@ export default function CategoryPracticeSessionScreen({
             moduleId={module.moduleId}
             category={module.category && module.category.trim() ? module.category : category}
             showStartCountdown={false}
-            showArmState={true}
+            showArmState={false}
+            suppressBottomPoseHint
             showOverlayHint={false}
           />
           <TrainingPoseGuideOverlay
@@ -1278,10 +1382,10 @@ export default function CategoryPracticeSessionScreen({
               moduleId: module.moduleId,
               moduleTitle: module.moduleTitle,
               category: module.category && module.category.trim() ? module.category : category,
+              difficultyLevel: module.difficultyLevel ?? null,
               referenceGuideUrl: module.referenceGuideUrl,
             }}
             wrapStyle={styles.trainingPoseGuideWrap}
-            mediaStyle={styles.trainingPoseGuideImage}
           />
           {!hideSessionNav ? (
             <View style={styles.bottomControlsRow}>
@@ -1290,7 +1394,7 @@ export default function CategoryPracticeSessionScreen({
             </View>
           ) : null}
         </View>
-        {quitButton}
+        {sessionNav}
         {skipConfirmModal}
         {previousConfirmModal}
         {quitConfirmModal}
@@ -1331,7 +1435,7 @@ export default function CategoryPracticeSessionScreen({
             {skipButton}
           </View>
         )}
-        {!hideQuitButton ? <View style={styles.topLeftOverlay}>{quitButton}</View> : null}
+        {!hideQuitButton ? <View style={styles.topLeftOverlay}>{sessionNav}</View> : null}
         <View style={styles.fullCountdownBody}>
           {isSuccessStep ? (
             <Text style={[styles.fullCountdownText, styles.fullCountdownTextNumeric]} adjustsFontSizeToFit numberOfLines={1}>
@@ -1383,7 +1487,7 @@ export default function CategoryPracticeSessionScreen({
           {skipButton}
         </View>
       ) : null}
-      {quitButton}
+      {sessionNav}
 
       {step === 'training_pose_loading' && (
         <View style={styles.activeBody}>
@@ -1426,22 +1530,21 @@ export default function CategoryPracticeSessionScreen({
   );
 }
 
+const IS_ANDROID_CAT = Platform.OS === 'android';
+const CAT_TOP_LEFT_OFFSET = IS_ANDROID_CAT ? 10 : 4;
+const CAT_TRAINING_GUIDE_ELEVATION = IS_ANDROID_CAT ? { elevation: 50 as const } : {};
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   // Top-center pose guide for known punching modules.
   trainingPoseGuideWrap: {
     position: 'absolute',
-    top: 16,
+    top: 8,
     left: 0,
     right: 0,
     zIndex: 50,
-    ...(Platform.OS === 'android' ? { elevation: 50 } : {}),
+    ...CAT_TRAINING_GUIDE_ELEVATION,
     alignItems: 'center',
-    pointerEvents: 'none',
-  },
-  trainingPoseGuideImage: {
-    width: 240,
-    height: 120,
   },
   floatingControlsRow: {
     position: 'absolute',
@@ -1481,22 +1584,15 @@ const styles = StyleSheet.create({
   },
   topLeftOverlay: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? 10 : 4,
+    top: CAT_TOP_LEFT_OFFSET,
     left: 16,
     zIndex: 35,
   },
-  topLeftQuitButton: {
+  /** Top-left anchor for SessionNavMenu (hamburger + slide panel). */
+  sessionNavPosition: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? 10 : 4,
+    top: CAT_TOP_LEFT_OFFSET,
     left: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(1, 31, 54, 0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(7, 187, 192, 0.25)',
     zIndex: 35,
   },
   activeBody: { flex: 1, paddingHorizontal: 20, paddingTop: 26 },

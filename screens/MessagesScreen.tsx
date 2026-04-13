@@ -2,7 +2,7 @@
  * MessagesScreen
  * Conversations list and chat with trainers; optional open with user.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -46,7 +46,18 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
   const [showChatActionsModal, setShowChatActionsModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [conversationSearch, setConversationSearch] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+
+  const filteredConversations = useMemo(() => {
+    const q = conversationSearch.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(
+      (c) =>
+        c.otherUserDisplayName.toLowerCase().includes(q) ||
+        (c.lastMessage?.text || '').toLowerCase().includes(q)
+    );
+  }, [conversations, conversationSearch]);
 
   useEffect(() => {
     clearUnread();
@@ -170,13 +181,27 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
   if (!selectedChat) {
     return (
       <View style={styles.safeArea}>
+        <View style={styles.searchWrap}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search conversations..."
+            placeholderTextColor="#6b8693"
+            value={conversationSearch}
+            onChangeText={setConversationSearch}
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+        </View>
         <ScrollView style={styles.listScroll} contentContainerStyle={styles.listContent}>
           {initError ? (
             <Text style={styles.emptyText}>{initError}</Text>
           ) : conversations.length === 0 ? (
             <Text style={styles.emptyText}>No conversations yet.</Text>
+          ) : filteredConversations.length === 0 ? (
+            <Text style={styles.emptyText}>No matches for &quot;{conversationSearch.trim()}&quot;.</Text>
           ) : (
-            conversations.map((c) => (
+            filteredConversations.map((c) => (
               <TouchableOpacity
                 key={c.chatId}
                 style={styles.convItemFull}
@@ -341,6 +366,24 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },
+  searchWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 10,
+    backgroundColor: '#041527',
+    borderBottomWidth: 1,
+    borderBottomColor: '#062731',
+  },
+  searchInput: {
+    backgroundColor: '#011f36',
+    borderWidth: 1,
+    borderColor: '#062731',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    fontSize: 15,
+    color: '#FFF',
+  },
   listScroll: { flex: 1 },
   listContent: { paddingVertical: 8, paddingBottom: 24 },
   emptyText: { color: '#6b8693', fontSize: 14, padding: 16 },

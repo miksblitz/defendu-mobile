@@ -58,6 +58,18 @@ export async function updateProfilePicture(imageUri: string): Promise<string> {
   return downloadURL;
 }
 
+/** Upload a cover photo to Cloudinary and save URL on the user. */
+export async function updateCoverPhoto(imageUri: string): Promise<string> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  const fileName = `cover_${currentUser.uid}_${Date.now()}.jpg`;
+  const downloadURL = await uploadFileToCloudinary(imageUri, 'image', fileName);
+  await update(ref(db, `users/${currentUser.uid}`), { coverPhoto: downloadURL });
+  const updatedUser = { ...currentUser, coverPhoto: downloadURL };
+  await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+  return downloadURL;
+}
+
 /** Change password (requires current password). */
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const currentUser = await getCurrentUser();

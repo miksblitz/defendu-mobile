@@ -1,4 +1,4 @@
-import { ref, get, query, orderByChild, equalTo, limitToFirst } from 'firebase/database';
+import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../config/firebaseConfig';
 import { getCurrentUser } from './authSession';
 import { normalizeWarmupExercises } from './normalize';
@@ -31,13 +31,19 @@ export interface ModuleItem {
   introductionVideoUrl?: string;
   /** Pose training timer length (seconds). */
   trainingDurationSeconds?: number;
+  /** Optional segment library marker used by category program assignment. */
+  moduleSegment?: 'warmup' | 'cooldown' | string;
   createdAt?: Date;
   updatedAt?: Date;
   status?: string;
 }
 
-/** Max approved modules to fetch in one request. Lower = faster dashboard load (Firebase returns full docs). */
-const APPROVED_MODULES_LIMIT = 40;
+export type CategorySegmentProgramRow = {
+  warmupModuleIds?: string[];
+  cooldownModuleIds?: string[];
+};
+
+export type CategorySegmentProgramMap = Record<string, CategorySegmentProgramRow>;
 
 function processModulesList(data: Record<string, Record<string, unknown>>): ModuleItem[] {
   const modules: ModuleItem[] = [];
@@ -96,12 +102,7 @@ export async function getApprovedModules(): Promise<ModuleItem[]> {
     if (!currentUser) return [];
 
     const modulesRef = ref(db, 'modules');
-    const q = query(
-      modulesRef,
-      orderByChild('status'),
-      equalTo('approved'),
-      limitToFirst(APPROVED_MODULES_LIMIT)
-    );
+    const q = query(modulesRef, orderByChild('status'), equalTo('approved'));
     let snapshot;
     try {
       snapshot = await get(q);
@@ -115,18 +116,41 @@ export async function getApprovedModules(): Promise<ModuleItem[]> {
     let data = raw;
     if (Object.keys(raw).some((id) => raw[id]?.status !== 'approved')) {
       data = {};
-      let count = 0;
       for (const id in raw) {
-        if (raw[id]?.status === 'approved' && count < APPROVED_MODULES_LIMIT) {
-          data[id] = raw[id];
-          count++;
-        }
+        if (raw[id]?.status === 'approved') data[id] = raw[id];
       }
     }
     return processModulesList(data);
   } catch (e) {
     console.error('getApprovedModules:', e);
     return [];
+  }
+}
+
+export async function getCategorySegmentProgram(): Promise<CategorySegmentProgramMap> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return {};
+    const snapshot = await get(ref(db, 'categorySegmentProgram'));
+    if (!snapshot.exists()) return {};
+    const raw = snapshot.val() as Record<string, unknown>;
+    const out: CategorySegmentProgramMap = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!value || typeof value !== 'object') continue;
+      const row = value as Record<string, unknown>;
+      out[key] = {
+        warmupModuleIds: Array.isArray(row.warmupModuleIds)
+          ? row.warmupModuleIds.map((id) => String(id).trim()).filter(Boolean)
+          : [],
+        cooldownModuleIds: Array.isArray(row.cooldownModuleIds)
+          ? row.cooldownModuleIds.map((id) => String(id).trim()).filter(Boolean)
+          : [],
+      };
+    }
+    return out;
+  } catch (e) {
+    console.error('getCategorySegmentProgram:', e);
+    return {};
   }
 }
 

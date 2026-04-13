@@ -19,6 +19,7 @@ import {
   Modal,
   Pressable,
   AppState,
+  type ImageSourcePropType,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
@@ -160,6 +161,173 @@ const MODULE_CATEGORIES = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes
 function normalizeCategory(cat: string | undefined): string {
   const s = (cat ?? '').trim().toLowerCase();
   return s === 'jab' ? 'punching' : s;
+}
+
+function toCategoryProgramKey(category: string | undefined): string {
+  return String(category ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[#$.[\]\/]/g, '_');
+}
+
+/** Dynamic module fields from Firestore (not all declared on {@link ModuleItem}). */
+function moduleDyn(mod: ModuleItem): Record<string, unknown> {
+  return mod as unknown as Record<string, unknown>;
+}
+
+/** Bundled asset or remote URL string → valid {@link Image} source. */
+function toImageSource(source: ImageSourcePropType | string | null | undefined): ImageSourcePropType | undefined {
+  if (source == null) return undefined;
+  if (typeof source === 'string') return source.length ? { uri: source } : undefined;
+  return source;
+}
+
+function extractRemoteUrl(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+    return null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  const obj = value as Record<string, unknown>;
+  const keys = ['url', 'uri', 'secure_url', 'secureUrl', 'downloadURL', 'downloadUrl'];
+  for (const key of keys) {
+    const nested = obj[key];
+    if (typeof nested === 'string') {
+      const trimmed = nested.trim();
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+    }
+  }
+  return null;
+}
+
+function normalizeExerciseKey(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildExerciseKeyVariants(value: string): string[] {
+  const base = normalizeExerciseKey(value);
+  if (!base) return [];
+  const out = new Set<string>();
+  out.add(base);
+  out.add(base.replace(/\s+/g, ''));
+  const words = base.split(' ').filter(Boolean);
+  if (words.length > 0) {
+    const singularWords = words.map((w) => (w.endsWith('s') && w.length > 3 ? w.slice(0, -1) : w));
+    const singular = singularWords.join(' ');
+    out.add(singular);
+    out.add(singular.replace(/\s+/g, ''));
+  }
+  return Array.from(out);
+}
+
+function setThumbnailWithVariants(map: Map<string, string>, exerciseName: string, url: string): void {
+  for (const key of buildExerciseKeyVariants(exerciseName)) {
+    map.set(key, url);
+  }
+}
+
+function resolveThumbnailWithVariants(map: Map<string, string>, exerciseName: string): string | undefined {
+  const variants = buildExerciseKeyVariants(exerciseName);
+  for (const key of variants) {
+    const value = map.get(key);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function readExerciseThumbnailMap(
+  source: unknown,
+  fallbackExerciseNames: string[]
+): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!source) return out;
+
+  if (Array.isArray(source)) {
+    source.forEach((entry, idx) => {
+      if (entry == null) return;
+      if (typeof entry === 'string') {
+        const url = extractRemoteUrl(entry);
+        const name = fallbackExerciseNames[idx]?.trim().toLowerCase();
+        if (url && name) out.set(name, url);
+        return;
+      }
+      if (typeof entry === 'object') {
+        const item = entry as Record<string, unknown>;
+        const nameCandidate =
+          typeof item.exercise === 'string'
+            ? item.exercise
+            : typeof item.name === 'string'
+              ? item.name
+              : typeof item.title === 'string'
+                ? item.title
+                : fallbackExerciseNames[idx];
+        const urlCandidate =
+          extractRemoteUrl(item.thumbnailUrl) ||
+          extractRemoteUrl(item.thumbnailURL) ||
+          extractRemoteUrl(item.thumbnail) ||
+          extractRemoteUrl(item.thumb) ||
+          extractRemoteUrl(item.image) ||
+          extractRemoteUrl(item.imageUrl) ||
+          extractRemoteUrl(item.url) ||
+          extractRemoteUrl(item.media);
+        const name = String(nameCandidate ?? '').trim().toLowerCase();
+        if (name && urlCandidate) out.set(name, urlCandidate);
+      }
+    });
+    return out;
+  }
+
+  if (typeof source === 'object') {
+    const obj = source as Record<string, unknown>;
+    const entries = Object.entries(obj);
+    let numericEntryIndex = 0;
+    for (const [key, value] of entries) {
+      const isNumericKey = /^\d+$/.test(key.trim());
+      const direct = extractRemoteUrl(value);
+      if (direct) {
+        const fallbackName = fallbackExerciseNames[numericEntryIndex]?.trim().toLowerCase();
+        if (isNumericKey && fallbackName) setThumbnailWithVariants(out, fallbackName, direct);
+        else setThumbnailWithVariants(out, key.trim().toLowerCase(), direct);
+        if (isNumericKey) numericEntryIndex++;
+        continue;
+      }
+      if (!value || typeof value !== 'object') continue;
+      const nested = value as Record<string, unknown>;
+      const nestedName =
+        typeof nested.exercise === 'string'
+          ? nested.exercise
+          : typeof nested.exerciseName === 'string'
+            ? nested.exerciseName
+          : typeof nested.name === 'string'
+            ? nested.name
+            : typeof nested.label === 'string'
+              ? nested.label
+            : typeof nested.title === 'string'
+              ? nested.title
+                : isNumericKey
+                  ? fallbackExerciseNames[numericEntryIndex]
+                  : key;
+      const nestedUrl =
+        extractRemoteUrl(nested.thumbnailUrl) ||
+        extractRemoteUrl(nested.thumbnailURL) ||
+        extractRemoteUrl(nested.thumbnail) ||
+        extractRemoteUrl(nested.thumb) ||
+        extractRemoteUrl(nested.image) ||
+        extractRemoteUrl(nested.imageUrl) ||
+        extractRemoteUrl(nested.url) ||
+        extractRemoteUrl(nested.media);
+      const finalName = String(nestedName ?? '').trim().toLowerCase();
+      if (finalName && nestedUrl) setThumbnailWithVariants(out, finalName, nestedUrl);
+      if (isNumericKey) numericEntryIndex++;
+    }
+  }
+  return out;
 }
 
 /** Animated category card for horizontal strip: hero image, gradient, glow border, press scale, slide-in. */
@@ -311,12 +479,14 @@ export default function DashboardScreen({
 }: DashboardScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
+  const [categorySegmentProgram, setCategorySegmentProgram] = useState<Record<string, { warmupModuleIds?: string[]; cooldownModuleIds?: string[] }>>({});
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   // -1 means: nothing selected yet; session starts from index 0.
   const [warmupStartCardIndex, setWarmupStartCardIndex] = useState<number>(-1);
   const [cooldownStartCardIndex, setCooldownStartCardIndex] = useState<number>(-1);
+  const [trainingStartCardIndex, setTrainingStartCardIndex] = useState<number>(-1);
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [moduleTrainingStats, setModuleTrainingStats] = useState<Record<string, ModuleTrainingStat>>({});
@@ -338,12 +508,65 @@ export default function DashboardScreen({
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
   const [purchaseTargetModule, setPurchaseTargetModule] = useState<ModuleItem | null>(null);
   const [purchasing, setPurchasing] = useState(false);
+  const [categoryReviewPrompt, setCategoryReviewPrompt] = useState<{ category: string; trainers: Array<{ uid: string; name: string }> } | null>(null);
+  const [trainerRatings, setTrainerRatings] = useState<Record<string, number>>({});
+  const [trainerPhotoByUid, setTrainerPhotoByUid] = useState<Record<string, string>>({});
+  const [submittingCategoryReview, setSubmittingCategoryReview] = useState(false);
+
+  const canSubmitCategoryTrainerRatings = React.useMemo(() => {
+    const prompt = categoryReviewPrompt;
+    if (!prompt?.trainers?.length) return false;
+    return prompt.trainers.some((t) => {
+      const v = trainerRatings[t.uid] ?? 0;
+      return v >= 1 && v <= 5;
+    });
+  }, [categoryReviewPrompt, trainerRatings]);
+
+  const checkPendingCategoryReviewPrompt = React.useCallback(async () => {
+    const prompt = await AuthController.popCategoryReviewPrompt();
+    if (!prompt) return;
+    const existing = await AuthController.getMyCategoryReview(prompt.category);
+    if (existing) return;
+    const approvedTrainers = await AuthController.getApprovedTrainers().catch(() => []);
+    const photoMap: Record<string, string> = {};
+    for (const t of approvedTrainers) {
+      const url = String(t.profilePicture ?? '').trim();
+      if (url.startsWith('http://') || url.startsWith('https://')) photoMap[t.uid] = url;
+    }
+    setTrainerPhotoByUid(photoMap);
+    setCategoryReviewPrompt(prompt);
+    const initial: Record<string, number> = {};
+    for (const t of prompt.trainers) {
+      initial[t.uid] = 0;
+    }
+    setTrainerRatings(initial);
+  }, []);
 
   useEffect(() => {
     if (recommendationsReopenToken <= 0) return;
     setRecModalVisible(true);
     onConsumeRecommendationsReopen?.();
   }, [recommendationsReopenToken, onConsumeRecommendationsReopen]);
+
+  useEffect(() => {
+    checkPendingCategoryReviewPrompt().catch(() => {});
+  }, [refreshKey, checkPendingCategoryReviewPrompt]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        checkPendingCategoryReviewPrompt().catch(() => {});
+      }
+    });
+    const interval = setInterval(() => {
+      if (categoryReviewPrompt) return;
+      checkPendingCategoryReviewPrompt().catch(() => {});
+    }, 1800);
+    return () => {
+      sub.remove();
+      clearInterval(interval);
+    };
+  }, [categoryReviewPrompt, checkPendingCategoryReviewPrompt]);
 
   useEffect(() => {
     const syncWeekBoundary = () => {
@@ -392,13 +615,14 @@ export default function DashboardScreen({
       }
 
       // Load modules and progress (query only approved, so payload is smaller).
-      const [list, progress, currentUser, fullProfile, purchased, liveCredits] = await Promise.all([
+      const [list, progress, currentUser, fullProfile, purchased, liveCredits, segmentProgram] = await Promise.all([
         AuthController.getApprovedModules(),
         AuthController.getUserProgress(),
         AuthController.getCurrentUser(),
         AuthController.getFullSkillProfile(),
         getPurchasedModuleIds(),
         getUserCreditsBalance(),
+        AuthController.getCategorySegmentProgram(),
       ]);
       if (done) return;
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
@@ -409,6 +633,7 @@ export default function DashboardScreen({
       setSkillProfile(fullProfile);
       setPurchasedModuleIds(purchased);
       setUserCredits(liveCredits);
+      setCategorySegmentProgram(segmentProgram ?? {});
       const dailyTarget = currentUser?.targetModulesPerDay && currentUser.targetModulesPerDay > 0
         ? currentUser.targetModulesPerDay
         : DEFAULT_MODULES_PER_DAY_GOAL;
@@ -523,10 +748,47 @@ export default function DashboardScreen({
     [dayHistoryDayIndex, completionTimestamps, weekBoundaryTick]
   );
 
+  const approvedModuleById = React.useMemo(() => {
+    const map = new Map<string, ModuleItem>();
+    for (const m of modules) map.set(m.moduleId, m);
+    return map;
+  }, [modules]);
+
+  const selectedCategoryKey = selectedCategory ? toCategoryProgramKey(selectedCategory) : '';
+  const selectedCategoryProgramRow = selectedCategory ? categorySegmentProgram[selectedCategoryKey] : undefined;
+
+  const assignedWarmupModules = React.useMemo(() => {
+    if (!selectedCategoryProgramRow?.warmupModuleIds?.length) return [] as ModuleItem[];
+    const out: ModuleItem[] = [];
+    for (const id of selectedCategoryProgramRow.warmupModuleIds) {
+      const mod = approvedModuleById.get(String(id).trim());
+      if (!mod) continue;
+      if (String(moduleDyn(mod).moduleSegment ?? '').trim().toLowerCase() !== 'warmup') continue;
+      out.push(mod);
+    }
+    return out;
+  }, [approvedModuleById, selectedCategoryProgramRow]);
+
+  const assignedCooldownModules = React.useMemo(() => {
+    if (!selectedCategoryProgramRow?.cooldownModuleIds?.length) return [] as ModuleItem[];
+    const out: ModuleItem[] = [];
+    for (const id of selectedCategoryProgramRow.cooldownModuleIds) {
+      const mod = approvedModuleById.get(String(id).trim());
+      if (!mod) continue;
+      if (String(moduleDyn(mod).moduleSegment ?? '').trim().toLowerCase() !== 'cooldown') continue;
+      out.push(mod);
+    }
+    return out;
+  }, [approvedModuleById, selectedCategoryProgramRow]);
+
   const modulesInCategoryRaw = selectedCategory
-    ? modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory))
+    ? modules.filter(
+        (m) =>
+          normalizeCategory(m.category) === normalizeCategory(selectedCategory) &&
+          !String(moduleDyn(m).moduleSegment ?? '').trim()
+      )
     : [];
-  const modulesInCategory = [...modulesInCategoryRaw].sort((a, b) => {
+  const techniqueModulesInCategory = [...modulesInCategoryRaw].sort((a, b) => {
     const sa = (a as any).sortOrder;
     const sb = (b as any).sortOrder;
     const aNum = typeof sa === 'number' ? sa : null;
@@ -536,9 +798,12 @@ export default function DashboardScreen({
     if (bNum != null) return 1;
     return 0;
   });
+  // Backward-safe alias used by older runtime references during fast refresh.
+  const modulesInCategory = techniqueModulesInCategory;
   const unlockedModuleIdsByCategory = React.useMemo(() => {
     const byCategory = new Map<string, ModuleItem[]>();
     for (const mod of modules) {
+      if (String(moduleDyn(mod).moduleSegment ?? '').trim()) continue;
       const key = normalizeCategory(mod.category);
       const existing = byCategory.get(key);
       if (existing) existing.push(mod);
@@ -563,7 +828,11 @@ export default function DashboardScreen({
     [unlockedModuleIdsByCategory, purchasedModuleIds]
   );
   const getPayableModulesForCategory = React.useCallback((category: string): ModuleItem[] => {
-    const categoryModules = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(category));
+    const categoryModules = modules.filter(
+      (m) =>
+        normalizeCategory(m.category) === normalizeCategory(category) &&
+        !String(moduleDyn(m).moduleSegment ?? '').trim()
+    );
     return categoryModules.filter((m) => !unlockedModuleIdsByCategory.has(m.moduleId));
   }, [modules, unlockedModuleIdsByCategory]);
   const getCategoryBuyAllPrice = React.useCallback((category: string): number => {
@@ -573,35 +842,146 @@ export default function DashboardScreen({
     return remainingCount * 50;
   }, [getPayableModulesForCategory, purchasedModuleIds]);
 
-  function top3MostCommon(values: (string | null | undefined)[]): string[] {
-    const counts = new Map<string, { key: string; label: string; count: number }>();
-    for (const raw of values) {
-      const label = String(raw ?? '').trim();
-      if (!label) continue;
-      const key = label.toLowerCase();
-      const existing = counts.get(key);
-      if (existing) existing.count += 1;
-      else counts.set(key, { key, label, count: 1 });
-    }
-    return Array.from(counts.values())
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-      .slice(0, 3)
-      .map((x) => x.label);
-  }
+  const warmupTop3Values = assignedWarmupModules.length
+    ? [...assignedWarmupModules.map((m) => String(m.moduleTitle ?? '').trim()).filter(Boolean), '—', '—', '—'].slice(0, 3)
+    : ['—', '—', '—'];
+  const cooldownTop3Values = assignedCooldownModules.length
+    ? [...assignedCooldownModules.map((m) => String(m.moduleTitle ?? '').trim()).filter(Boolean), '—', '—', '—'].slice(0, 3)
+    : ['—', '—', '—'];
 
-  const warmupTop3 = top3MostCommon(
-    modulesInCategory.flatMap((m) => ((m as any).warmupExercises as string[] | undefined) ?? [])
-  );
-  const cooldownTop3 = top3MostCommon(
-    modulesInCategory.flatMap((m) => ((m as any).cooldownExercises as string[] | undefined) ?? [])
-  );
-  const warmupTop3Values = warmupTop3.length ? [...warmupTop3, '—', '—', '—'].slice(0, 3) : ['—', '—', '—'];
-  const cooldownTop3Values = cooldownTop3.length ? [...cooldownTop3, '—', '—', '—'].slice(0, 3) : ['—', '—', '—'];
+  const warmupModuleThumbByTitle = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mod of modules) {
+      const r = moduleDyn(mod);
+      const segment = String(r.moduleSegment ?? '').trim().toLowerCase();
+      if (segment !== 'warmup') continue;
+      const title = String(r.moduleTitle ?? '').trim().toLowerCase();
+      const thumb = extractRemoteUrl(r.thumbnailUrl) || extractRemoteUrl(r.thumbnailURL);
+      if (title && thumb) setThumbnailWithVariants(map, title, thumb);
+    }
+    return map;
+  }, [modules]);
+
+  const cooldownModuleThumbByTitle = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mod of modules) {
+      const r = moduleDyn(mod);
+      const segment = String(r.moduleSegment ?? '').trim().toLowerCase();
+      if (segment !== 'cooldown') continue;
+      const title = String(r.moduleTitle ?? '').trim().toLowerCase();
+      const thumb = extractRemoteUrl(r.thumbnailUrl) || extractRemoteUrl(r.thumbnailURL);
+      if (title && thumb) setThumbnailWithVariants(map, title, thumb);
+    }
+    return map;
+  }, [modules]);
+
+  const warmupModuleGuideByTitle = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mod of modules) {
+      const r = moduleDyn(mod);
+      const segment = String(r.moduleSegment ?? '').trim().toLowerCase();
+      if (segment !== 'warmup') continue;
+      const title = String(r.moduleTitle ?? '').trim().toLowerCase();
+      const guide = extractRemoteUrl(r.referenceGuideUrl);
+      if (title && guide) setThumbnailWithVariants(map, title, guide);
+    }
+    return map;
+  }, [modules]);
+
+  const cooldownModuleGuideByTitle = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mod of modules) {
+      const r = moduleDyn(mod);
+      const segment = String(r.moduleSegment ?? '').trim().toLowerCase();
+      if (segment !== 'cooldown') continue;
+      const title = String(r.moduleTitle ?? '').trim().toLowerCase();
+      const guide = extractRemoteUrl(r.referenceGuideUrl);
+      if (title && guide) setThumbnailWithVariants(map, title, guide);
+    }
+    return map;
+  }, [modules]);
+
+  const warmupThumbnailByExercise = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mod of techniqueModulesInCategory) {
+      const r = moduleDyn(mod);
+      const exerciseList = Array.isArray(r.warmupExercises) ? r.warmupExercises.map((v) => String(v)) : [];
+      const moduleWarmupMap = readExerciseThumbnailMap(r.module_warmup, exerciseList);
+      moduleWarmupMap.forEach((url, key) => map.set(key, url));
+      const candidateMaps = [
+        r.warmupThumbnails,
+        r.warmupThumbnailMap,
+        r.warmupImages,
+        r.warmupImageMap,
+      ];
+      for (const candidate of candidateMaps) {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+        const obj = candidate as Record<string, unknown>;
+        for (const [exerciseName, value] of Object.entries(obj)) {
+          const url = extractRemoteUrl(value);
+          if (url) map.set(exerciseName.trim().toLowerCase(), url);
+        }
+      }
+      const candidateArrays = [
+        r.warmupThumbnailUrls,
+        r.warmupImageUrls,
+        r.warmupThumbnailsList,
+      ];
+      for (const arr of candidateArrays) {
+        if (!Array.isArray(arr)) continue;
+        arr.forEach((value, idx) => {
+          const exerciseName = exerciseList[idx];
+          const url = extractRemoteUrl(value);
+          if (exerciseName && url) map.set(exerciseName.trim().toLowerCase(), url);
+        });
+      }
+    }
+    return map;
+  }, [techniqueModulesInCategory]);
+
+  const cooldownThumbnailByExercise = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mod of techniqueModulesInCategory) {
+      const r = moduleDyn(mod);
+      const exerciseList = Array.isArray(r.cooldownExercises) ? r.cooldownExercises.map((v) => String(v)) : [];
+      const moduleCooldownMap = readExerciseThumbnailMap(r.module_cooldown, exerciseList);
+      moduleCooldownMap.forEach((url, key) => map.set(key, url));
+      const candidateMaps = [
+        r.cooldownThumbnails,
+        r.cooldownThumbnailMap,
+        r.cooldownImages,
+        r.cooldownImageMap,
+      ];
+      for (const candidate of candidateMaps) {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+        const obj = candidate as Record<string, unknown>;
+        for (const [exerciseName, value] of Object.entries(obj)) {
+          const url = extractRemoteUrl(value);
+          if (url) map.set(exerciseName.trim().toLowerCase(), url);
+        }
+      }
+      const candidateArrays = [
+        r.cooldownThumbnailUrls,
+        r.cooldownImageUrls,
+        r.cooldownThumbnailsList,
+      ];
+      for (const arr of candidateArrays) {
+        if (!Array.isArray(arr)) continue;
+        arr.forEach((value, idx) => {
+          const exerciseName = exerciseList[idx];
+          const url = extractRemoteUrl(value);
+          if (exerciseName && url) map.set(exerciseName.trim().toLowerCase(), url);
+        });
+      }
+    }
+    return map;
+  }, [techniqueModulesInCategory]);
 
   useEffect(() => {
     // Reset the "start from here" warmup selection whenever the user changes category.
     setWarmupStartCardIndex(-1);
     setCooldownStartCardIndex(-1);
+    setTrainingStartCardIndex(-1);
   }, [selectedCategory]);
 
   function groupByDifficulty<T extends { difficultyLevel?: string | null }>(
@@ -616,7 +996,9 @@ export default function DashboardScreen({
       { level: 'cooldown', label: 'Cooldown', items: [] },
     ];
   }
-  const modulesInCategoryByLevel = groupByDifficulty(modulesInCategory, selectedCategory);
+  const modulesInCategoryByLevel = groupByDifficulty(techniqueModulesInCategory, selectedCategory);
+  const hasCategoryProgramContent =
+    techniqueModulesInCategory.length > 0 || assignedWarmupModules.length > 0 || assignedCooldownModules.length > 0;
 
   const heroScale = useRef(new Animated.Value(0.92)).current;
   const heroOpacity = useRef(new Animated.Value(0)).current;
@@ -709,12 +1091,24 @@ export default function DashboardScreen({
     );
   };
 
-  const renderModuleListCard = (mod: ModuleItem | Module, onPress: () => void, sectionLabel?: string, locked = false): React.ReactNode => {
+  const renderModuleListCard = (
+    mod: ModuleItem | Module,
+    onPress: () => void,
+    sectionLabel?: string,
+    locked = false,
+    selected = false,
+    showGuidePreview = false
+  ): React.ReactNode => {
     const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
+    const previewSource = showGuidePreview && mod.referenceGuideUrl ? { uri: mod.referenceGuideUrl } : null;
     return (
       <TouchableOpacity
         key={mod.moduleId}
-        style={[styles.moduleListCard, locked && styles.lockedModuleCard]}
+        style={[
+          styles.moduleListCard,
+          locked && styles.lockedModuleCard,
+          selected && styles.moduleListCardSelected,
+        ]}
         activeOpacity={0.88}
         onPress={onPress}
       >
@@ -725,11 +1119,13 @@ export default function DashboardScreen({
             </View>
           ) : null}
           <Text style={styles.moduleListTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
-          {mod.description ? <Text style={styles.moduleListDesc} numberOfLines={2}>{mod.description}</Text> : null}
+          <Text style={styles.moduleListDesc} numberOfLines={1}>Tap to start here</Text>
           {durationMin ? <Text style={styles.moduleListMeta}>{durationMin}</Text> : null}
         </View>
         <View style={styles.moduleListRight}>
-          {mod.thumbnailUrl ? (
+          {previewSource ? (
+            <Image source={previewSource} style={styles.moduleListImage} />
+          ) : mod.thumbnailUrl ? (
             <Image source={{ uri: mod.thumbnailUrl }} style={styles.moduleListImage} />
           ) : (
             <View style={styles.moduleListImagePlaceholder}><Text style={styles.moduleListImageIcon}>🥋</Text></View>
@@ -867,7 +1263,11 @@ export default function DashboardScreen({
               nestedScrollEnabled
             >
               {MODULE_CATEGORIES.map((cat, index) => {
-                const count = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(cat)).length;
+                const count = modules.filter(
+                  (m) =>
+                    normalizeCategory(m.category) === normalizeCategory(cat) &&
+                    !String(moduleDyn(m).moduleSegment ?? '').trim()
+                ).length;
                 return (
                   <TrainingCategoryCard
                     key={cat}
@@ -947,7 +1347,7 @@ export default function DashboardScreen({
                 },
               ]}
             >
-              {modulesInCategory.length === 0 ? (
+              {!hasCategoryProgramContent ? (
                 <View style={styles.emptyBox}>
                   <Text style={styles.emptyTitle}>
                     No modules in this category yet
@@ -982,7 +1382,7 @@ export default function DashboardScreen({
                                       : isSelected
                                         ? '#07bbc0'
                                         : '#062731',
-                                    opacity: isDisabled ? 0.5 : isSelected ? 1 : 0.65,
+                                    opacity: isDisabled ? 0.5 : 1,
                                   }
                                 : undefined,
                             ];
@@ -995,9 +1395,15 @@ export default function DashboardScreen({
                                   ? { backgroundColor: '#011f36', borderColor: '#062731', opacity: 0.5 }
                                   : isSelected
                                     ? { backgroundColor: 'rgba(7, 187, 192, 0.15)', borderColor: '#07bbc0', opacity: 1 }
-                                    : { backgroundColor: '#011f36', borderColor: '#062731', opacity: 0.65 },
+                                    : { backgroundColor: '#011f36', borderColor: '#062731', opacity: 1 },
                               ];
-                              const cooldownGuide = getCooldownGuideSource(t);
+                              const cooldownGuide =
+                                getCooldownGuideSource(t) ||
+                                resolveThumbnailWithVariants(cooldownModuleGuideByTitle, t);
+                              const cooldownGuideSrc = toImageSource(cooldownGuide);
+                              const cooldownThumb =
+                                resolveThumbnailWithVariants(cooldownThumbnailByExercise, t) ||
+                                resolveThumbnailWithVariants(cooldownModuleThumbByTitle, t);
 
                               return (
                                 <TouchableOpacity
@@ -1009,18 +1415,24 @@ export default function DashboardScreen({
                                     if (!isSelectable) return;
                                     // Only one phase can be selected at a time.
                                     setWarmupStartCardIndex(-1);
+                                    setTrainingStartCardIndex(-1);
                                     setCooldownStartCardIndex(idx);
                                   }}
                                 >
                                   <View style={styles.placeholderTextWrap}>
-                                    <Text style={styles.placeholderTitle} numberOfLines={1}>{t}</Text>
+                                    <View style={styles.moduleListPill}>
+                                      <Text style={styles.moduleListPillText} numberOfLines={1}>{label}</Text>
+                                    </View>
+                                    <Text style={styles.placeholderTitle} numberOfLines={2}>{t}</Text>
                                     <Text style={styles.placeholderSubtitle}>
                                       {isSelected ? 'Start here' : 'Tap to start here'}
                                     </Text>
                                   </View>
                                   <View style={styles.placeholderThumbWrap}>
-                                    {cooldownGuide && !isDisabled && isSelected ? (
-                                      <Image source={cooldownGuide} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                    {cooldownGuideSrc && !isDisabled && isSelected ? (
+                                      <Image source={cooldownGuideSrc} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                    ) : cooldownThumb && !isDisabled ? (
+                                      <Image source={{ uri: cooldownThumb }} style={styles.placeholderGuideImage} resizeMode="cover" />
                                     ) : (
                                       <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
                                     )}
@@ -1029,7 +1441,13 @@ export default function DashboardScreen({
                               );
                             }
 
-                            const warmupGuide = getWarmupGuideSource(t);
+                            const warmupGuide =
+                              getWarmupGuideSource(t) ||
+                              resolveThumbnailWithVariants(warmupModuleGuideByTitle, t);
+                            const warmupGuideSrc = toImageSource(warmupGuide);
+                            const warmupThumb =
+                              resolveThumbnailWithVariants(warmupThumbnailByExercise, t) ||
+                              resolveThumbnailWithVariants(warmupModuleThumbByTitle, t);
                             return (
                               <TouchableOpacity
                                 key={`${label}-${idx}`}
@@ -1040,19 +1458,25 @@ export default function DashboardScreen({
                                   if (!isSelectable) return;
                                   // Tap warmup card to start session from that warmup.
                                   // Only one phase can be selected at a time.
+                                  setTrainingStartCardIndex(-1);
                                   setCooldownStartCardIndex(-1);
                                   setWarmupStartCardIndex(idx);
                                 }}
                               >
                                 <View style={styles.placeholderTextWrap}>
-                                  <Text style={styles.placeholderTitle} numberOfLines={1}>{t}</Text>
+                                  <View style={styles.moduleListPill}>
+                                    <Text style={styles.moduleListPillText} numberOfLines={1}>{label}</Text>
+                                  </View>
+                                  <Text style={styles.placeholderTitle} numberOfLines={2}>{t}</Text>
                                   <Text style={styles.placeholderSubtitle}>
                                     {isSelected ? 'Start here' : 'Tap to start here'}
                                   </Text>
                                 </View>
                                 <View style={styles.placeholderThumbWrap}>
-                                  {warmupGuide && !isDisabled && isSelected ? (
-                                    <Image source={warmupGuide} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                  {warmupGuideSrc && !isDisabled && isSelected ? (
+                                    <Image source={warmupGuideSrc} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                  ) : warmupThumb && !isDisabled ? (
+                                    <Image source={{ uri: warmupThumb }} style={styles.placeholderGuideImage} resizeMode="cover" />
                                   ) : (
                                     <Text style={styles.placeholderIcon}>{isSelected ? '▶' : '🥋'}</Text>
                                   )}
@@ -1073,31 +1497,15 @@ export default function DashboardScreen({
                                 return;
                               }
                               if (label === 'Training') {
-                                // Start category practice directly at the selected training module
-                                // (no module "introduction" page).
-                                const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
-                                const selectedCooldowns = cooldownTop3Values.filter(
-                                  (c, idx) => idx >= cooldownStartIdx && c && c !== '—'
-                                );
-
-                                // Slice training modules so the first training module is the one tapped.
-                                const trainingSlice = items.slice(modIdx);
-
-                                onStartCategorySession({
-                                  category: selectedCategory ?? 'Punching',
-                                  warmups: [],
-                                  cooldowns:
-                                    selectedCooldowns.length > 0
-                                      ? selectedCooldowns
-                                      : cooldownTop3Values.filter((c) => c && c !== '—'),
-                                  trainingModules: trainingSlice,
-                                  mannequinGifUri: null,
-                                });
+                                // Match warmup/cooldown interaction: tap selects card first.
+                                setWarmupStartCardIndex(-1);
+                                setCooldownStartCardIndex(-1);
+                                setTrainingStartCardIndex(modIdx);
                                 return;
                               }
 
                               onOpenModule(mod.moduleId, mod);
-                            }, label, label === 'Training' ? isModuleLocked(mod.moduleId) : false)
+                            }, label, label === 'Training' ? isModuleLocked(mod.moduleId) : false, label === 'Training' && modIdx === trainingStartCardIndex, label === 'Training' && modIdx === trainingStartCardIndex)
                           )}
                       </View>
                     </View>
@@ -1107,13 +1515,14 @@ export default function DashboardScreen({
             </Animated.View>
           </ScrollView>
           </Animated.View>
-          {modulesInCategory.length > 0 && (
+          {hasCategoryProgramContent && (
             <TouchableOpacity
               style={styles.categoryFloatingStartButton}
               onPress={() => {
                 const trainingSection = modulesInCategoryByLevel.find((x) => x.label === 'Training');
                 const trainingModules = trainingSection?.items ?? [];
                 const hasCooldownStartSelection = cooldownStartCardIndex >= 0 && warmupStartCardIndex < 0;
+                const hasTrainingStartSelection = trainingStartCardIndex >= 0;
 
                 if (!trainingModules.length && !hasCooldownStartSelection) {
                   showToast('No training modules found for this category.');
@@ -1122,17 +1531,19 @@ export default function DashboardScreen({
 
                 const warmupStartIdx = warmupStartCardIndex >= 0 ? warmupStartCardIndex : 0;
                 const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
+                const trainingStartIdx = trainingStartCardIndex >= 0 ? trainingStartCardIndex : 0;
                 const warmupsToDo = warmupTop3Values.filter((v, idx) => idx >= warmupStartIdx && v !== '—');
                 const selectedCooldowns = cooldownTop3Values.filter((c, idx) => idx >= cooldownStartIdx && c && c !== '—');
                 const allWarmups = warmupTop3Values.filter((v) => v !== '—');
                 const allCooldowns = cooldownTop3Values.filter((c) => c && c !== '—');
+                const trainingSlice = trainingModules.slice(trainingStartIdx);
 
                 onStartCategorySession({
                   category: selectedCategory ?? 'Punching',
-                  // If user selected a cooldown start card, begin directly in cooldown flow.
-                  warmups: hasCooldownStartSelection ? [] : (warmupsToDo.length ? warmupsToDo : allWarmups),
+                  // If user selected cooldown or training card, skip warmups and jump to that phase.
+                  warmups: (hasCooldownStartSelection || hasTrainingStartSelection) ? [] : (warmupsToDo.length ? warmupsToDo : allWarmups),
                   cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
-                  trainingModules,
+                  trainingModules: trainingSlice,
                   startPhase: hasCooldownStartSelection ? 'cooldown' : 'warmup',
                   mannequinGifUri: null,
                 });
@@ -1420,6 +1831,101 @@ export default function DashboardScreen({
         </View>
       </Modal>
 
+      <Modal
+        visible={!!categoryReviewPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCategoryReviewPrompt(null)}
+      >
+        <View style={styles.recModalBackdrop}>
+          <View style={styles.recModalCard}>
+            <Text style={styles.recModalTitle}>Rate This Category</Text>
+            <Text style={styles.recModalSub}>
+              Rate each trainer in {categoryReviewPrompt?.category}. Tap stars to leave your optional rating.
+            </Text>
+            {categoryReviewPrompt?.trainers?.length ? (
+              <ScrollView style={styles.reviewTrainerListScroll} showsVerticalScrollIndicator={false}>
+                {categoryReviewPrompt.trainers.map((t) => (
+                  <View key={t.uid} style={styles.reviewTrainerRow}>
+                    {trainerPhotoByUid[t.uid] ? (
+                      <Image source={{ uri: trainerPhotoByUid[t.uid] }} style={styles.reviewTrainerAvatar} />
+                    ) : (
+                      <View style={styles.reviewTrainerAvatarPlaceholder}>
+                        <Text style={styles.reviewTrainerAvatarLetter}>{(t.name?.trim()?.charAt(0) || 'T').toUpperCase()}</Text>
+                      </View>
+                    )}
+                    <View style={styles.reviewTrainerBody}>
+                      <Text style={styles.reviewTrainerName}>{t.name}</Text>
+                      <View style={styles.reviewStarRow}>
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <TouchableOpacity
+                            key={`${t.uid}-${s}`}
+                            onPress={() => {
+                              setTrainerRatings((prev) => ({ ...prev, [t.uid]: s }));
+                            }}
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                styles.reviewStarSmall,
+                                s <= (trainerRatings[t.uid] ?? 0) && styles.reviewStarActive,
+                              ]}
+                            >
+                              ★
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalNoButton} onPress={() => setCategoryReviewPrompt(null)}>
+                <Text style={styles.modalNoText}>Not now</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.modalYesButton,
+                  (submittingCategoryReview || !canSubmitCategoryTrainerRatings) && styles.modalDisabled,
+                ]}
+                disabled={submittingCategoryReview || !canSubmitCategoryTrainerRatings}
+                onPress={async () => {
+                  if (!categoryReviewPrompt) return;
+                  try {
+                    setSubmittingCategoryReview(true);
+                    const nextRatings: Record<string, number> = {};
+                    for (const t of categoryReviewPrompt.trainers) {
+                      const v = trainerRatings[t.uid] ?? 0;
+                      if (v >= 1 && v <= 5) nextRatings[t.uid] = v;
+                    }
+                    await AuthController.submitCategoryReview(
+                      categoryReviewPrompt.category,
+                      null,
+                      undefined,
+                      categoryReviewPrompt.trainers.map((t) => t.uid),
+                      categoryReviewPrompt.trainers.map((t) => t.name),
+                      nextRatings
+                    );
+                    setCategoryReviewPrompt(null);
+                    showToast('Review submitted. Thank you!');
+                  } catch (e) {
+                    showToast((e as Error)?.message || 'Could not submit review.');
+                  } finally {
+                    setSubmittingCategoryReview(false);
+                  }
+                }}
+              >
+                <Text style={styles.modalYesText}>
+                  {submittingCategoryReview ? 'Submitting...' : 'Submit'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
     </View>
   );
@@ -1515,6 +2021,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   recModalCloseText: { color: '#07bbc0', fontSize: 15, fontWeight: '700' },
+  reviewStarRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  reviewStarSmall: { fontSize: 24, color: '#45616c' },
+  reviewStarActive: { color: '#f0c14b' },
+  reviewTrainerListScroll: { maxHeight: SCREEN_HEIGHT * 0.26, marginBottom: 10 },
+  reviewTrainerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#041527',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#062731',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  reviewTrainerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: '#07bbc0',
+    marginRight: 10,
+  },
+  reviewTrainerAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: '#07bbc0',
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0a3645',
+  },
+  reviewTrainerAvatarLetter: { color: '#9aeff2', fontSize: 18, fontWeight: '800' },
+  reviewTrainerBody: { flex: 1, minWidth: 0 },
+  reviewTrainerName: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 6 },
+  modalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  modalNoButton: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#0a3645',
+    backgroundColor: '#041527',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalNoText: { color: '#d7e3e8', fontSize: 14, fontWeight: '700' },
+  modalYesButton: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#07bbc0',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalYesText: { color: '#041527', fontSize: 14, fontWeight: '900' },
+  modalDisabled: { opacity: 0.5 },
   paywallBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.72)',
@@ -1671,18 +2234,25 @@ const styles = StyleSheet.create({
   placeholdersColumn: { gap: 8, marginBottom: 12 },
   placeholderCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
-    borderRadius: 14,
+    borderRadius: 18,
     backgroundColor: '#011f36',
     borderWidth: 1,
     borderColor: '#062731',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    minHeight: 96,
+    overflow: 'hidden',
+    width: '100%',
   },
-  placeholderTextWrap: { flex: 1, paddingRight: 8 },
-  placeholderTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 2 },
-  placeholderSubtitle: { color: '#6b8693', fontSize: 12 },
+  placeholderTextWrap: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingLeft: 16,
+    paddingRight: 12,
+    justifyContent: 'center',
+  },
+  placeholderTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
+  placeholderSubtitle: { color: '#6b8693', fontSize: 12, marginTop: 6, lineHeight: 16 },
   placeholderImageWrap: {
     width: 40,
     height: 40,
@@ -1693,13 +2263,14 @@ const styles = StyleSheet.create({
   },
   /** Warmup guide GIF thumbnail (matches training-card feel: image on right). */
   placeholderThumbWrap: {
-    width: 76,
-    height: 64,
-    borderRadius: 12,
+    width: 90,
+    height: 76,
+    borderRadius: 14,
     backgroundColor: '#0a3645',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+    margin: 10,
   },
   placeholderGuideImage: { width: '100%', height: '100%' },
   placeholderIcon: { fontSize: 22 },
@@ -1731,6 +2302,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     minHeight: 96,
+  },
+  moduleListCardSelected: {
+    borderColor: '#07bbc0',
+    backgroundColor: 'rgba(7, 187, 192, 0.15)',
   },
   moduleListLeft: { flex: 1, paddingVertical: 14, paddingLeft: 16, paddingRight: 12, justifyContent: 'center' },
   moduleListRight: { width: 110, padding: 10, justifyContent: 'center', alignItems: 'center' },

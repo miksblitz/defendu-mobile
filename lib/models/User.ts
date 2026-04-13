@@ -28,6 +28,8 @@ export interface User {
   trainingFrequency?: string;
   currentInjuries?: string | null;
   profilePicture?: string | null;
+  /** Wide banner image on profile (optional). */
+  coverPhoto?: string | null;
   credits?: number;
 }
 

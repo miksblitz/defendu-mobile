@@ -27,10 +27,10 @@ const INSTAGRAM_LOGO = require('../assets/images/instagramlogo.png');
 
 // --- Component ---
 export default function ProfileScreen() {
-  const [username, setUsername] = useState('@');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [coverPhoto, setCoverPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editFirstName, setEditFirstName] = useState('');
@@ -45,8 +45,9 @@ export default function ProfileScreen() {
   const [currentPwError, setCurrentPwError] = useState('');
   const [newPwError, setNewPwError] = useState('');
   const [confirmPwError, setConfirmPwError] = useState('');
-  const [showImagePickerModal, setShowImagePickerModal] = useState(false);
+  const [imagePickerFor, setImagePickerFor] = useState<'profile' | 'cover' | null>(null);
   const [uploadingPicture, setUploadingPicture] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
   const [trainerProfileModalVisible, setTrainerProfileModalVisible] = useState(false);
   const [selectedDefenseStyles, setSelectedDefenseStyles] = useState<string[]>([]);
@@ -81,10 +82,10 @@ export default function ProfileScreen() {
       ]);
       if (cancelled) return;
       if (user) {
-        setUsername(user.username?.startsWith('@') ? user.username : `@${user.username || ''}`);
         setFirstName(user.firstName || '');
         setLastName(user.lastName || '');
         setProfilePicture(user.profilePicture || null);
+        setCoverPhoto(user.coverPhoto ?? null);
         setIsApprovedTrainer(user.role === 'trainer' && user.trainerApproved === true);
       }
       if (purchasedMeta.length > 0) {
@@ -315,38 +316,51 @@ export default function ProfileScreen() {
   };
 
   const handleImagePickerPress = () => {
-    setShowImagePickerModal(true);
+    setImagePickerFor('profile');
+  };
+
+  const handleCoverImagePickerPress = () => {
+    setImagePickerFor('cover');
   };
 
   const handleTakePhoto = async () => {
-    setShowImagePickerModal(false);
+    const target = imagePickerFor;
+    setImagePickerFor(null);
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Camera permission is required to take a profile photo.');
+        Alert.alert('Permission needed', 'Camera permission is required to take a photo.');
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+        aspect: target === 'cover' ? [16, 9] : [1, 1],
+        quality: 0.85,
       });
       if (result.canceled || !result.assets[0]) return;
       const uri = result.assets[0].uri;
-      setUploadingPicture(true);
-      const url = await AuthController.updateProfilePicture(uri);
-      setProfilePicture(url);
+      if (target === 'cover') {
+        setUploadingCover(true);
+        const url = await AuthController.updateCoverPhoto(uri);
+        setCoverPhoto(url);
+      } else {
+        setUploadingPicture(true);
+        const url = await AuthController.updateProfilePicture(uri);
+        setProfilePicture(url);
+      }
     } catch (e) {
-      console.error('updateProfilePicture:', e);
+      console.error('camera pick:', e);
       Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save photo.');
     } finally {
       setUploadingPicture(false);
+      setUploadingCover(false);
     }
   };
 
   const handlePickFromGallery = async () => {
-    setShowImagePickerModal(false);
+    const target = imagePickerFor;
+    setImagePickerFor(null);
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -356,19 +370,26 @@ export default function ProfileScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+        aspect: target === 'cover' ? [16, 9] : [1, 1],
+        quality: 0.85,
       });
       if (result.canceled || !result.assets[0]) return;
       const uri = result.assets[0].uri;
-      setUploadingPicture(true);
-      const url = await AuthController.updateProfilePicture(uri);
-      setProfilePicture(url);
+      if (target === 'cover') {
+        setUploadingCover(true);
+        const url = await AuthController.updateCoverPhoto(uri);
+        setCoverPhoto(url);
+      } else {
+        setUploadingPicture(true);
+        const url = await AuthController.updateProfilePicture(uri);
+        setProfilePicture(url);
+      }
     } catch (e) {
-      console.error('updateProfilePicture:', e);
+      console.error('gallery pick:', e);
       Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save photo.');
     } finally {
       setUploadingPicture(false);
+      setUploadingCover(false);
     }
   };
 
@@ -389,70 +410,90 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.safeArea}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <View style={styles.avatarWrap}>
-          <TouchableOpacity
-            style={styles.avatarTouchable}
-            onPress={handleImagePickerPress}
-            disabled={uploadingPicture}
-            activeOpacity={0.8}
-          >
-            {profilePicture ? (
-              <Image source={{ uri: profilePicture }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarLetter}>{fullName.charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
-            {uploadingPicture && (
-              <View style={styles.avatarUploadOverlay}>
-                <ActivityIndicator size="large" color="#FFF" />
-              </View>
-            )}
-            <View style={styles.avatarAddIconWrap}>
-              <Text style={styles.avatarAddIconText}>+</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.displayName}>{fullName}</Text>
-        <Text style={styles.username}>{username}</Text>
-
-        <View style={styles.editButtonRow}>
-          {isApprovedTrainer && (
-            <TouchableOpacity style={styles.editButtonHalf} onPress={openTrainerProfileModal}>
-              <Text style={styles.editButtonText}>Edit trainer profile</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.editButtonHalf, !isApprovedTrainer && styles.editButtonFull]}
-            onPress={openEditModal}
-          >
-            <Text style={styles.editButtonText}>Edit profile</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.editHint}>
-          {isApprovedTrainer ? 'Trainer page info · Name & password' : 'Change your name and password'}
-        </Text>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Purchased Modules</Text>
-          <Text style={styles.sectionHint}>Modules you unlocked with credits ({purchasedModules.length}).</Text>
-          {loadingPurchasedModules ? (
-            <View style={styles.purchasedLoadingWrap}>
-              <ActivityIndicator size="small" color="#07bbc0" />
-            </View>
-          ) : purchasedModules.length === 0 ? (
-            <Text style={styles.purchasedEmpty}>No purchased modules yet.</Text>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.coverHero}>
+          {coverPhoto ? (
+            <Image source={{ uri: coverPhoto }} style={styles.coverImage} resizeMode="cover" />
           ) : (
-            <TouchableOpacity style={styles.viewPurchasedBtn} onPress={() => setPurchasedModulesModalVisible(true)} activeOpacity={0.9}>
-              <Text style={styles.viewPurchasedBtnText}>View Purchased Modules</Text>
-            </TouchableOpacity>
+            <View style={styles.coverPlaceholder}>
+              <Ionicons name="image-outline" size={40} color="#45616c" />
+            </View>
           )}
+          {uploadingCover ? (
+            <View style={styles.coverUploadOverlay}>
+              <ActivityIndicator size="large" color="#FFF" />
+            </View>
+          ) : null}
+          <TouchableOpacity
+            style={styles.coverChangeButton}
+            onPress={handleCoverImagePickerPress}
+            disabled={uploadingCover || uploadingPicture}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="camera-outline" size={18} color="#041527" />
+            <Text style={styles.coverChangeButtonText}>Cover photo</Text>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.resetButton} onPress={openResetProgressConfirm}>
-          <Text style={styles.resetButtonText}>Reset all progress</Text>
-        </TouchableOpacity>
+        <View style={styles.profileBody}>
+          <View style={styles.avatarWrap}>
+            <TouchableOpacity
+              style={styles.avatarTouchable}
+              onPress={handleImagePickerPress}
+              disabled={uploadingPicture || uploadingCover}
+              activeOpacity={0.8}
+            >
+              {profilePicture ? (
+                <Image source={{ uri: profilePicture }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarLetter}>{fullName.charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+              {uploadingPicture && (
+                <View style={styles.avatarUploadOverlay}>
+                  <ActivityIndicator size="large" color="#FFF" />
+                </View>
+              )}
+              <View style={styles.avatarAddIconWrap}>
+                <Text style={styles.avatarAddIconText}>+</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.displayName}>{fullName}</Text>
+
+          <View style={styles.editButtonRow}>
+            <TouchableOpacity
+              style={[styles.editButtonHalf, styles.editButtonFull]}
+              onPress={openEditModal}
+            >
+              <Text style={styles.editButtonText}>Edit profile</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.editHint}>
+            Change your name and password
+          </Text>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Purchased Modules</Text>
+            <Text style={styles.sectionHint}>Modules you unlocked with credits ({purchasedModules.length}).</Text>
+            {loadingPurchasedModules ? (
+              <View style={styles.purchasedLoadingWrap}>
+                <ActivityIndicator size="small" color="#07bbc0" />
+              </View>
+            ) : purchasedModules.length === 0 ? (
+              <Text style={styles.purchasedEmpty}>No purchased modules yet.</Text>
+            ) : (
+              <TouchableOpacity style={styles.viewPurchasedBtn} onPress={() => setPurchasedModulesModalVisible(true)} activeOpacity={0.9}>
+                <Text style={styles.viewPurchasedBtnText}>View Purchased Modules</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity style={styles.resetButton} onPress={openResetProgressConfirm}>
+            <Text style={styles.resetButtonText}>Reset all progress</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       <Modal visible={editModalVisible} animationType="slide" transparent>
@@ -701,14 +742,16 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showImagePickerModal} transparent animationType="slide">
+      <Modal visible={imagePickerFor != null} transparent animationType="slide">
         <TouchableOpacity
           style={styles.imagePickerOverlay}
           activeOpacity={1}
-          onPress={() => setShowImagePickerModal(false)}
+          onPress={() => setImagePickerFor(null)}
         >
           <View style={styles.imagePickerModal} onStartShouldSetResponder={() => true}>
-            <Text style={styles.imagePickerTitle}>Profile picture</Text>
+            <Text style={styles.imagePickerTitle}>
+              {imagePickerFor === 'cover' ? 'Cover photo' : 'Profile picture'}
+            </Text>
             <TouchableOpacity style={styles.imagePickerOption} onPress={handleTakePhoto}>
               <Ionicons name="camera" size={24} color="#07bbc0" />
               <Text style={styles.imagePickerOptionText}>Open camera</Text>
@@ -719,7 +762,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.imagePickerOption, styles.imagePickerCancel]}
-              onPress={() => setShowImagePickerModal(false)}
+              onPress={() => setImagePickerFor(null)}
             >
               <Text style={styles.imagePickerCancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -822,11 +865,60 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#041527' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#041527' },
   scroll: { flex: 1 },
-  content: { padding: 24, alignItems: 'center', paddingTop: 16, paddingBottom: 48 },
-  avatarWrap: { marginBottom: 16, position: 'relative', alignSelf: 'center' },
+  scrollContent: { alignItems: 'stretch', paddingBottom: 48 },
+  coverHero: {
+    width: '100%',
+    height: 152,
+    backgroundColor: '#062731',
+    position: 'relative',
+  },
+  coverImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  coverPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0a3645',
+  },
+  coverUploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coverChangeButton: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#07bbc0',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  coverChangeButtonText: { color: '#041527', fontSize: 13, fontWeight: '700' },
+  profileBody: { paddingHorizontal: 24, alignItems: 'center', paddingTop: 8, paddingBottom: 8 },
+  avatarWrap: { marginTop: -52, marginBottom: 16, position: 'relative', alignSelf: 'center', zIndex: 2 },
   avatarTouchable: { position: 'relative' },
-  avatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#062731' },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#07bbc0', justifyContent: 'center', alignItems: 'center' },
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#062731',
+    borderWidth: 3,
+    borderColor: '#041527',
+  },
+  avatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#07bbc0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#041527',
+  },
   avatarLetter: { color: '#041527', fontSize: 40, fontWeight: '700' },
   avatarUploadOverlay: {
     position: 'absolute',
@@ -887,8 +979,7 @@ const styles = StyleSheet.create({
   imagePickerOptionText: { color: '#FFF', fontSize: 16, fontWeight: '500', marginLeft: 12 },
   imagePickerCancel: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#6b8693', marginTop: 8 },
   imagePickerCancelText: { color: '#FFF', fontSize: 16, textAlign: 'center', width: '100%' },
-  displayName: { color: '#FFF', fontSize: 22, fontWeight: '700', marginBottom: 4 },
-  username: { color: '#6b8693', fontSize: 16, marginBottom: 24 },
+  displayName: { color: '#FFF', fontSize: 22, fontWeight: '700', marginBottom: 24, textAlign: 'center' },
   section: { width: '100%', marginBottom: 24, backgroundColor: '#011f36', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#062731' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#FFF', marginBottom: 4 },
   sectionHint: { fontSize: 12, color: '#6b8693', marginBottom: 12 },

@@ -186,6 +186,10 @@ export default function CategoryPracticeSessionScreen({
 }: CategoryPracticeSessionScreenProps) {
   const hideSessionNav = sessionVariant === 'recommendedSingle';
   const [step, setStep] = useState<SessionStep>('warmup_countdown');
+  const stepRef = useRef<SessionStep>('warmup_countdown');
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
 
   const warmupNames = useMemo(() => warmups.filter((w) => !!w && w !== '—'), [warmups]);
   const cooldownNames = useMemo(() => cooldowns.filter((c) => !!c && c !== '—'), [cooldowns]);
@@ -258,6 +262,12 @@ export default function CategoryPracticeSessionScreen({
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [pendingLockedTrainingIndex, setPendingLockedTrainingIndex] = useState<number | null>(null);
+  const queuedCategoryReviewPromptRef = useRef(false);
+  const maybeQueueCategoryReviewPromptRef = useRef<() => Promise<boolean>>(async () => false);
+
+  useEffect(() => {
+    queuedCategoryReviewPromptRef.current = false;
+  }, [category]);
 
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
   const matchThreshold = referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD;
@@ -271,6 +281,54 @@ export default function CategoryPracticeSessionScreen({
     },
     [purchasedModuleIds, trainingModules]
   );
+
+  const trainersInSession = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const mod of trainingModules as unknown as Array<Record<string, unknown>>) {
+      const uid = String(
+        mod.trainerId ?? mod.trainerUid ?? mod.trainerUID ?? mod.ownerId ?? mod.userId ?? ''
+      ).trim();
+      const name = String(mod.trainerName ?? mod.trainerDisplayName ?? mod.authorName ?? '').trim();
+      if (!uid) continue;
+      if (!byId.has(uid)) byId.set(uid, name || 'Trainer');
+    }
+    return Array.from(byId.entries()).map(([uid, name]) => ({ uid, name }));
+  }, [trainingModules]);
+
+  const resolveTrainersFromModuleDocs = useCallback(async (): Promise<Array<{ uid: string; name: string }>> => {
+    const ids = Array.from(new Set(trainingModules.map((m) => m.moduleId).filter(Boolean)));
+    if (!ids.length) return [];
+    const byId = new Map<string, string>();
+    await Promise.all(
+      ids.map(async (moduleId) => {
+        const full = await AuthController.getModuleByIdForUser(moduleId);
+        if (!full) return;
+        const uid = String((full as unknown as { trainerId?: string }).trainerId ?? '').trim();
+        const name = String((full as unknown as { trainerName?: string }).trainerName ?? '').trim();
+        if (!uid) return;
+        if (!byId.has(uid)) byId.set(uid, name || 'Trainer');
+      })
+    );
+    return Array.from(byId.entries()).map(([uid, name]) => ({ uid, name }));
+  }, [trainingModules]);
+
+  const maybeQueueCategoryReviewPrompt = useCallback(async (): Promise<boolean> => {
+    if (queuedCategoryReviewPromptRef.current) return false;
+    let trainers = trainersInSession;
+    if (trainers.length === 0) {
+      trainers = await resolveTrainersFromModuleDocs();
+    }
+    if (trainers.length === 0) return false;
+    const existing = await AuthController.getMyCategoryReview(category);
+    if (existing) return false;
+    await AuthController.queueCategoryReviewPrompt({ category, trainers });
+    queuedCategoryReviewPromptRef.current = true;
+    return true;
+  }, [category, trainersInSession, resolveTrainersFromModuleDocs]);
+
+  useEffect(() => {
+    maybeQueueCategoryReviewPromptRef.current = () => maybeQueueCategoryReviewPrompt();
+  }, [maybeQueueCategoryReviewPrompt]);
 
   const requiredRepsRef = useRef<number>(requiredReps);
   const poseCorrectRepsRef = useRef<number>(poseCorrectReps);
@@ -383,6 +441,23 @@ export default function CategoryPracticeSessionScreen({
     exitRequestedRef.current = true;
     const pending = Array.from(pendingCompletionWritesRef.current);
     if (pending.length > 0) await Promise.allSettled(pending);
+    const s = stepRef.current;
+    const inTraining =
+      s === 'training_safety' ||
+      s === 'training_countdown' ||
+      s === 'training_stance' ||
+      s === 'training_pose_loading' ||
+      s === 'training_pose' ||
+      s === 'training_success' ||
+      s === 'training_between_countdown' ||
+      s === 'training_between_stance';
+    if (inTraining) {
+      try {
+        await maybeQueueCategoryReviewPromptRef.current();
+      } catch {
+        // non-fatal
+      }
+    }
     onExit();
   }, [onExit]);
 
@@ -427,7 +502,7 @@ export default function CategoryPracticeSessionScreen({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [category]);
 
   const loadTrainingForCurrentModule = useCallback(async () => {
     if (!currentTrainingItem) {
@@ -829,6 +904,11 @@ export default function CategoryPracticeSessionScreen({
   const confirmPrevious = useCallback(() => {
     setShowPreviousConfirm(true);
   }, []);
+
+  useEffect(() => {
+    if (step !== 'session_done') return;
+    void exitSession();
+  }, [step, exitSession]);
 
   // Initialize session entry step.
   useEffect(() => {

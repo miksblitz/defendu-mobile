@@ -47,10 +47,11 @@ export { uploadFileToCloudinary } from './cloudinary';
 export {
   updateUserProfile,
   updateProfilePicture,
+  updateCoverPhoto,
   changePassword,
 } from './userProfile';
 
-export { getApprovedModules } from './modulesCatalog';
+export { getApprovedModules, getCategorySegmentProgram } from './modulesCatalog';
 
 export {
   getModulesByIds,
@@ -58,6 +59,10 @@ export {
   getModuleByIdForUser,
   getModuleReviews,
   submitModuleReview,
+  getMyCategoryReview,
+  submitCategoryReview,
+  queueCategoryReviewPrompt,
+  popCategoryReviewPrompt,
   saveModule,
   updateModuleMedia,
   removeModule,
@@ -66,6 +71,8 @@ export {
 
 export {
   getApprovedTrainers,
+  getTrainerApplicationsByUids,
+  getTrainerRatingSummaries,
   getTrainerApplicationData,
   getUserTrainerApplication,
   updateTrainerProfile,
@@ -96,15 +103,20 @@ import { uploadFileToCloudinary } from './cloudinary';
 import {
   updateUserProfile,
   updateProfilePicture,
+  updateCoverPhoto,
   changePassword,
 } from './userProfile';
-import { getApprovedModules } from './modulesCatalog';
+import { getApprovedModules, getCategorySegmentProgram } from './modulesCatalog';
 import {
   getModulesByIds,
   getReferencePoseData,
   getModuleByIdForUser,
   getModuleReviews,
   submitModuleReview,
+  getMyCategoryReview,
+  submitCategoryReview,
+  queueCategoryReviewPrompt,
+  popCategoryReviewPrompt,
   saveModule,
   updateModuleMedia,
   removeModule,
@@ -112,6 +124,8 @@ import {
 } from './moduleOperations';
 import {
   getApprovedTrainers,
+  getTrainerApplicationsByUids,
+  getTrainerRatingSummaries,
   getTrainerApplicationData,
   getUserTrainerApplication,
   updateTrainerProfile,
@@ -133,9 +147,11 @@ export const AuthController = {
   updateSkillProfilePartial,
   updateUserProfile,
   updateProfilePicture,
+  updateCoverPhoto,
   resetUserProgress,
   changePassword,
   getApprovedModules,
+  getCategorySegmentProgram,
   forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
@@ -149,7 +165,13 @@ export const AuthController = {
   getModuleByIdForUser,
   getModuleReviews,
   submitModuleReview,
+  getMyCategoryReview,
+  submitCategoryReview,
+  queueCategoryReviewPrompt,
+  popCategoryReviewPrompt,
   getApprovedTrainers,
+  getTrainerApplicationsByUids,
+  getTrainerRatingSummaries,
   getTrainerApplicationData,
   getUserTrainerApplication,
   updateTrainerProfile,

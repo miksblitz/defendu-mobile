@@ -398,6 +398,7 @@ export default function App() {
               onLogout={handleLogout}
               onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
+              hideCreditsBar
             >
               <MessagesScreen
                 openWithUserId={messagesOpenWith?.uid}
@@ -414,6 +415,7 @@ export default function App() {
               onLogout={handleLogout}
               onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
+              hideCreditsBar
               headerRight={
                 isApprovedTrainer ? (
                   <TouchableOpacity

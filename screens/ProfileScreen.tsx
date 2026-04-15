@@ -65,13 +65,10 @@ export default function ProfileScreen() {
   const [trainerProfileError, setTrainerProfileError] = useState('');
   const [loadingPurchasedModules, setLoadingPurchasedModules] = useState(true);
   const [purchasedModules, setPurchasedModules] = useState<Array<{ moduleId: string; moduleTitle: string; category: string; referenceNo?: string }>>([]);
-  const [purchasedModulesModalVisible, setPurchasedModulesModalVisible] = useState(false);
   const [selectedPurchasedCategory, setSelectedPurchasedCategory] = useState('Punching');
-  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
-  const [showResetResultModal, setShowResetResultModal] = useState(false);
-  const [resetResultIsError, setResetResultIsError] = useState(false);
-  const [resetResultMessage, setResetResultMessage] = useState('');
-  const [resettingProgress, setResettingProgress] = useState(false);
+  const [publishedModulesModalVisible, setPublishedModulesModalVisible] = useState(false);
+  const [loadingPublishedModules, setLoadingPublishedModules] = useState(false);
+  const [publishedModules, setPublishedModules] = useState<Array<{ moduleId: string; moduleTitle: string; category: string }>>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +83,36 @@ export default function ProfileScreen() {
         setLastName(user.lastName || '');
         setProfilePicture(user.profilePicture || null);
         setCoverPhoto(user.coverPhoto ?? null);
-        setIsApprovedTrainer(user.role === 'trainer' && user.trainerApproved === true);
+        const isTrainer = user.role === 'trainer' && user.trainerApproved === true;
+        setIsApprovedTrainer(isTrainer);
+        if (isTrainer) {
+          setLoadingPublishedModules(true);
+          try {
+            const approvedModules = await AuthController.getApprovedModules();
+            if (cancelled) return;
+            const trainerName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim().toLowerCase();
+            const mine = approvedModules.filter((module) => {
+              const moduleRecord = module as unknown as Record<string, unknown>;
+              const moduleTrainerId = String(moduleRecord.trainerId ?? '').trim();
+              const moduleTrainerName = String(moduleRecord.trainerName ?? '').trim().toLowerCase();
+              return (moduleTrainerId && moduleTrainerId === user.uid) || (trainerName && moduleTrainerName === trainerName);
+            });
+            setPublishedModules(
+              mine.map((module) => ({
+                moduleId: module.moduleId,
+                moduleTitle: module.moduleTitle || module.moduleId,
+                category: module.category || 'Other',
+              }))
+            );
+          } catch (e) {
+            console.error('loadPublishedModules:', e);
+            setPublishedModules([]);
+          } finally {
+            if (!cancelled) setLoadingPublishedModules(false);
+          }
+        } else {
+          setPublishedModules([]);
+        }
       }
       if (purchasedMeta.length > 0) {
         const purchasedIds = purchasedMeta.map((m) => m.moduleId);
@@ -292,29 +318,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const openResetProgressConfirm = () => {
-    setShowResetConfirmModal(true);
-  };
-
-  const performResetProgress = async () => {
-    setResettingProgress(true);
-    try {
-      await AuthController.resetUserProgress();
-      setShowResetConfirmModal(false);
-      setResetResultIsError(false);
-      setResetResultMessage('Your progress has been reset.');
-      setShowResetResultModal(true);
-    } catch (e) {
-      console.error('resetUserProgress:', e);
-      setShowResetConfirmModal(false);
-      setResetResultIsError(true);
-      setResetResultMessage('Could not reset progress. Please try again.');
-      setShowResetResultModal(true);
-    } finally {
-      setResettingProgress(false);
-    }
-  };
-
   const handleImagePickerPress = () => {
     setImagePickerFor('profile');
   };
@@ -484,15 +487,65 @@ export default function ProfileScreen() {
             ) : purchasedModules.length === 0 ? (
               <Text style={styles.purchasedEmpty}>No purchased modules yet.</Text>
             ) : (
-              <TouchableOpacity style={styles.viewPurchasedBtn} onPress={() => setPurchasedModulesModalVisible(true)} activeOpacity={0.9}>
-                <Text style={styles.viewPurchasedBtnText}>View Purchased Modules</Text>
-              </TouchableOpacity>
+              <>
+                <View style={styles.categoryTabsWrap}>
+                  {purchasedCategoryTabs.map((cat) => {
+                    const isActive = selectedPurchasedCategory === cat;
+                    return (
+                      <TouchableOpacity
+                        key={cat}
+                        style={[styles.categoryTabBtn, isActive && styles.categoryTabBtnActive]}
+                        onPress={() => setSelectedPurchasedCategory(cat)}
+                        activeOpacity={0.9}
+                      >
+                        <Text style={[styles.categoryTabBtnText, isActive && styles.categoryTabBtnTextActive]}>
+                          {cat} ({getCategoryCount(cat)})
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <ScrollView
+                  style={styles.purchasedModalScroll}
+                  contentContainerStyle={styles.purchasedModalScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  {purchasedInSelectedCategory.length === 0 ? (
+                    <View style={styles.purchasedEmptyCenterWrap}>
+                      <Text style={styles.purchasedEmptyCenterText}>No modules purchased</Text>
+                    </View>
+                  ) : (
+                    purchasedInSelectedCategory.map((item) => (
+                      <View key={item.moduleId} style={styles.purchasedItem}>
+                        <View style={styles.purchasedTextWrap}>
+                          <Text style={styles.purchasedTitle} numberOfLines={1}>{item.moduleTitle}</Text>
+                          {item.referenceNo ? <Text style={styles.purchasedRef} numberOfLines={1}>Ref: {item.referenceNo}</Text> : null}
+                        </View>
+                        <View style={styles.purchasedBadge}>
+                          <Text style={styles.purchasedBadgeText}>Owned</Text>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+                {isApprovedTrainer ? (
+                  <TouchableOpacity
+                    style={styles.viewPublishedBtn}
+                    onPress={() => setPublishedModulesModalVisible(true)}
+                    activeOpacity={0.9}
+                    disabled={loadingPublishedModules}
+                  >
+                    <Text style={styles.viewPublishedBtnText}>
+                      {loadingPublishedModules
+                        ? 'Loading published modules...'
+                        : `View Published Modules (${publishedModules.length})`}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </>
             )}
           </View>
-
-          <TouchableOpacity style={styles.resetButton} onPress={openResetProgressConfirm}>
-            <Text style={styles.resetButtonText}>Reset all progress</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -769,88 +822,43 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-      <Modal visible={showResetConfirmModal} animationType="fade" transparent onRequestClose={() => !resettingProgress && setShowResetConfirmModal(false)}>
+      <Modal
+        visible={publishedModulesModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPublishedModulesModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Reset all progress</Text>
-            <Text style={styles.resetConfirmMessage}>
-              This will clear all completed modules and weekly goal data. This cannot be undone.
+          <View style={[styles.modalContent, styles.publishedModalContent]}>
+            <Text style={styles.modalTitle}>Published Modules</Text>
+            <Text style={styles.sectionHint}>
+              Modules published under your trainer account ({publishedModules.length}).
             </Text>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalCancelBtn, resettingProgress && styles.buttonDisabled]}
-                onPress={() => !resettingProgress && setShowResetConfirmModal(false)}
-                disabled={resettingProgress}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalDangerBtn, resettingProgress && styles.buttonDisabled]}
-                onPress={() => void performResetProgress()}
-                disabled={resettingProgress}
-              >
-                <Text style={styles.modalDangerText}>{resettingProgress ? 'Resetting…' : 'Reset'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={showResetResultModal} animationType="fade" transparent onRequestClose={() => setShowResetResultModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={[styles.modalTitle, resetResultIsError && styles.modalTitleError]}>
-              {resetResultIsError ? 'Error' : 'Done'}
-            </Text>
-            <Text style={styles.resetConfirmMessage}>{resetResultMessage}</Text>
-            <TouchableOpacity style={[styles.modalSaveBtn, styles.resetResultOkBtn]} onPress={() => setShowResetResultModal(false)}>
-              <Text style={styles.modalSaveText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={purchasedModulesModalVisible} animationType="slide" transparent onRequestClose={() => setPurchasedModulesModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.purchasedModalContent]}>
-            <Text style={styles.modalTitle}>Purchased Modules</Text>
-            <View style={styles.categoryTabsWrap}>
-              {purchasedCategoryTabs.map((cat) => {
-                const isActive = selectedPurchasedCategory === cat;
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[styles.categoryTabBtn, isActive && styles.categoryTabBtnActive]}
-                    onPress={() => setSelectedPurchasedCategory(cat)}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={[styles.categoryTabBtnText, isActive && styles.categoryTabBtnTextActive]}>
-                      {cat} ({getCategoryCount(cat)})
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <ScrollView style={styles.purchasedModalScroll} contentContainerStyle={styles.purchasedModalScrollContent} showsVerticalScrollIndicator={false}>
-              {purchasedInSelectedCategory.length === 0 ? (
+            <ScrollView
+              style={styles.publishedModalScroll}
+              contentContainerStyle={styles.purchasedModalScrollContent}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+            >
+              {publishedModules.length === 0 ? (
                 <View style={styles.purchasedEmptyCenterWrap}>
-                  <Text style={styles.purchasedEmptyCenterText}>No modules purchased</Text>
+                  <Text style={styles.purchasedEmptyCenterText}>No published modules yet</Text>
                 </View>
               ) : (
-                purchasedInSelectedCategory.map((item) => (
+                publishedModules.map((item) => (
                   <View key={item.moduleId} style={styles.purchasedItem}>
                     <View style={styles.purchasedTextWrap}>
                       <Text style={styles.purchasedTitle} numberOfLines={1}>{item.moduleTitle}</Text>
-                      {item.referenceNo ? <Text style={styles.purchasedRef} numberOfLines={1}>Ref: {item.referenceNo}</Text> : null}
+                      <Text style={styles.publishedMeta} numberOfLines={1}>{item.category}</Text>
                     </View>
-                    <View style={styles.purchasedBadge}>
-                      <Text style={styles.purchasedBadgeText}>Owned</Text>
+                    <View style={styles.publishedBadge}>
+                      <Text style={styles.publishedBadgeText}>Published</Text>
                     </View>
                   </View>
                 ))
               )}
             </ScrollView>
-            <TouchableOpacity style={[styles.modalSaveBtn, styles.purchasedBackBtn]} onPress={() => setPurchasedModulesModalVisible(false)}>
+            <TouchableOpacity style={[styles.modalSaveBtn, styles.purchasedBackBtn]} onPress={() => setPublishedModulesModalVisible(false)}>
               <Text style={styles.modalSaveText}>Back</Text>
             </TouchableOpacity>
           </View>
@@ -993,8 +1001,6 @@ const styles = StyleSheet.create({
   editButton: { borderWidth: 2, borderColor: '#07bbc0', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, marginBottom: 6 },
   editButtonText: { color: '#07bbc0', fontSize: 14, fontWeight: '600' },
   editHint: { color: '#6b8693', fontSize: 12, marginBottom: 28 },
-  resetButton: { paddingVertical: 14, paddingHorizontal: 20 },
-  resetButtonText: { color: '#e57373', fontSize: 15, fontWeight: '600' },
   purchasedLoadingWrap: { paddingVertical: 12, alignItems: 'center' },
   purchasedEmpty: { color: '#6b8693', fontSize: 13, marginTop: 4 },
   viewPurchasedBtn: {
@@ -1006,6 +1012,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   viewPurchasedBtnText: { color: '#07bbc0', fontSize: 14, fontWeight: '700' },
+  viewPublishedBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(7, 187, 192, 0.08)',
+  },
+  viewPublishedBtnText: { color: '#07bbc0', fontSize: 14, fontWeight: '700' },
   purchasedList: { marginTop: 6, gap: 8 },
   purchasedItem: {
     flexDirection: 'row',
@@ -1023,6 +1039,7 @@ const styles = StyleSheet.create({
   purchasedMeta: { color: '#6b8693', fontSize: 12, marginTop: 2 },
   purchasedRef: { color: '#07bbc0', fontSize: 11, marginTop: 4, fontWeight: '700' },
   purchasedModalContent: { maxHeight: '80%' },
+  publishedModalContent: { maxHeight: '80%' },
   categoryTabsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   categoryTabBtn: {
     borderWidth: 1,
@@ -1038,6 +1055,7 @@ const styles = StyleSheet.create({
   categoryTabBtnText: { color: '#07bbc0', fontSize: 12, fontWeight: '700' },
   categoryTabBtnTextActive: { color: '#041527' },
   purchasedModalScroll: { width: '100%', marginTop: 8, minHeight: 260, maxHeight: 260 },
+  publishedModalScroll: { width: '100%', marginTop: 8, minHeight: 300, maxHeight: 300 },
   purchasedModalScrollContent: { paddingBottom: 8, flexGrow: 1 },
   purchasedCategoryBlock: { marginBottom: 16 },
   purchasedCategoryTitle: { color: '#07bbc0', fontSize: 15, fontWeight: '800', marginBottom: 8 },
@@ -1053,6 +1071,16 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   purchasedBadgeText: { color: '#07bbc0', fontSize: 11, fontWeight: '700' },
+  publishedMeta: { color: '#6b8693', fontSize: 12, marginTop: 4 },
+  publishedBadge: {
+    backgroundColor: 'rgba(7, 187, 192, 0.18)',
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  publishedBadgeText: { color: '#07bbc0', fontSize: 11, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalScroll: { maxHeight: '85%', width: '100%' },
   modalScrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
@@ -1104,23 +1132,4 @@ const styles = StyleSheet.create({
   modalCancelText: { color: '#6b8693', fontSize: 16 },
   modalSaveBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 10, backgroundColor: '#07bbc0' },
   modalSaveText: { color: '#041527', fontSize: 16, fontWeight: '600' },
-  resetConfirmMessage: {
-    fontSize: 14,
-    color: '#6b8693',
-    lineHeight: 22,
-    marginBottom: 8,
-    fontWeight: '400',
-  },
-  modalTitleError: { color: '#e57373' },
-  modalDangerBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e57373',
-    backgroundColor: 'rgba(229, 115, 115, 0.12)',
-  },
-  modalDangerText: { color: '#e57373', fontSize: 16, fontWeight: '600' },
-  resetResultOkBtn: { flex: 0, width: '100%', marginTop: 20, minHeight: 48, justifyContent: 'center' },
 });

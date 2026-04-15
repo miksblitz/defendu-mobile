@@ -47,6 +47,11 @@ export default function SettingsScreen() {
   const [showWeeklyPicker, setShowWeeklyPicker] = useState(false);
   const [showDailyPicker, setShowDailyPicker] = useState(false);
   const [showFreqPicker, setShowFreqPicker] = useState(false);
+  const [resettingProgress, setResettingProgress] = useState(false);
+  const [activeSupportSection, setActiveSupportSection] = useState<'help' | 'privacy' | 'contact'>('help');
+  const [supportName, setSupportName] = useState('');
+  const [supportEmail, setSupportEmail] = useState('');
+  const [supportMessage, setSupportMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,8 +162,45 @@ export default function SettingsScreen() {
     Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open link.'));
   };
 
-  const openContact = () => {
-    Linking.openURL(`mailto:${CONTACT_EMAIL}`).catch(() => Alert.alert('Error', 'Could not open email.'));
+  const submitSupportRequest = () => {
+    const body = supportMessage.trim();
+    if (!body) {
+      Alert.alert('Missing message', 'Please add your concern before sending.');
+      return;
+    }
+    const subject = encodeURIComponent('DEFENDU Support Request');
+    const content = encodeURIComponent(
+      `Name: ${supportName || 'N/A'}\nEmail: ${supportEmail || 'N/A'}\n\nMessage:\n${body}`
+    );
+    Linking.openURL(`mailto:${CONTACT_EMAIL}?subject=${subject}&body=${content}`).catch(() =>
+      Alert.alert('Error', 'Could not open email.')
+    );
+  };
+
+  const handleResetAllProgress = () => {
+    Alert.alert(
+      'Reset all progress?',
+      'Warning: this will permanently clear your completed modules and weekly goal data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            setResettingProgress(true);
+            try {
+              await AuthController.resetUserProgress();
+              Alert.alert('Done', 'Your progress has been reset.');
+            } catch (e) {
+              console.error('resetUserProgress:', e);
+              Alert.alert('Error', 'Could not reset progress. Please try again.');
+            } finally {
+              setResettingProgress(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -353,23 +395,134 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <Text style={styles.cardTag}>SUPPORT</Text>
-          <Text style={styles.cardTitle}>Legal & contact</Text>
-          <TouchableOpacity style={styles.linkRow} onPress={() => openLink(PRIVACY_URL)}>
-            <Text style={styles.linkText}>Privacy Policy</Text>
-            <Text style={styles.linkChevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.linkRow} onPress={() => openLink(TERMS_URL)}>
-            <Text style={styles.linkText}>Terms of Service</Text>
-            <Text style={styles.linkChevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.linkRow, styles.linkRowLast]} onPress={openContact}>
-            <Text style={styles.linkText}>Contact us</Text>
-            <Text style={styles.linkChevron}>›</Text>
+          <Text style={styles.supportTitle}>Support Hub</Text>
+          <Text style={styles.supportSubtitle}>
+            Choose a topic below to view details.
+          </Text>
+
+          <View style={styles.supportTabsRow}>
+            <TouchableOpacity
+              style={[styles.supportTabBtn, activeSupportSection === 'help' && styles.supportTabBtnActive]}
+              onPress={() => setActiveSupportSection('help')}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.supportTabText, activeSupportSection === 'help' && styles.supportTabTextActive]}>
+                Help & Support
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.supportTabBtn, activeSupportSection === 'privacy' && styles.supportTabBtnActive]}
+              onPress={() => setActiveSupportSection('privacy')}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.supportTabText, activeSupportSection === 'privacy' && styles.supportTabTextActive]}>
+                Privacy Policy
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.supportTabBtn, activeSupportSection === 'contact' && styles.supportTabBtnActive]}
+              onPress={() => setActiveSupportSection('contact')}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.supportTabText, activeSupportSection === 'contact' && styles.supportTabTextActive]}>
+                Contact Us
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {activeSupportSection === 'help' ? (
+            <View style={styles.supportPanel}>
+              <Text style={styles.supportPanelTitle}>Help & Support</Text>
+              <Text style={styles.supportMiniHeading}>Getting started</Text>
+              <Text style={styles.supportLine}>- Update your profile details and photo in Profile.</Text>
+              <Text style={styles.supportLine}>- Set weekly and daily training goals in Settings.</Text>
+              <Text style={styles.supportLine}>- Open modules from Dashboard and follow guided practice.</Text>
+              <Text style={styles.supportMiniHeading}>Need troubleshooting?</Text>
+              <Text style={styles.supportLine}>- Check internet connection and restart app if modules do not load.</Text>
+              <Text style={styles.supportLine}>- For account issues, use Contact Us with your registered email.</Text>
+            </View>
+          ) : null}
+
+          {activeSupportSection === 'privacy' ? (
+            <View style={styles.supportPanel}>
+              <Text style={styles.supportPanelTitle}>Privacy Policy</Text>
+              <Text style={styles.supportMiniHeading}>What we collect</Text>
+              <Text style={styles.supportLine}>- Account details like name, email, and profile media.</Text>
+              <Text style={styles.supportLine}>- Training activity such as modules completed and progress stats.</Text>
+              <Text style={styles.supportLine}>- Support communication you send through the app.</Text>
+              <Text style={styles.supportMiniHeading}>How we use data</Text>
+              <Text style={styles.supportLine}>- Personalize training suggestions and module experience.</Text>
+              <Text style={styles.supportLine}>- Keep your account secure and improve app reliability.</Text>
+              <Text style={styles.supportLine}>- Respond to help requests and technical concerns.</Text>
+              <View style={styles.supportActionRow}>
+                <TouchableOpacity style={styles.supportGhostBtn} onPress={() => openLink(PRIVACY_URL)}>
+                  <Text style={styles.supportGhostBtnText}>Full Privacy Policy</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.supportGhostBtn} onPress={() => openLink(TERMS_URL)}>
+                  <Text style={styles.supportGhostBtnText}>Terms of Service</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {activeSupportSection === 'contact' ? (
+            <View style={styles.supportPanel}>
+              <Text style={styles.supportPanelTitle}>Contact Us</Text>
+              <Text style={styles.supportLine}>Email support: {CONTACT_EMAIL}</Text>
+              <Text style={styles.supportLine}>Response time: usually within 24-48 hours (Mon-Fri).</Text>
+              <Text style={styles.supportMiniHeading}>Send a support request</Text>
+
+              <View style={styles.supportFormWrap}>
+                <TextInput
+                  style={styles.supportInput}
+                  value={supportName}
+                  onChangeText={setSupportName}
+                  placeholder="Your name"
+                  placeholderTextColor="#6b8693"
+                />
+                <TextInput
+                  style={styles.supportInput}
+                  value={supportEmail}
+                  onChangeText={setSupportEmail}
+                  placeholder="Your email"
+                  placeholderTextColor="#6b8693"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={[styles.supportInput, styles.supportInputLarge]}
+                  value={supportMessage}
+                  onChangeText={setSupportMessage}
+                  placeholder="Write your concern"
+                  placeholderTextColor="#6b8693"
+                  multiline
+                />
+                <TouchableOpacity style={styles.supportSendBtn} onPress={submitSupportRequest}>
+                  <Text style={styles.supportSendBtnText}>Send support request</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={[styles.card, styles.dangerCard]}>
+          <Text style={[styles.cardTag, styles.dangerTag]}>DANGER ZONE</Text>
+          <Text style={styles.cardTitle}>Reset all progress</Text>
+          <Text style={[styles.cardHint, styles.dangerHint]}>
+            Warning: this clears your completed modules and weekly goal data permanently.
+          </Text>
+          <TouchableOpacity
+            style={[styles.dangerBtn, resettingProgress && styles.btnDisabled]}
+            onPress={handleResetAllProgress}
+            disabled={resettingProgress}
+          >
+            <Text style={styles.dangerBtnText}>{resettingProgress ? 'Resetting…' : 'Reset all progress'}</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.footerNote}>Changes sync to your account and skill profile.</Text>
       </ScrollView>
+
     </View>
   );
 }
@@ -485,5 +638,81 @@ const styles = StyleSheet.create({
   linkRowLast: { borderBottomWidth: 0 },
   linkText: { color: '#FFF', fontSize: 16 },
   linkChevron: { color: '#6b8693', fontSize: 20 },
+  supportTitle: { color: '#FFF', fontSize: 28, fontWeight: '800', marginBottom: 6 },
+  supportSubtitle: { color: 'rgba(255,255,255,0.76)', fontSize: 13, lineHeight: 20, marginBottom: 14 },
+  supportTabsRow: { flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
+  supportTabBtn: {
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(7, 187, 192, 0.08)',
+  },
+  supportTabBtnActive: {
+    backgroundColor: '#07bbc0',
+    borderColor: '#07bbc0',
+  },
+  supportTabText: { color: '#07bbc0', fontSize: 12, fontWeight: '700' },
+  supportTabTextActive: { color: '#041527' },
+  supportPanel: {
+    backgroundColor: '#011f36',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#062731',
+    padding: 14,
+    marginBottom: 12,
+  },
+  supportPanelTitle: { color: '#FFF', fontSize: 20, fontWeight: '800', marginBottom: 8 },
+  supportMiniHeading: { color: '#8be8eb', fontSize: 13, fontWeight: '700', marginTop: 6, marginBottom: 4 },
+  supportLine: { color: '#cfe3ea', fontSize: 13, lineHeight: 20, marginBottom: 6 },
+  supportActionRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  supportGhostBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(7, 187, 192, 0.1)',
+  },
+  supportGhostBtnText: { color: '#07bbc0', fontSize: 12, fontWeight: '800' },
+  supportFormWrap: { marginTop: 8 },
+  supportInput: {
+    backgroundColor: '#062731',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    color: '#FFF',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#0a3645',
+    marginBottom: 10,
+  },
+  supportInputLarge: { minHeight: 110, textAlignVertical: 'top' },
+  supportSendBtn: {
+    backgroundColor: '#07bbc0',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  supportSendBtnText: { color: '#041527', fontSize: 15, fontWeight: '800' },
+  dangerCard: {
+    borderColor: 'rgba(229, 115, 115, 0.45)',
+    backgroundColor: 'rgba(229, 115, 115, 0.08)',
+  },
+  dangerTag: { color: '#e57373' },
+  dangerHint: { color: 'rgba(255, 193, 193, 0.95)' },
+  dangerBtn: {
+    borderWidth: 1,
+    borderColor: '#e57373',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+    backgroundColor: 'rgba(229, 115, 115, 0.1)',
+  },
+  dangerBtnText: { color: '#ffb4b4', fontSize: 16, fontWeight: '700' },
   footerNote: { color: '#6b8693', fontSize: 12, textAlign: 'center', marginTop: 8, marginBottom: 8 },
 });

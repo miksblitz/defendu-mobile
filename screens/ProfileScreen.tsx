@@ -2,7 +2,7 @@
  * ProfileScreen
  * User profile: name, photo, stats, password change. Trainer profile section if approved.
  */
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,14 +20,17 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthController } from '../lib/controllers/AuthController';
 import { getPurchasedModulesMeta } from '../lib/controllers/modulePurchases';
-import type { TrainerModuleAnalyticsResponse, TrainerModuleAnalyticsRow } from '../lib/controllers/trainerAnalytics';
 import { MARTIAL_ARTS, BELT_BASED_MARTIAL_ARTS, BELT_SYSTEMS } from '../lib/constants/martialArts';
 
 const FACEBOOK_LOGO = require('../assets/images/facebooklogo.png');
 const INSTAGRAM_LOGO = require('../assets/images/instagramlogo.png');
 
+type ProfileScreenProps = {
+  onOpenTrainerInsights?: () => void;
+};
+
 // --- Component ---
-export default function ProfileScreen() {
+export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenProps) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
@@ -67,14 +70,8 @@ export default function ProfileScreen() {
   const [loadingPurchasedModules, setLoadingPurchasedModules] = useState(true);
   const [purchasedModules, setPurchasedModules] = useState<Array<{ moduleId: string; moduleTitle: string; category: string; referenceNo?: string }>>([]);
   const [selectedPurchasedCategory, setSelectedPurchasedCategory] = useState('Punching');
-  const [publishedModulesModalVisible, setPublishedModulesModalVisible] = useState(false);
   const [loadingPublishedModules, setLoadingPublishedModules] = useState(false);
   const [publishedModules, setPublishedModules] = useState<Array<{ moduleId: string; moduleTitle: string; category: string }>>([]);
-  const [trainerAnalyticsLoading, setTrainerAnalyticsLoading] = useState(false);
-  const [trainerAnalyticsError, setTrainerAnalyticsError] = useState<string | null>(null);
-  const [trainerAnalytics, setTrainerAnalytics] = useState<TrainerModuleAnalyticsResponse | null>(null);
-  const [selectedAnalyticsModule, setSelectedAnalyticsModule] = useState<TrainerModuleAnalyticsRow | null>(null);
-  const [analyticsDetailVisible, setAnalyticsDetailVisible] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,27 +140,6 @@ export default function ProfileScreen() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    if (!publishedModulesModalVisible || !isApprovedTrainer) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setTrainerAnalyticsLoading(true);
-        setTrainerAnalyticsError(null);
-        const result = await AuthController.getTrainerPublishedModuleAnalytics();
-        if (cancelled) return;
-        setTrainerAnalytics(result);
-      } catch (e) {
-        if (cancelled) return;
-        setTrainerAnalytics(null);
-        setTrainerAnalyticsError((e as Error)?.message || 'Could not load trainer insights.');
-      } finally {
-        if (!cancelled) setTrainerAnalyticsLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [publishedModulesModalVisible, isApprovedTrainer]);
-
   const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'User';
   const hasEditProfileChanges =
     editFirstName !== firstName ||
@@ -226,25 +202,7 @@ export default function ProfileScreen() {
     return Array.from(set).sort();
   })();
 
-  const trainerTopModule = useMemo(() => {
-    if (!trainerAnalytics?.modules?.length) return null;
-    return trainerAnalytics.modules[0] ?? null;
-  }, [trainerAnalytics]);
-
-  const formatCredits = (n: number) => {
-    const safe = Number(n ?? 0);
-    if (!Number.isFinite(safe)) return '0';
-    return safe.toLocaleString();
-  };
-
-  const formatShortDate = (ms: number | null | undefined) => {
-    if (!ms || !Number.isFinite(ms)) return '—';
-    try {
-      return new Date(ms).toLocaleDateString();
-    } catch {
-      return '—';
-    }
-  };
+  const canOpenTrainerInsights = typeof onOpenTrainerInsights === 'function';
 
   const toggleDefenseStyle = (art: string) => {
     setSelectedDefenseStyles((prev) =>
@@ -579,9 +537,9 @@ export default function ProfileScreen() {
                 {isApprovedTrainer ? (
                   <TouchableOpacity
                     style={styles.viewPublishedBtn}
-                    onPress={() => setPublishedModulesModalVisible(true)}
+                    onPress={() => onOpenTrainerInsights?.()}
                     activeOpacity={0.9}
-                    disabled={loadingPublishedModules}
+                    disabled={loadingPublishedModules || !canOpenTrainerInsights}
                   >
                     <Text style={styles.viewPublishedBtnText}>
                       {loadingPublishedModules
@@ -868,214 +826,6 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
-      </Modal>
-      <Modal
-        visible={publishedModulesModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setPublishedModulesModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.publishedModalContent]}>
-            <View style={styles.analyticsHeaderRow}>
-              <View style={styles.analyticsHeaderTextWrap}>
-                <Text style={styles.modalTitle}>Trainer Insights</Text>
-                <Text style={styles.sectionHint}>Published modules and sales performance.</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.analyticsCloseIconBtn}
-                onPress={() => setPublishedModulesModalVisible(false)}
-                disabled={trainerAnalyticsLoading}
-              >
-                <Text style={styles.analyticsCloseIcon}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {trainerAnalyticsLoading ? (
-              <View style={styles.analyticsLoadingWrap}>
-                <ActivityIndicator size="large" color="#07bbc0" />
-                <Text style={styles.analyticsLoadingText}>Loading insights…</Text>
-              </View>
-            ) : trainerAnalyticsError ? (
-              <View style={styles.analyticsLoadingWrap}>
-                <Text style={styles.analyticsErrorTitle}>Couldn’t load insights</Text>
-                <Text style={styles.analyticsErrorSub}>{trainerAnalyticsError}</Text>
-                <TouchableOpacity
-                  style={styles.analyticsRetryBtn}
-                  onPress={() => {
-                    setTrainerAnalyticsError(null);
-                    setTrainerAnalytics(null);
-                    // Re-trigger effect by closing and reopening quickly.
-                    setPublishedModulesModalVisible(false);
-                    setTimeout(() => setPublishedModulesModalVisible(true), 50);
-                  }}
-                  activeOpacity={0.9}
-                >
-                  <Text style={styles.analyticsRetryBtnText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <>
-                <View style={styles.analyticsSummaryRow}>
-                  <View style={styles.analyticsTile}>
-                    <Text style={styles.analyticsTileLabel}>Modules</Text>
-                    <Text style={styles.analyticsTileValue}>{trainerAnalytics?.totals?.modules ?? publishedModules.length}</Text>
-                  </View>
-                  <View style={styles.analyticsTile}>
-                    <Text style={styles.analyticsTileLabel}>Buyers</Text>
-                    <Text style={styles.analyticsTileValue}>{formatCredits(trainerAnalytics?.totals?.buyers ?? 0)}</Text>
-                  </View>
-                  <View style={styles.analyticsTile}>
-                    <Text style={styles.analyticsTileLabel}>Credit Sales</Text>
-                    <Text style={styles.analyticsTileValue}>{formatCredits(trainerAnalytics?.totals?.creditsGross ?? 0)}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.analyticsNoteBox}>
-                  <Text style={styles.analyticsNoteTitle}>Earnings (PHP)</Text>
-                  <Text style={styles.analyticsNoteSub}>
-                    Coming soon. Trainer payouts will use a 70/30 split (70% trainer, 30% DEFENDU) once payout tracking is enabled.
-                  </Text>
-                </View>
-
-                {trainerTopModule ? (
-                  <View style={styles.analyticsHighlight}>
-                    <Text style={styles.analyticsHighlightTitle}>Top module</Text>
-                    <Text style={styles.analyticsHighlightName} numberOfLines={1}>
-                      {trainerTopModule.moduleTitle}
-                    </Text>
-                    <Text style={styles.analyticsHighlightMeta}>
-                      {trainerTopModule.buyers} buyers · {formatCredits(trainerTopModule.creditsGross)} credits · last sale {formatShortDate(trainerTopModule.lastPurchasedAt)}
-                    </Text>
-                  </View>
-                ) : null}
-
-                <ScrollView
-                  style={styles.publishedModalScroll}
-                  contentContainerStyle={styles.purchasedModalScrollContent}
-                  showsVerticalScrollIndicator={false}
-                  nestedScrollEnabled
-                >
-                  {!trainerAnalytics?.modules?.length ? (
-                    <View style={styles.purchasedEmptyCenterWrap}>
-                      <Text style={styles.purchasedEmptyCenterText}>No published modules yet</Text>
-                    </View>
-                  ) : (
-                    trainerAnalytics.modules.map((item) => (
-                      <TouchableOpacity
-                        key={item.moduleId}
-                        style={styles.analyticsModuleCard}
-                        activeOpacity={0.9}
-                        onPress={() => {
-                          setSelectedAnalyticsModule(item);
-                          setAnalyticsDetailVisible(true);
-                        }}
-                      >
-                        <View style={styles.analyticsModuleCardLeft}>
-                          {item.thumbnailUrl ? (
-                            <Image source={{ uri: item.thumbnailUrl }} style={styles.analyticsModuleThumb} />
-                          ) : (
-                            <View style={styles.analyticsModuleThumbPlaceholder}>
-                              <Text style={styles.analyticsModuleThumbIcon}>🥋</Text>
-                            </View>
-                          )}
-                        </View>
-                        <View style={styles.analyticsModuleCardBody}>
-                          <Text style={styles.analyticsModuleTitle} numberOfLines={1}>
-                            {item.moduleTitle}
-                          </Text>
-                          <Text style={styles.analyticsModuleMeta} numberOfLines={1}>
-                            {item.category} · last sale {formatShortDate(item.lastPurchasedAt)}
-                          </Text>
-                          <View style={styles.analyticsKpiRow}>
-                            <View style={styles.analyticsKpiChip}>
-                              <Text style={styles.analyticsKpiChipLabel}>Buyers</Text>
-                              <Text style={styles.analyticsKpiChipValue}>{item.buyers}</Text>
-                            </View>
-                            <View style={styles.analyticsKpiChip}>
-                              <Text style={styles.analyticsKpiChipLabel}>Credits</Text>
-                              <Text style={styles.analyticsKpiChipValue}>{formatCredits(item.creditsGross)}</Text>
-                            </View>
-                            <View style={styles.analyticsKpiChip}>
-                              <Text style={styles.analyticsKpiChipLabel}>Avg</Text>
-                              <Text style={styles.analyticsKpiChipValue}>{Math.round(item.avgCreditsPerBuyer || 0)}</Text>
-                            </View>
-                          </View>
-                        </View>
-                        <Text style={styles.analyticsChevron}>›</Text>
-                      </TouchableOpacity>
-                    ))
-                  )}
-                </ScrollView>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={analyticsDetailVisible}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setAnalyticsDetailVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.analyticsDetailContent]}>
-            <View style={styles.analyticsHeaderRow}>
-              <View style={styles.analyticsHeaderTextWrap}>
-                <Text style={styles.modalTitle} numberOfLines={1}>{selectedAnalyticsModule?.moduleTitle || 'Module overview'}</Text>
-                <Text style={styles.sectionHint} numberOfLines={1}>{selectedAnalyticsModule?.category || '—'}</Text>
-              </View>
-              <TouchableOpacity style={styles.analyticsCloseIconBtn} onPress={() => setAnalyticsDetailVisible(false)}>
-                <Text style={styles.analyticsCloseIcon}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {selectedAnalyticsModule?.thumbnailUrl ? (
-              <Image source={{ uri: selectedAnalyticsModule.thumbnailUrl }} style={styles.analyticsDetailHero} resizeMode="cover" />
-            ) : (
-              <View style={styles.analyticsDetailHeroPlaceholder}>
-                <Text style={styles.analyticsDetailHeroIcon}>🥋</Text>
-              </View>
-            )}
-
-            <View style={styles.analyticsSummaryRow}>
-              <View style={styles.analyticsTile}>
-                <Text style={styles.analyticsTileLabel}>Buyers</Text>
-                <Text style={styles.analyticsTileValue}>{selectedAnalyticsModule?.buyers ?? 0}</Text>
-              </View>
-              <View style={styles.analyticsTile}>
-                <Text style={styles.analyticsTileLabel}>Credits</Text>
-                <Text style={styles.analyticsTileValue}>{formatCredits(selectedAnalyticsModule?.creditsGross ?? 0)}</Text>
-              </View>
-              <View style={styles.analyticsTile}>
-                <Text style={styles.analyticsTileLabel}>Last sale</Text>
-                <Text style={styles.analyticsTileValue}>{formatShortDate(selectedAnalyticsModule?.lastPurchasedAt)}</Text>
-              </View>
-            </View>
-
-            <View style={styles.analyticsDetailCard}>
-              <Text style={styles.analyticsDetailCardTitle}>Earnings (PHP)</Text>
-              <Text style={styles.analyticsDetailCardSub}>
-                Coming soon after payout tracking is enabled. Planned payout split: 70% trainer / 30% DEFENDU.
-              </Text>
-              <View style={styles.analyticsSplitRow}>
-                <View style={styles.analyticsSplitChip}>
-                  <Text style={styles.analyticsSplitChipLabel}>Trainer</Text>
-                  <Text style={styles.analyticsSplitChipValue}>70%</Text>
-                </View>
-                <View style={styles.analyticsSplitChip}>
-                  <Text style={styles.analyticsSplitChipLabel}>DEFENDU</Text>
-                  <Text style={styles.analyticsSplitChipValue}>30%</Text>
-                </View>
-              </View>
-            </View>
-
-            <TouchableOpacity style={[styles.modalSaveBtn, styles.purchasedBackBtn]} onPress={() => setAnalyticsDetailVisible(false)} activeOpacity={0.9}>
-              <Text style={styles.modalSaveText}>Back</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </Modal>
     </View>
   );

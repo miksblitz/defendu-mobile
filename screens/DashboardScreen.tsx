@@ -436,12 +436,14 @@ function TrainingCategoryCard({
 // --- Types ---
 interface DashboardScreenProps {
   onOpenModule: (moduleId: string, initialModule?: ModuleItem) => void;
+  onOpenTopUp?: () => void;
   onStartCategorySession: (payload: {
     category: string;
     warmups: string[];
     cooldowns: string[];
     trainingModules: ModuleItem[];
-    startPhase?: 'warmup' | 'cooldown';
+    introductionVideoUrl?: string | null;
+    startPhase?: 'warmup' | 'cooldown' | 'introduction';
     mannequinGifUri?: string | null;
     sessionVariant?: 'default' | 'recommendedSingle';
     /** When false, returning from the session does not reopen the category overlay (e.g. opened from day history). */
@@ -466,6 +468,7 @@ interface DashboardScreenProps {
 // --- Component ---
 export default function DashboardScreen({
   onOpenModule,
+  onOpenTopUp,
   onStartCategorySession,
   onStartRecommendedSingleSession,
   recommendationsReopenToken = 0,
@@ -487,6 +490,7 @@ export default function DashboardScreen({
   const [warmupStartCardIndex, setWarmupStartCardIndex] = useState<number>(-1);
   const [cooldownStartCardIndex, setCooldownStartCardIndex] = useState<number>(-1);
   const [trainingStartCardIndex, setTrainingStartCardIndex] = useState<number>(-1);
+  const [introductionStartCardIndex, setIntroductionStartCardIndex] = useState<number>(-1);
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [moduleTrainingStats, setModuleTrainingStats] = useState<Record<string, ModuleTrainingStat>>({});
@@ -982,23 +986,54 @@ export default function DashboardScreen({
     setWarmupStartCardIndex(-1);
     setCooldownStartCardIndex(-1);
     setTrainingStartCardIndex(-1);
+    setIntroductionStartCardIndex(-1);
   }, [selectedCategory]);
 
   function groupByDifficulty<T extends { difficultyLevel?: string | null }>(
     list: T[],
-    category: string | null
-  ): { level: 'basic' | 'intermediate' | 'advanced' | 'cooldown' | 'other'; label: string; items: T[] }[] {
+    category: string | null,
+    introItems: T[]
+  ): { level: 'basic' | 'intermediate' | 'advanced' | 'cooldown' | 'other' | 'introduction'; label: string; items: T[] }[] {
     // Consistent session flow across all categories:
-    // Warmup/Cooldown sections are placeholders (exercise names), and all real modules are practiced in Training.
+    // Warmup/Introduction/Cooldown sections are placeholders/cards;
+    // all real technique modules are practiced in Training.
     return [
       { level: 'intermediate', label: 'Warmup', items: [] },
+      { level: 'introduction', label: 'Introduction', items: [...introItems] },
       { level: 'advanced', label: 'Training', items: [...list] },
       { level: 'cooldown', label: 'Cooldown', items: [] },
     ];
   }
-  const modulesInCategoryByLevel = groupByDifficulty(techniqueModulesInCategory, selectedCategory);
+  const introductionModuleForCategory = React.useMemo(() => {
+    if (!selectedCategory) return null;
+    const categoryModules = modules.filter((m) => normalizeCategory(m.category) === normalizeCategory(selectedCategory));
+    const withIntroMarkers = categoryModules.filter((m) => {
+      const seg = String(moduleDyn(m).moduleSegment ?? '').trim().toLowerCase();
+      const title = String(m.moduleTitle ?? '').trim().toLowerCase();
+      const hasTechniqueVideo = String(moduleDyn(m).techniqueVideoUrl ?? '').trim().length > 0;
+      const isIntro = seg === 'introduction' || title === 'intro' || title.includes('introduction');
+      return hasTechniqueVideo && isIntro;
+    });
+    if (withIntroMarkers.length === 0) return null;
+    return [...withIntroMarkers].sort((a, b) => {
+      const sa = (a as any).sortOrder;
+      const sb = (b as any).sortOrder;
+      const aNum = typeof sa === 'number' ? sa : Number.MAX_SAFE_INTEGER;
+      const bNum = typeof sb === 'number' ? sb : Number.MAX_SAFE_INTEGER;
+      if (aNum !== bNum) return aNum - bNum;
+      return String(a.moduleTitle ?? '').localeCompare(String(b.moduleTitle ?? ''));
+    })[0];
+  }, [modules, selectedCategory]);
+  const modulesInCategoryByLevel = groupByDifficulty(
+    techniqueModulesInCategory,
+    selectedCategory,
+    introductionModuleForCategory ? [introductionModuleForCategory] : []
+  );
   const hasCategoryProgramContent =
-    techniqueModulesInCategory.length > 0 || assignedWarmupModules.length > 0 || assignedCooldownModules.length > 0;
+    techniqueModulesInCategory.length > 0 ||
+    assignedWarmupModules.length > 0 ||
+    assignedCooldownModules.length > 0 ||
+    introductionModuleForCategory != null;
 
   const heroScale = useRef(new Animated.Value(0.92)).current;
   const heroOpacity = useRef(new Animated.Value(0)).current;
@@ -1361,6 +1396,65 @@ export default function DashboardScreen({
                   {modulesInCategoryByLevel.map(({ label, items }) => (
                     <View key={label} style={styles.difficultySection}>
                       <Text style={styles.difficultySectionTitle}>{label}</Text>
+                      {label === 'Introduction' && (
+                        <View style={styles.placeholdersColumn}>
+                          {items.length > 0 ? (
+                            (() => {
+                              const mod = items[0];
+                              const introThumb = extractRemoteUrl(moduleDyn(mod).thumbnailUrl) || extractRemoteUrl(moduleDyn(mod).thumbnailURL);
+                              return (
+                                <TouchableOpacity
+                                  key={`intro-${mod.moduleId}`}
+                                  style={[
+                                    styles.placeholderCard,
+                                    introductionStartCardIndex === 0
+                                      ? { backgroundColor: 'rgba(7, 187, 192, 0.15)', borderColor: '#07bbc0' }
+                                      : { backgroundColor: '#011f36', borderColor: '#062731' },
+                                  ]}
+                                  activeOpacity={0.9}
+                                  onPress={() => {
+                                    // Match warmup/cooldown/training UX: choose where Start begins.
+                                    setWarmupStartCardIndex(-1);
+                                    setCooldownStartCardIndex(-1);
+                                    setTrainingStartCardIndex(-1);
+                                    setIntroductionStartCardIndex(0);
+                                  }}
+                                >
+                                  <View style={styles.placeholderTextWrap}>
+                                    <View style={styles.moduleListPill}>
+                                      <Text style={styles.moduleListPillText} numberOfLines={1}>Introduction</Text>
+                                    </View>
+                                    <Text style={styles.placeholderTitle} numberOfLines={2}>{mod.moduleTitle ?? 'Category Introduction'}</Text>
+                                    <Text style={styles.placeholderSubtitle}>
+                                      {introductionStartCardIndex === 0 ? 'Start here' : 'Tap to start here'}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.placeholderThumbWrap}>
+                                    {introThumb ? (
+                                      <Image source={{ uri: introThumb }} style={styles.placeholderGuideImage} resizeMode="cover" />
+                                    ) : (
+                                      <Text style={styles.placeholderIcon}>▶</Text>
+                                    )}
+                                  </View>
+                                </TouchableOpacity>
+                              );
+                            })()
+                          ) : (
+                            <View style={[styles.placeholderCard, { opacity: 0.5 }]}>
+                              <View style={styles.placeholderTextWrap}>
+                                <View style={styles.moduleListPill}>
+                                  <Text style={styles.moduleListPillText} numberOfLines={1}>Introduction</Text>
+                                </View>
+                                <Text style={styles.placeholderTitle} numberOfLines={2}>No introduction video</Text>
+                                <Text style={styles.placeholderSubtitle}>Add an Introduction module to enable this step</Text>
+                              </View>
+                              <View style={styles.placeholderThumbWrap}>
+                                <Text style={styles.placeholderIcon}>🥋</Text>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      )}
                       {(label === 'Warmup' || label === 'Cooldown') && (
                         <View style={styles.placeholdersColumn}>
                           {(label === 'Warmup' ? warmupTop3Values : cooldownTop3Values).map((t, idx) => {
@@ -1414,6 +1508,7 @@ export default function DashboardScreen({
                                   onPress={() => {
                                     if (!isSelectable) return;
                                     // Only one phase can be selected at a time.
+                                    setIntroductionStartCardIndex(-1);
                                     setWarmupStartCardIndex(-1);
                                     setTrainingStartCardIndex(-1);
                                     setCooldownStartCardIndex(idx);
@@ -1458,6 +1553,7 @@ export default function DashboardScreen({
                                   if (!isSelectable) return;
                                   // Tap warmup card to start session from that warmup.
                                   // Only one phase can be selected at a time.
+                                  setIntroductionStartCardIndex(-1);
                                   setTrainingStartCardIndex(-1);
                                   setCooldownStartCardIndex(-1);
                                   setWarmupStartCardIndex(idx);
@@ -1486,28 +1582,31 @@ export default function DashboardScreen({
                           })}
                         </View>
                       )}
-                      <View style={styles.moduleListColumn}>
-                        {items.length > 0 &&
-                          items.map((mod: ModuleItem, modIdx: number) =>
-                            renderModuleListCard(mod, () => {
-                              const locked = label === 'Training' ? isModuleLocked(mod.moduleId) : false;
-                              if (locked) {
-                                setPurchaseTargetModule(mod);
-                                setPurchaseModalVisible(true);
-                                return;
-                              }
-                              if (label === 'Training') {
-                                // Match warmup/cooldown interaction: tap selects card first.
-                                setWarmupStartCardIndex(-1);
-                                setCooldownStartCardIndex(-1);
-                                setTrainingStartCardIndex(modIdx);
-                                return;
-                              }
+                      {label !== 'Introduction' && (
+                        <View style={styles.moduleListColumn}>
+                          {items.length > 0 &&
+                            items.map((mod: ModuleItem, modIdx: number) =>
+                              renderModuleListCard(mod, () => {
+                                const locked = label === 'Training' ? isModuleLocked(mod.moduleId) : false;
+                                if (locked) {
+                                  setPurchaseTargetModule(mod);
+                                  setPurchaseModalVisible(true);
+                                  return;
+                                }
+                                if (label === 'Training') {
+                                  // Match warmup/cooldown interaction: tap selects card first.
+                                  setIntroductionStartCardIndex(-1);
+                                  setWarmupStartCardIndex(-1);
+                                  setCooldownStartCardIndex(-1);
+                                  setTrainingStartCardIndex(modIdx);
+                                  return;
+                                }
 
-                              onOpenModule(mod.moduleId, mod);
-                            }, label, label === 'Training' ? isModuleLocked(mod.moduleId) : false, label === 'Training' && modIdx === trainingStartCardIndex, label === 'Training' && modIdx === trainingStartCardIndex)
-                          )}
-                      </View>
+                                onOpenModule(mod.moduleId, mod);
+                              }, label, label === 'Training' ? isModuleLocked(mod.moduleId) : false, label === 'Training' && modIdx === trainingStartCardIndex, label === 'Training' && modIdx === trainingStartCardIndex)
+                            )}
+                        </View>
+                      )}
                     </View>
                   ))}
                 </>
@@ -1521,10 +1620,11 @@ export default function DashboardScreen({
               onPress={() => {
                 const trainingSection = modulesInCategoryByLevel.find((x) => x.label === 'Training');
                 const trainingModules = trainingSection?.items ?? [];
+                const hasIntroductionStartSelection = introductionStartCardIndex >= 0;
                 const hasCooldownStartSelection = cooldownStartCardIndex >= 0 && warmupStartCardIndex < 0;
                 const hasTrainingStartSelection = trainingStartCardIndex >= 0;
 
-                if (!trainingModules.length && !hasCooldownStartSelection) {
+                if (!trainingModules.length && !hasCooldownStartSelection && !hasIntroductionStartSelection) {
                   showToast('No training modules found for this category.');
                   return;
                 }
@@ -1541,10 +1641,17 @@ export default function DashboardScreen({
                 onStartCategorySession({
                   category: selectedCategory ?? 'Punching',
                   // If user selected cooldown or training card, skip warmups and jump to that phase.
-                  warmups: (hasCooldownStartSelection || hasTrainingStartSelection) ? [] : (warmupsToDo.length ? warmupsToDo : allWarmups),
+                  warmups: (hasIntroductionStartSelection || hasCooldownStartSelection || hasTrainingStartSelection)
+                    ? []
+                    : (warmupsToDo.length ? warmupsToDo : allWarmups),
                   cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
                   trainingModules: trainingSlice,
-                  startPhase: hasCooldownStartSelection ? 'cooldown' : 'warmup',
+                  introductionVideoUrl: introductionModuleForCategory
+                    ? String(moduleDyn(introductionModuleForCategory).techniqueVideoUrl ?? '').trim() || null
+                    : null,
+                  startPhase: hasIntroductionStartSelection
+                    ? 'introduction'
+                    : (hasCooldownStartSelection ? 'cooldown' : 'warmup'),
                   mannequinGifUri: null,
                 });
               }}
@@ -1730,8 +1837,23 @@ export default function DashboardScreen({
             </Text>
 
             <View style={styles.paywallPriceBox}>
-              <Text style={styles.paywallPriceLabel}>Your balance</Text>
-              <Text style={styles.paywallCreditsValue}>{userCredits} credits</Text>
+              <View style={styles.paywallBalanceRow}>
+                <View style={styles.paywallBalanceLeft}>
+                  <Text style={styles.paywallPriceLabel}>Your balance</Text>
+                  <Text style={styles.paywallCreditsValue}>{userCredits} credits</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.paywallTopUpPlusBtn}
+                  onPress={() => {
+                    setPurchaseModalVisible(false);
+                    onOpenTopUp?.();
+                  }}
+                  activeOpacity={0.85}
+                  disabled={!onOpenTopUp}
+                >
+                  <Text style={styles.paywallTopUpPlusText}>+</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -2108,8 +2230,19 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 16,
   },
+  paywallBalanceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  paywallBalanceLeft: { flex: 1, minWidth: 0 },
   paywallPriceLabel: { color: '#6b8693', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
   paywallCreditsValue: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', marginBottom: 8 },
+  paywallTopUpPlusBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#07bbc0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paywallTopUpPlusText: { color: '#041527', fontSize: 22, fontWeight: '900', marginTop: -1 },
   paywallPriceLine: { color: '#FFFFFF', fontSize: 13, marginBottom: 6 },
   paywallPrimaryBtn: {
     backgroundColor: '#07bbc0',

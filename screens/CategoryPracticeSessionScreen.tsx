@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { ResizeMode, Video } from 'expo-av';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 import type { PoseFocus, PoseFrame, PoseSequence } from '../lib/pose/types';
@@ -28,6 +29,7 @@ type SessionStep =
   | 'warmup_countdown'
   | 'warmup_timer'
   | 'warmup_between_countdown'
+  | 'training_introduction'
   | 'training_safety'
   | 'training_countdown'
   | 'training_stance'
@@ -48,7 +50,8 @@ export interface CategoryPracticeSessionScreenProps {
   warmups: string[];
   cooldowns: string[];
   trainingModules: ModuleItem[];
-  startPhase?: 'warmup' | 'cooldown';
+  introductionVideoUrl?: string | null;
+  startPhase?: 'warmup' | 'cooldown' | 'introduction';
   mannequinGifUri?: string | null;
   /**
    * Recommended pick: same countdown → pose flow; **no** previous/skip or pose back button.
@@ -179,6 +182,7 @@ export default function CategoryPracticeSessionScreen({
   warmups,
   cooldowns,
   trainingModules,
+  introductionVideoUrl = null,
   startPhase = 'warmup',
   mannequinGifUri,
   sessionVariant = 'default',
@@ -245,6 +249,7 @@ export default function CategoryPracticeSessionScreen({
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [showPreviousConfirm, setShowPreviousConfirm] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [hasShownTrainingIntroduction, setHasShownTrainingIntroduction] = useState(false);
   const [hasShownTrainingSafety, setHasShownTrainingSafety] = useState(false);
   const [showTrainingFailed, setShowTrainingFailed] = useState(false);
   /** True after timer failure until Retry / Skip / Quit / leave training — keeps pose + reps frozen even if the fail modal is dismissed. */
@@ -443,6 +448,7 @@ export default function CategoryPracticeSessionScreen({
     if (pending.length > 0) await Promise.allSettled(pending);
     const s = stepRef.current;
     const inTraining =
+      s === 'training_introduction' ||
       s === 'training_safety' ||
       s === 'training_countdown' ||
       s === 'training_stance' ||
@@ -481,11 +487,19 @@ export default function CategoryPracticeSessionScreen({
         return;
       }
       setTrainingIndex(index);
+      const firstTrainingVideoUrl = String(
+        introductionVideoUrl ?? trainingModules[0]?.techniqueVideoUrl ?? trainingModules[0]?.introductionVideoUrl ?? ''
+      ).trim();
+      // Show the category introduction video once before safety.
+      if (index === 0 && !hasShownTrainingIntroduction && firstTrainingVideoUrl) {
+        setStep('training_introduction');
+        return;
+      }
       // Show safety protocol exactly once: before the first training module countdown.
       if (index === 0 && !hasShownTrainingSafety) setStep('training_safety');
       else setStep('training_countdown');
     },
-    [hasShownTrainingSafety, isTrainingModuleLocked]
+    [hasShownTrainingIntroduction, hasShownTrainingSafety, introductionVideoUrl, isTrainingModuleLocked, trainingModules]
   );
 
   useEffect(() => {
@@ -617,6 +631,16 @@ export default function CategoryPracticeSessionScreen({
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
 
+    if (step === 'training_introduction') {
+      setHasShownTrainingIntroduction(true);
+      if (!hasShownTrainingSafety) {
+        setStep('training_safety');
+      } else {
+        setStep('training_countdown');
+      }
+      return;
+    }
+
     if (step === 'training_safety') {
       setHasShownTrainingSafety(true);
       setStep('training_countdown');
@@ -691,6 +715,7 @@ export default function CategoryPracticeSessionScreen({
     cooldownIndex,
     cooldownNames,
     exitTrainingToCooldownOrDone,
+    hasShownTrainingIntroduction,
     hasShownTrainingSafety,
     hideSessionNav,
     logTrainingFailureOnce,
@@ -788,6 +813,7 @@ export default function CategoryPracticeSessionScreen({
     setModule(null);
     const isWarmupStep = step === 'warmup_countdown' || step === 'warmup_timer' || step === 'warmup_between_countdown';
     const isTrainingStep =
+      step === 'training_introduction' ||
       step === 'training_safety' ||
       step === 'training_countdown' ||
       step === 'training_stance' ||
@@ -914,6 +940,11 @@ export default function CategoryPracticeSessionScreen({
   useEffect(() => {
     if (hasInitializedSessionRef.current) return;
     hasInitializedSessionRef.current = true;
+
+    if (startPhase === 'introduction' && trainingModules.length > 0) {
+      startTrainingCountdown(0);
+      return;
+    }
 
     if (startPhase === 'cooldown' && cooldownNames.length > 0) {
       setCooldownIndex(0);
@@ -1416,6 +1447,53 @@ export default function CategoryPracticeSessionScreen({
     );
   }
 
+  if (step === 'training_introduction') {
+    const introVideoUrl = String(
+      introductionVideoUrl ?? trainingModules[0]?.techniqueVideoUrl ?? trainingModules[0]?.introductionVideoUrl ?? ''
+    ).trim();
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        {trainingGuidePreloadLayer}
+        {sessionNav}
+        <View style={styles.center}>
+          <View style={styles.safetyCard}>
+            <Text style={styles.safetyTitle}>Introduction</Text>
+            <Text style={styles.safetyIntro}>Watch this introduction before starting your training modules.</Text>
+            {introVideoUrl ? (
+              <View style={styles.introductionVideoWrap}>
+                <Video
+                  source={{ uri: introVideoUrl }}
+                  style={styles.introductionVideo}
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}
+                  shouldPlay
+                  isLooping={false}
+                />
+              </View>
+            ) : (
+              <Text style={styles.safetyIntro}>No introduction video available for this category.</Text>
+            )}
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => {
+                setHasShownTrainingIntroduction(true);
+                if (!hasShownTrainingSafety) {
+                  setStep('training_safety');
+                } else {
+                  setStep('training_countdown');
+                }
+              }}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.primaryButtonText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        {quitConfirmModal}
+      </SafeAreaView>
+    );
+  }
+
   if (step === 'training_pose' && module) {
     const rawDuration = module.trainingDurationSeconds ?? 30;
     const durationSeconds =
@@ -1774,6 +1852,20 @@ const styles = StyleSheet.create({
   safetyIntro: { color: '#FFF', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
   safetyList: { marginBottom: 18 },
   safetyItem: { color: '#6b8693', fontSize: 14, marginBottom: 10, lineHeight: 22 },
+  introductionVideoWrap: {
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#041527',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#0a3645',
+  },
+  introductionVideo: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#000',
+  },
   primaryButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 },
   primaryButtonText: { color: '#041527', fontSize: 16, fontWeight: '700' },
   modalBackdrop: {

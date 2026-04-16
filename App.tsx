@@ -16,6 +16,8 @@ import SettingsScreen from './screens/SettingsScreen';
 import MessagesScreen from './screens/MessagesScreen';
 import TrainerScreen from './screens/TrainerScreen';
 import TrainerRegistrationScreen from './screens/TrainerRegistrationScreen';
+import TrainerInsightsScreen from './screens/TrainerInsightsScreen';
+import TrainerInsightsModuleScreen from './screens/TrainerInsightsModuleScreen';
 import PublishModuleScreen from './screens/PublishModuleScreen';
 import CategoryPracticeSessionScreen from './screens/CategoryPracticeSessionScreen';
 import TopUpScreen from './screens/TopUpScreen';
@@ -35,6 +37,7 @@ import { UnreadMessagesProvider } from './lib/contexts/UnreadMessagesContext';
 import { PoseSkeletonProvider } from './lib/contexts/PoseSkeletonContext';
 import { AuthController, type ModuleItem } from './lib/controllers/AuthController';
 import type { RegisterData, User } from './lib/models/User';
+import type { TrainerModuleAnalyticsRow } from './lib/controllers/trainerAnalytics';
 
 type Screen =
   | 'splash'
@@ -51,6 +54,8 @@ type Screen =
   | 'messages'
   | 'trainer'
   | 'trainer-registration'
+  | 'trainer-insights'
+  | 'trainer-insights-module'
   | 'publish-module'
   | 'top-up'
   | 'top-up-invoice'
@@ -100,7 +105,8 @@ export default function App() {
     warmups: string[];
     cooldowns: string[];
     trainingModules: ModuleItem[];
-    startPhase?: 'warmup' | 'cooldown';
+    introductionVideoUrl?: string | null;
+    startPhase?: 'warmup' | 'cooldown' | 'introduction';
     mannequinGifUri?: string | null;
     sessionVariant?: 'default' | 'recommendedSingle';
     returnToCategoryAfterExit?: boolean;
@@ -111,6 +117,7 @@ export default function App() {
   const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
+  const [trainerInsightsModule, setTrainerInsightsModule] = useState<TrainerModuleAnalyticsRow | null>(null);
   const [pendingRegistration, setPendingRegistration] = useState<RegisterData | null>(null);
 
   // Splash: brief branding then startup (shorter = faster to interactive)
@@ -290,7 +297,7 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
-      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'settings' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice' || screen === 'module-purchase-invoice') && (
+      {(screen === 'dashboard' || screen === 'view-module' || screen === 'profile' || screen === 'settings' || screen === 'messages' || screen === 'trainer' || screen === 'trainer-registration' || screen === 'trainer-insights' || screen === 'trainer-insights-module' || screen === 'publish-module' || screen === 'category-practice-session' || screen === 'top-up' || screen === 'top-up-invoice' || screen === 'module-purchase-invoice') && (
         <PoseSkeletonProvider>
         <UnreadMessagesProvider>
           {screen === 'dashboard' && (
@@ -321,6 +328,7 @@ export default function App() {
                 onConsumeReturnToCategory={() => setDashboardReturnToCategory(null)}
                 initialToastMessage={dashboardToastMessage}
                 onClearInitialToast={() => setDashboardToastMessage(null)}
+                onOpenTopUp={openTopUp}
                 onModulePurchaseComplete={(payload) => {
                   setCreditsBalance(payload.newCredits);
                   setModulePurchaseReceipt(payload);
@@ -375,7 +383,46 @@ export default function App() {
               onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
             >
-              <ProfileScreen />
+              <ProfileScreen onOpenTrainerInsights={() => setScreen('trainer-insights')} />
+            </MainLayout>
+          )}
+          {screen === 'trainer-insights' && (
+            <MainLayout
+              title=""
+              currentScreen="profile"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={openTopUp}
+              creditsBalance={creditsBalance}
+              hideCreditsBar
+              headerLeft="back"
+              onHeaderBack={() => setScreen('profile')}
+            >
+              <TrainerInsightsScreen
+                onBack={() => setScreen('profile')}
+                onOpenModule={(row) => {
+                  setTrainerInsightsModule(row);
+                  setScreen('trainer-insights-module');
+                }}
+              />
+            </MainLayout>
+          )}
+          {screen === 'trainer-insights-module' && trainerInsightsModule && (
+            <MainLayout
+              title=""
+              currentScreen="profile"
+              onNavigate={handleNav}
+              onLogout={handleLogout}
+              onOpenTopUp={openTopUp}
+              creditsBalance={creditsBalance}
+              hideCreditsBar
+              headerLeft="back"
+              onHeaderBack={() => setScreen('trainer-insights')}
+            >
+              <TrainerInsightsModuleScreen
+                module={trainerInsightsModule}
+                onBack={() => setScreen('trainer-insights')}
+              />
             </MainLayout>
           )}
           {screen === 'settings' && (
@@ -465,6 +512,7 @@ export default function App() {
                 startPhase={categoryPracticeSession.startPhase}
                 mannequinGifUri={categoryPracticeSession.mannequinGifUri ?? null}
                 sessionVariant={categoryPracticeSession.sessionVariant ?? 'default'}
+                {...({ introductionVideoUrl: categoryPracticeSession.introductionVideoUrl ?? null } as any)}
                 onExit={() => {
                   const variant = categoryPracticeSession.sessionVariant;
                   if (variant === 'recommendedSingle') {

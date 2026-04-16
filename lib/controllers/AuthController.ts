@@ -79,6 +79,8 @@ export {
   submitTrainerApplication,
 } from './trainers';
 
+export { getTrainerPublishedModuleAnalytics } from './trainerAnalytics';
+
 import { isDemoMode, setDemoModeAndUser, clearDemoMode } from './demoMode';
 import { register, login, getCurrentUser, logout, updateStoredUserCredits } from './authSession';
 import {
@@ -131,6 +133,7 @@ import {
   updateTrainerProfile,
   submitTrainerApplication,
 } from './trainers';
+import { getTrainerPublishedModuleAnalytics } from './trainerAnalytics';
 
 /** Namespace object for screens that prefer `AuthController.method()`. */
 export const AuthController = {
@@ -176,6 +179,7 @@ export const AuthController = {
   getUserTrainerApplication,
   updateTrainerProfile,
   submitTrainerApplication,
+  getTrainerPublishedModuleAnalytics,
   saveModule,
   updateModuleMedia,
   removeModule,

@@ -42,8 +42,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             type: 'gcash',
             description,
             redirect: {
-              success: `${SERVER_BASE_URL}/api/payment-success`,
-              failed: `${SERVER_BASE_URL}/api/payment-failed`,
+              success: `${SERVER_BASE_URL}/api/payment-redirect?status=success`,
+              failed: `${SERVER_BASE_URL}/api/payment-redirect?status=failed`,
             },
           },
         },

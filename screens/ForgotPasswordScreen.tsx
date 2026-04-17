@@ -38,7 +38,6 @@ interface ForgotPasswordScreenProps {
 export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProps) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
-  const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
 
@@ -49,7 +48,6 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
   const handleSend = async () => {
     const validationError = validateEmail(email);
     setError(validationError);
-    setSubmitError('');
 
     if (validationError) {
       showToast(validationError);
@@ -64,16 +62,25 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
     setLoading(true);
     try {
       await AuthController.forgotPassword({ email });
-      setSubmitError('');
       showToast('Password reset email sent! Please check your inbox.');
       setTimeout(() => {
         onBackToLogin?.();
       }, 2000);
     } catch (err) {
-      const msg = (err as Error)?.message ?? 'Failed to send reset email. Please try again.';
-      setSubmitError(msg);
+      const rawMsg = ((err as Error)?.message ?? '').trim();
+      const lower = rawMsg.toLowerCase();
+      const noAccount =
+        lower.includes('not found') ||
+        lower.includes('no account') ||
+        lower.includes('no user') ||
+        lower.includes('does not exist') ||
+        lower.includes('email not registered') ||
+        lower.includes('invalid email');
+      const msg = noAccount
+        ? 'No account found with this email.'
+        : (rawMsg || 'Failed to send reset email. Please try again.');
       showToast(msg);
-      console.error('[ForgotPassword]', err);
+      console.log('[ForgotPassword]', err);
     } finally {
       setLoading(false);
     }
@@ -90,6 +97,15 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
+          <TouchableOpacity
+            style={styles.topBackButton}
+            onPress={onBackToLogin}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <Image source={require('../assets/images/icon-back.png')} style={styles.topBackIcon} resizeMode="contain" />
+          </TouchableOpacity>
+
           <Image
             source={require('../assets/images/defendulogo.png')}
             style={styles.logoImage}
@@ -114,7 +130,6 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
               onChangeText={(text) => {
                 setEmail(text);
                 if (error) setError('');
-                if (submitError) setSubmitError('');
               }}
               onBlur={handleEmailBlur}
               autoCapitalize="none"
@@ -141,21 +156,6 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
             )}
           </TouchableOpacity>
 
-          {submitError ? (
-            <View style={styles.submitErrorContainer}>
-              <Text style={styles.submitErrorLabel}>Error (for debugging):</Text>
-              <Text style={styles.submitErrorText} selectable>{submitError}</Text>
-            </View>
-          ) : null}
-
-          <TouchableOpacity
-            style={styles.backLink}
-            onPress={onBackToLogin}
-            disabled={loading}
-          >
-            <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
-            <Text style={styles.backText}>Back to Login</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -185,6 +185,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#041527',
     paddingHorizontal: 24,
     justifyContent: 'center',
+  },
+  topBackButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    zIndex: 2,
+  },
+  topBackIcon: {
+    width: 22,
+    height: 22,
+    tintColor: '#FFFFFF',
   },
   logoImage: {
     width: 160,
@@ -237,25 +254,6 @@ const styles = StyleSheet.create({
     color: '#FF6B6B',
     fontSize: 12,
   },
-  submitErrorContainer: {
-    marginTop: 16,
-    marginBottom: 16,
-    padding: 12,
-    backgroundColor: 'rgba(255, 100, 100, 0.15)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FF6B6B',
-  },
-  submitErrorLabel: {
-    color: '#FFAAAA',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  submitErrorText: {
-    color: '#FFCCCC',
-    fontSize: 12,
-  },
   button: {
     backgroundColor: '#00AABB',
     borderRadius: 30,
@@ -270,16 +268,5 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontWeight: '700',
     fontSize: 16,
-  },
-  backLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  backIcon: { width: 24, height: 24, marginRight: 8 },
-  backText: {
-    color: '#00AABB',
-    fontWeight: '700',
-    fontSize: 14,
   },
 });

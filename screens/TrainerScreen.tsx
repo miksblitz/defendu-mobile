@@ -64,6 +64,8 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
   const [trainerInstagramLink, setTrainerInstagramLink] = useState('');
   const [trainerOtherLink, setTrainerOtherLink] = useState('');
   const [trainerAbout, setTrainerAbout] = useState('');
+  const [viewerImageUri, setViewerImageUri] = useState<string | null>(null);
+  const [viewerKind, setViewerKind] = useState<'avatar' | 'cover' | null>(null);
 
   const loadTrainers = async () => {
     const [user, list] = await Promise.all([
@@ -301,6 +303,23 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
     return `${trimmed}${trimmed.includes('?') ? '&' : '?'}v=${imageVersion}`;
   };
 
+  const openImageViewer = (uri: string | null, kind: 'avatar' | 'cover') => {
+    if (!uri) return;
+    setViewerImageUri(uri);
+    setViewerKind(kind);
+  };
+
+  const closeImageViewer = () => {
+    setViewerImageUri(null);
+    setViewerKind(null);
+  };
+
+  const getTrainerStyles = (t: TrainerWithData): string[] => {
+    const fromApp = t.applicationData?.defenseStyles ?? [];
+    if (fromApp.length) return fromApp;
+    return t.martialArtsBackground ?? [];
+  };
+
   const renderCardRating = (trainerUid: string) => {
     const summary = trainerRatingByUid[trainerUid];
     const totalReviews = summary?.totalReviews ?? 0;
@@ -376,24 +395,77 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
           />
         </View>
         {filteredTrainers.length === 0 ? (
-          <Text style={styles.emptyText}>No approved trainers yet.</Text>
+          <View style={styles.emptyWrap}>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="people-outline" size={36} color="#07bbc0" />
+            </View>
+            <Text style={styles.emptyTitle}>No trainers yet</Text>
+            <Text style={styles.emptyText}>
+              {searchQuery ? 'Try a different search term.' : 'Check back soon for approved trainers.'}
+            </Text>
+          </View>
         ) : (
-          filteredTrainers.map((t) => (
-            <TouchableOpacity key={t.uid} style={styles.card} onPress={() => openDetail(t)} activeOpacity={0.8}>
-              {t.profilePicture ? (
-                <Image source={{ uri: addImageVersion(t.profilePicture)! }} style={styles.cardAvatar} />
-              ) : (
-                <View style={styles.cardAvatarPlaceholder}>
-                  <Text style={styles.cardAvatarLetter}>{fullName(t).charAt(0).toUpperCase()}</Text>
-                </View>
-              )}
-              <View style={styles.cardBody}>
-                <Text style={styles.cardName}>{fullName(t)}</Text>
-                {renderCardRating(t.uid)}
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
-          ))
+          <>
+            <Text style={styles.listHeading}>
+              {filteredTrainers.length} {filteredTrainers.length === 1 ? 'Trainer' : 'Trainers'}
+            </Text>
+            {filteredTrainers.map((t) => {
+              const coverUri = getCoverPhotoUri(t);
+              const trainerStyles = getTrainerStyles(t).slice(0, 3);
+              return (
+                <TouchableOpacity
+                  key={t.uid}
+                  style={styles.card}
+                  onPress={() => openDetail(t)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.cardCoverWrap}>
+                    {coverUri ? (
+                      <Image source={{ uri: addImageVersion(coverUri)! }} style={styles.cardCover} />
+                    ) : (
+                      <View style={styles.cardCoverGradient} />
+                    )}
+                    <View style={styles.cardCoverOverlay} />
+                    <View style={styles.cardVerifiedBadge}>
+                      <Ionicons name="shield-checkmark" size={12} color="#041527" />
+                      <Text style={styles.cardVerifiedText}>Verified</Text>
+                    </View>
+                  </View>
+                  <View style={styles.cardInner}>
+                    <View style={styles.cardAvatarRing}>
+                      {t.profilePicture ? (
+                        <Image source={{ uri: addImageVersion(t.profilePicture)! }} style={styles.cardAvatar} />
+                      ) : (
+                        <View style={styles.cardAvatarPlaceholder}>
+                          <Text style={styles.cardAvatarLetter}>{fullName(t).charAt(0).toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.cardHeaderRow}>
+                      <View style={styles.cardHeaderText}>
+                        <Text style={styles.cardName} numberOfLines={1}>
+                          {fullName(t)}
+                        </Text>
+                        {renderCardRating(t.uid)}
+                      </View>
+                      <View style={styles.cardChevronCircle}>
+                        <Ionicons name="chevron-forward" size={18} color="#07bbc0" />
+                      </View>
+                    </View>
+                    {trainerStyles.length > 0 ? (
+                      <View style={styles.cardPillsRow}>
+                        {trainerStyles.map((s) => (
+                          <View key={s} style={styles.cardPill}>
+                            <Text style={styles.cardPillText} numberOfLines={1}>{s}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </>
         )}
       </ScrollView>
 
@@ -411,20 +483,41 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                 </View>
                 <View style={styles.detailCoverWrap}>
                   {getCoverPhotoUri(selectedTrainer) ? (
-                    <Image source={{ uri: addImageVersion(getCoverPhotoUri(selectedTrainer))! }} style={styles.detailCoverPhoto} />
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => openImageViewer(addImageVersion(getCoverPhotoUri(selectedTrainer)), 'cover')}
+                      style={styles.detailCoverTouchable}
+                    >
+                      <Image source={{ uri: addImageVersion(getCoverPhotoUri(selectedTrainer))! }} style={styles.detailCoverPhoto} />
+                      <View style={styles.detailCoverScrim} />
+                      <View style={styles.detailCoverExpandBadge}>
+                        <Ionicons name="expand-outline" size={14} color="#FFF" />
+                      </View>
+                    </TouchableOpacity>
                   ) : (
                     <View style={styles.detailCoverPlaceholder}>
+                      <Ionicons name="image-outline" size={28} color="#6b8693" />
                       <Text style={styles.detailCoverPlaceholderText}>No cover photo yet</Text>
                     </View>
                   )}
                   <View style={styles.detailAvatarOverlay}>
-                    {selectedTrainer.profilePicture ? (
-                      <Image source={{ uri: addImageVersion(selectedTrainer.profilePicture)! }} style={styles.detailAvatar} />
-                    ) : (
-                      <View style={[styles.cardAvatarPlaceholder, styles.detailAvatar]}>
-                        <Text style={styles.detailAvatarLetter}>{fullName(selectedTrainer).charAt(0).toUpperCase()}</Text>
-                      </View>
-                    )}
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() =>
+                        selectedTrainer.profilePicture
+                          ? openImageViewer(addImageVersion(selectedTrainer.profilePicture), 'avatar')
+                          : undefined
+                      }
+                      disabled={!selectedTrainer.profilePicture}
+                    >
+                      {selectedTrainer.profilePicture ? (
+                        <Image source={{ uri: addImageVersion(selectedTrainer.profilePicture)! }} style={styles.detailAvatar} />
+                      ) : (
+                        <View style={[styles.cardAvatarPlaceholder, styles.detailAvatar]}>
+                          <Text style={styles.detailAvatarLetter}>{fullName(selectedTrainer).charAt(0).toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   </View>
                 </View>
                 <ScrollView
@@ -436,7 +529,22 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
                   keyboardShouldPersistTaps="handled"
                 >
                   <Text style={styles.detailName}>{fullName(selectedTrainer)}</Text>
+                  <View style={styles.detailVerifiedRow}>
+                    <View style={styles.detailVerifiedChip}>
+                      <Ionicons name="shield-checkmark" size={12} color="#07bbc0" />
+                      <Text style={styles.detailVerifiedText}>Verified Trainer</Text>
+                    </View>
+                  </View>
                   {renderDetailRating(selectedTrainer.uid)}
+                  {getTrainerStyles(selectedTrainer).length > 0 ? (
+                    <View style={styles.detailPillsRow}>
+                      {getTrainerStyles(selectedTrainer).slice(0, 5).map((s) => (
+                        <View key={s} style={styles.detailPill}>
+                          <Text style={styles.detailPillText}>{s}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                   {detailLoading ? (
                     <View style={styles.detailLoadingWrap}>
                       <ActivityIndicator size="small" color="#07bbc0" />
@@ -662,6 +770,42 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={!!viewerImageUri}
+        transparent
+        animationType="fade"
+        onRequestClose={closeImageViewer}
+        statusBarTranslucent
+      >
+        <View style={styles.viewerOverlay}>
+          <TouchableOpacity
+            style={styles.viewerBackdrop}
+            activeOpacity={1}
+            onPress={closeImageViewer}
+          />
+          <TouchableOpacity
+            style={styles.viewerCloseBtn}
+            onPress={closeImageViewer}
+            activeOpacity={0.7}
+            accessibilityLabel="Close image"
+          >
+            <Ionicons name="close" size={26} color="#FFF" />
+          </TouchableOpacity>
+          {viewerImageUri ? (
+            <View style={styles.viewerImageWrap} pointerEvents="none">
+              <Image
+                source={{ uri: viewerImageUri }}
+                style={viewerKind === 'avatar' ? styles.viewerAvatar : styles.viewerCover}
+                resizeMode="contain"
+              />
+            </View>
+          ) : null}
+          <View style={styles.viewerHintWrap} pointerEvents="none">
+            <Text style={styles.viewerHintText}>Tap anywhere to close</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -690,34 +834,190 @@ const styles = StyleSheet.create({
     paddingRight: 40,
     fontSize: 14,
   },
-  emptyText: { color: '#6b8693', fontSize: 16, textAlign: 'center', marginTop: 24 },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#011f36', borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#062731' },
-  cardAvatar: { width: 56, height: 56, borderRadius: 28, marginRight: 16 },
-  cardAvatarPlaceholder: { width: 56, height: 56, borderRadius: 28, marginRight: 16, backgroundColor: '#07bbc0', justifyContent: 'center', alignItems: 'center' },
-  cardAvatarLetter: { color: '#041527', fontSize: 24, fontWeight: '700' },
-  cardBody: { flex: 1, minWidth: 0 },
-  cardName: { color: '#FFF', fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(7, 187, 192, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: { color: '#FFF', fontSize: 17, fontWeight: '700', marginBottom: 6 },
+  emptyText: { color: '#6b8693', fontSize: 14, textAlign: 'center' },
+  listHeading: {
+    color: '#9aeff2',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  card: {
+    backgroundColor: '#011f36',
+    borderRadius: 20,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#0b3247',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  cardCoverWrap: {
+    width: '100%',
+    height: 84,
+    backgroundColor: '#062a43',
+    position: 'relative',
+  },
+  cardCover: { width: '100%', height: '100%', resizeMode: 'cover' },
+  cardCoverGradient: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#08394f',
+  },
+  cardCoverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(1, 31, 54, 0.35)',
+  },
+  cardVerifiedBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#07bbc0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    gap: 4,
+  },
+  cardVerifiedText: {
+    color: '#041527',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    marginLeft: 3,
+  },
+  cardInner: {
+    padding: 14,
+    paddingTop: 0,
+  },
+  cardAvatarRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#011f36',
+    borderWidth: 3,
+    borderColor: '#011f36',
+    marginTop: -36,
+    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#07bbc0',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  cardAvatar: { width: 66, height: 66, borderRadius: 33 },
+  cardAvatarPlaceholder: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: '#07bbc0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardAvatarLetter: { color: '#041527', fontSize: 28, fontWeight: '800' },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardHeaderText: { flex: 1, minWidth: 0, paddingRight: 10 },
+  cardName: { color: '#FFF', fontSize: 18, fontWeight: '800', marginBottom: 2 },
   cardMeta: { color: '#6b8693', fontSize: 14 },
-  cardRatingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  cardRatingStars: { color: '#f5c54d', fontSize: 12, letterSpacing: 0.2 },
+  cardRatingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  cardRatingStars: { color: '#f5c54d', fontSize: 13, letterSpacing: 0.4 },
   cardRatingText: { color: '#d8e6ed', fontSize: 12, fontWeight: '700', marginLeft: 8 },
-  cardRatingEmpty: { color: '#5f7e8b', fontSize: 12, marginTop: 6 },
+  cardRatingEmpty: { color: '#5f7e8b', fontSize: 12, marginTop: 4, fontStyle: 'italic' },
+  cardChevronCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(7, 187, 192, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+    gap: 6,
+  },
+  cardPill: {
+    backgroundColor: 'rgba(7, 187, 192, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.4)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  cardPillText: {
+    color: '#9aeff2',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
   chevron: { color: '#07bbc0', fontSize: 24, fontWeight: '700' },
   modalOverlay: { flex: 1, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 20 },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
-  modalContent: { backgroundColor: '#011f36', borderRadius: 16, borderWidth: 1, borderColor: '#062731', height: '92%' },
+  modalContent: { backgroundColor: '#011f36', borderRadius: 20, borderWidth: 1, borderColor: '#062731', height: '92%', overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#062731' },
   modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
   modalClose: { color: '#FFF', fontSize: 24 },
   modalScroll: { flex: 1 },
   modalScrollContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 96 },
-  detailCoverWrap: { width: '100%', height: 140, backgroundColor: '#062731', position: 'relative' },
+  detailCoverWrap: { width: '100%', height: 160, backgroundColor: '#062731', position: 'relative' },
+  detailCoverTouchable: { width: '100%', height: '100%' },
   detailCoverPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
-  detailCoverPlaceholder: { width: '100%', height: '100%', backgroundColor: '#062731', alignItems: 'center', justifyContent: 'center' },
-  detailCoverPlaceholderText: { color: '#6b8693', fontSize: 14, fontWeight: '600' },
+  detailCoverScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(1, 31, 54, 0.18)',
+  },
+  detailCoverExpandBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailCoverPlaceholder: { width: '100%', height: '100%', backgroundColor: '#062731', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  detailCoverPlaceholderText: { color: '#6b8693', fontSize: 14, fontWeight: '600', marginTop: 6 },
   detailAvatarOverlay: {
     position: 'absolute',
     left: 0,
@@ -727,15 +1027,59 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   detailAvatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
     borderColor: '#011f36',
     backgroundColor: '#062731',
   },
-  detailAvatarLetter: { color: '#041527', fontSize: 36, fontWeight: '700' },
-  detailName: { color: '#FFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16, marginTop: 48 },
+  detailAvatarLetter: { color: '#041527', fontSize: 40, fontWeight: '800' },
+  detailName: { color: '#FFF', fontSize: 24, fontWeight: '800', textAlign: 'center', marginBottom: 8, marginTop: 56, letterSpacing: 0.3 },
+  detailVerifiedRow: { alignItems: 'center', marginBottom: 10 },
+  detailVerifiedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(7, 187, 192, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.45)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    gap: 4,
+  },
+  detailVerifiedText: {
+    color: '#9aeff2',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginLeft: 4,
+    textTransform: 'uppercase',
+  },
+  detailPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginBottom: 14,
+    marginTop: 4,
+    gap: 6,
+  },
+  detailPill: {
+    backgroundColor: 'rgba(7, 187, 192, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  detailPillText: {
+    color: '#9aeff2',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
   detailRatingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   detailRatingStars: { color: '#f5c54d', fontSize: 15, letterSpacing: 0.5 },
   detailRatingText: { color: '#d8e6ed', fontSize: 13, fontWeight: '700', marginLeft: 8 },
@@ -860,4 +1204,55 @@ const styles = StyleSheet.create({
   },
   editSaveButtonDisabled: { opacity: 0.65 },
   editSaveButtonText: { color: '#041527', fontSize: 14, fontWeight: '800' },
+  viewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerBackdrop: { ...StyleSheet.absoluteFillObject },
+  viewerImageWrap: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerAvatar: {
+    width: '90%',
+    height: '90%',
+    maxWidth: 520,
+    maxHeight: 520,
+    borderRadius: 260,
+  },
+  viewerCover: {
+    width: '100%',
+    height: '80%',
+  },
+  viewerCloseBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  viewerHintWrap: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  viewerHintText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
 });

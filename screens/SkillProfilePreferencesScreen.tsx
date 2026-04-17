@@ -18,7 +18,6 @@ interface SkillProfilePreferencesScreenProps {
 const PREFERRED_TECHNIQUES = [
   { key: 'Punching', icon: 'flash' },
   { key: 'Kicking', icon: 'human-handsup' },
-  { key: 'Palm Strikes', icon: 'hand-paper-o' },
   { key: 'Elbow Strikes', icon: 'hands-helping' },
   { key: 'Knee Strikes', icon: 'hand-rock' },
   { key: 'Defensive Moves', icon: 'shield-alt' },

@@ -19,6 +19,7 @@ import {
   Modal,
   Pressable,
   AppState,
+  BackHandler,
   type ImageSourcePropType,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -500,6 +501,8 @@ export default function DashboardScreen({
   const [dayHistoryModalVisible, setDayHistoryModalVisible] = useState(false);
   const [dayHistoryDayIndex, setDayHistoryDayIndex] = useState(0);
   const lastWeekdayTapRef = useRef<{ index: number; at: number } | null>(null);
+  /** Tracks the last tap on a Training card so a quick second tap (double-tap) starts the session immediately. */
+  const lastTrainingTapRef = useRef<{ id: string; at: number }>({ id: '', at: 0 });
   /** Bumps when the local Mon–Sun week rolls so weekly bars + day history match the new window (same as weekly goal). */
   const [weekBoundaryTick, setWeekBoundaryTick] = useState(0);
   const lastWeekStartMsRef = useRef(getCurrentWeekStartMs());
@@ -1076,6 +1079,21 @@ export default function DashboardScreen({
     ]).start();
   };
 
+  // Android hardware back: close modals / category overlay before bubbling up
+  // to the App-level handler (which would otherwise treat this as "exit app").
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const onBack = (): boolean => {
+      if (purchaseModalVisible) { setPurchaseModalVisible(false); setPurchaseTargetModule(null); return true; }
+      if (recModalVisible) { setRecModalVisible(false); return true; }
+      if (dayHistoryModalVisible) { setDayHistoryModalVisible(false); return true; }
+      if (selectedCategory) { handleBackFromCategory(); return true; }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [purchaseModalVisible, recModalVisible, dayHistoryModalVisible, selectedCategory]);
+
   const renderModuleCard = (mod: ModuleItem | Module, onPress: () => void, locked = false): React.ReactNode => {
     const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
     return (
@@ -1154,7 +1172,9 @@ export default function DashboardScreen({
             </View>
           ) : null}
           <Text style={styles.moduleListTitle} numberOfLines={2}>{mod.moduleTitle}</Text>
-          <Text style={styles.moduleListDesc} numberOfLines={1}>Tap to start here</Text>
+          <Text style={styles.moduleListDesc} numberOfLines={1}>
+            {selected ? 'Double-tap to start here' : 'Tap to select · Double-tap to start'}
+          </Text>
           {durationMin ? <Text style={styles.moduleListMeta}>{durationMin}</Text> : null}
         </View>
         <View style={styles.moduleListRight}>
@@ -1174,6 +1194,54 @@ export default function DashboardScreen({
         ) : null}
       </TouchableOpacity>
     );
+  };
+
+  /**
+   * Start a category session using the currently selected warmup/cooldown/introduction
+   * selections. When `overrideTrainingIdx` is provided (e.g. from double-tapping a
+   * training card), skip warmups/introduction/cooldown selections and jump straight
+   * into training from that index.
+   */
+  const triggerStartSession = (overrideTrainingIdx?: number) => {
+    const trainingSection = modulesInCategoryByLevel.find((x) => x.label === 'Training');
+    const trainingModules = trainingSection?.items ?? [];
+    const isOverride = typeof overrideTrainingIdx === 'number';
+
+    const hasIntroductionStartSelection = !isOverride && introductionStartCardIndex >= 0;
+    const hasCooldownStartSelection = !isOverride && cooldownStartCardIndex >= 0 && warmupStartCardIndex < 0;
+    const hasTrainingStartSelection = isOverride ? true : trainingStartCardIndex >= 0;
+
+    if (!trainingModules.length && !hasCooldownStartSelection && !hasIntroductionStartSelection && !isOverride) {
+      showToast('No training modules found for this category.');
+      return;
+    }
+
+    const warmupStartIdx = warmupStartCardIndex >= 0 ? warmupStartCardIndex : 0;
+    const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
+    const trainingStartIdx = isOverride
+      ? (overrideTrainingIdx as number)
+      : (trainingStartCardIndex >= 0 ? trainingStartCardIndex : 0);
+    const warmupsToDo = warmupTop3Values.filter((v, idx) => idx >= warmupStartIdx && v !== '—');
+    const selectedCooldowns = cooldownTop3Values.filter((c, idx) => idx >= cooldownStartIdx && c && c !== '—');
+    const allWarmups = warmupTop3Values.filter((v) => v !== '—');
+    const allCooldowns = cooldownTop3Values.filter((c) => c && c !== '—');
+    const trainingSlice = trainingModules.slice(trainingStartIdx);
+
+    onStartCategorySession({
+      category: selectedCategory ?? 'Punching',
+      warmups: (hasIntroductionStartSelection || hasCooldownStartSelection || hasTrainingStartSelection)
+        ? []
+        : (warmupsToDo.length ? warmupsToDo : allWarmups),
+      cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
+      trainingModules: trainingSlice,
+      introductionVideoUrl: introductionModuleForCategory
+        ? String(moduleDyn(introductionModuleForCategory).techniqueVideoUrl ?? '').trim() || null
+        : null,
+      startPhase: hasIntroductionStartSelection
+        ? 'introduction'
+        : (hasCooldownStartSelection ? 'cooldown' : 'warmup'),
+      mannequinGifUri: null,
+    });
   };
 
   return (
@@ -1401,7 +1469,6 @@ export default function DashboardScreen({
                           {items.length > 0 ? (
                             (() => {
                               const mod = items[0];
-                              const introThumb = extractRemoteUrl(moduleDyn(mod).thumbnailUrl) || extractRemoteUrl(moduleDyn(mod).thumbnailURL);
                               return (
                                 <TouchableOpacity
                                   key={`intro-${mod.moduleId}`}
@@ -1429,13 +1496,6 @@ export default function DashboardScreen({
                                       {introductionStartCardIndex === 0 ? 'Start here' : 'Tap to start here'}
                                     </Text>
                                   </View>
-                                  <View style={styles.placeholderThumbWrap}>
-                                    {introThumb ? (
-                                      <Image source={{ uri: introThumb }} style={styles.placeholderGuideImage} resizeMode="cover" />
-                                    ) : (
-                                      <Text style={styles.placeholderIcon}>▶</Text>
-                                    )}
-                                  </View>
                                 </TouchableOpacity>
                               );
                             })()
@@ -1447,9 +1507,6 @@ export default function DashboardScreen({
                                 </View>
                                 <Text style={styles.placeholderTitle} numberOfLines={2}>No introduction video</Text>
                                 <Text style={styles.placeholderSubtitle}>Add an Introduction module to enable this step</Text>
-                              </View>
-                              <View style={styles.placeholderThumbWrap}>
-                                <Text style={styles.placeholderIcon}>🥋</Text>
                               </View>
                             </View>
                           )}
@@ -1594,11 +1651,24 @@ export default function DashboardScreen({
                                   return;
                                 }
                                 if (label === 'Training') {
-                                  // Match warmup/cooldown interaction: tap selects card first.
+                                  // Double-tap (within 350ms on the same card) starts the
+                                  // session immediately from this training module.
+                                  const now = Date.now();
+                                  const last = lastTrainingTapRef.current;
+                                  const isDoubleTap = last.id === mod.moduleId && now - last.at < 350;
+
+                                  // Tap (single or first of double) selects the card visually.
                                   setIntroductionStartCardIndex(-1);
                                   setWarmupStartCardIndex(-1);
                                   setCooldownStartCardIndex(-1);
                                   setTrainingStartCardIndex(modIdx);
+
+                                  if (isDoubleTap) {
+                                    lastTrainingTapRef.current = { id: '', at: 0 };
+                                    triggerStartSession(modIdx);
+                                  } else {
+                                    lastTrainingTapRef.current = { id: mod.moduleId, at: now };
+                                  }
                                   return;
                                 }
 
@@ -1617,44 +1687,7 @@ export default function DashboardScreen({
           {hasCategoryProgramContent && (
             <TouchableOpacity
               style={styles.categoryFloatingStartButton}
-              onPress={() => {
-                const trainingSection = modulesInCategoryByLevel.find((x) => x.label === 'Training');
-                const trainingModules = trainingSection?.items ?? [];
-                const hasIntroductionStartSelection = introductionStartCardIndex >= 0;
-                const hasCooldownStartSelection = cooldownStartCardIndex >= 0 && warmupStartCardIndex < 0;
-                const hasTrainingStartSelection = trainingStartCardIndex >= 0;
-
-                if (!trainingModules.length && !hasCooldownStartSelection && !hasIntroductionStartSelection) {
-                  showToast('No training modules found for this category.');
-                  return;
-                }
-
-                const warmupStartIdx = warmupStartCardIndex >= 0 ? warmupStartCardIndex : 0;
-                const cooldownStartIdx = cooldownStartCardIndex >= 0 ? cooldownStartCardIndex : 0;
-                const trainingStartIdx = trainingStartCardIndex >= 0 ? trainingStartCardIndex : 0;
-                const warmupsToDo = warmupTop3Values.filter((v, idx) => idx >= warmupStartIdx && v !== '—');
-                const selectedCooldowns = cooldownTop3Values.filter((c, idx) => idx >= cooldownStartIdx && c && c !== '—');
-                const allWarmups = warmupTop3Values.filter((v) => v !== '—');
-                const allCooldowns = cooldownTop3Values.filter((c) => c && c !== '—');
-                const trainingSlice = trainingModules.slice(trainingStartIdx);
-
-                onStartCategorySession({
-                  category: selectedCategory ?? 'Punching',
-                  // If user selected cooldown or training card, skip warmups and jump to that phase.
-                  warmups: (hasIntroductionStartSelection || hasCooldownStartSelection || hasTrainingStartSelection)
-                    ? []
-                    : (warmupsToDo.length ? warmupsToDo : allWarmups),
-                  cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
-                  trainingModules: trainingSlice,
-                  introductionVideoUrl: introductionModuleForCategory
-                    ? String(moduleDyn(introductionModuleForCategory).techniqueVideoUrl ?? '').trim() || null
-                    : null,
-                  startPhase: hasIntroductionStartSelection
-                    ? 'introduction'
-                    : (hasCooldownStartSelection ? 'cooldown' : 'warmup'),
-                  mannequinGifUri: null,
-                });
-              }}
+              onPress={() => triggerStartSession()}
               activeOpacity={0.9}
             >
               <Text style={styles.categoryFloatingStartButtonText}>Start</Text>

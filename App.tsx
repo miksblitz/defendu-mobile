@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image, LogBox } from 'react-native';
+import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image, LogBox, BackHandler, ToastAndroid, Platform } from 'react-native';
 
 // Suppress "Open debugger to view warnings" and similar dev prompts
 LogBox.ignoreLogs(['Open debugger', 'view warnings', 'Debugger']);
@@ -209,6 +209,129 @@ export default function App() {
     if (screen === 'messages') setMessagesOpenWith(null);
     setScreen(screen);
   };
+
+  // Android hardware back button: navigate back inside the app instead of
+  // killing the app. On top-level screens (dashboard/login) require a second
+  // press within 2s to exit so accidental taps don't close the app.
+  const lastBackAtRef = useRef(0);
+  const requestExit = useCallback((): boolean => {
+    const now = Date.now();
+    if (now - lastBackAtRef.current < 2000) {
+      lastBackAtRef.current = 0;
+      return false; // let the system handle exit
+    }
+    lastBackAtRef.current = now;
+    if (Platform.OS === 'android') {
+      try { ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT); } catch {}
+    }
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const onBack = (): boolean => {
+      if (loggingOut) return true;
+      switch (screen) {
+        case 'splash':
+          return true;
+        case 'startup':
+        case 'login':
+          return requestExit();
+        case 'register':
+          setScreen('login');
+          return true;
+        case 'register-otp':
+          if (pendingRegistration) {
+            setPendingRegistration(null);
+            setScreen('register');
+          } else {
+            setScreen('login');
+          }
+          return true;
+        case 'forgot-password':
+          setScreen('login');
+          return true;
+        case 'reset-password':
+          setResetPasswordToken(null);
+          setScreen('login');
+          return true;
+        case 'dashboard':
+          return requestExit();
+        case 'view-module':
+          setViewModuleId(null);
+          setViewModuleInitial(null);
+          setScreen('dashboard');
+          setDashboardRefreshKey((k) => k + 1);
+          return true;
+        case 'profile':
+        case 'settings':
+        case 'messages':
+        case 'trainer':
+          setScreen('dashboard');
+          return true;
+        case 'trainer-registration':
+          setScreen('trainer');
+          return true;
+        case 'trainer-insights':
+          setScreen('profile');
+          return true;
+        case 'trainer-insights-module':
+          setTrainerInsightsModule(null);
+          setScreen('trainer-insights');
+          return true;
+        case 'publish-module':
+          setScreen('trainer');
+          return true;
+        case 'category-practice-session': {
+          // Mirror the onExit handler used by the session screen so back leaves
+          // cleanly and brings the user back to the relevant dashboard state.
+          const session = categoryPracticeSession;
+          if (session?.sessionVariant === 'recommendedSingle') {
+            setDashboardRecommendationsReopenToken((t) => t + 1);
+          } else if (session && session.returnToCategoryAfterExit !== false) {
+            setDashboardRecommendationsReopenToken(0);
+            setDashboardReturnToCategory(session.category);
+          }
+          setCategoryPracticeSession(null);
+          setScreen('dashboard');
+          setDashboardRefreshKey((k) => k + 1);
+          return true;
+        }
+        case 'top-up':
+          if (topUpStep === 'payment') {
+            setTopUpStep('packs');
+          } else {
+            setScreen('dashboard');
+          }
+          return true;
+        case 'top-up-invoice':
+          setTopUpReceipt(null);
+          setTopUpStep('packs');
+          setScreen('dashboard');
+          return true;
+        case 'module-purchase-invoice':
+          setModulePurchaseReceipt(null);
+          setScreen('dashboard');
+          return true;
+        case 'skill-profile-step1':
+          // Onboarding root: don't exit; stay put (user can log out from UI).
+          return true;
+        case 'skill-profile-step2':
+          setScreen('skill-profile-step1');
+          return true;
+        case 'skill-profile-step3':
+          setScreen('skill-profile-step2');
+          return true;
+        case 'skill-profile-step4':
+          setScreen('skill-profile-step3');
+          return true;
+        default:
+          return false;
+      }
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [screen, topUpStep, loggingOut, pendingRegistration, categoryPracticeSession, requestExit]);
 
   const openTopUp = useCallback(() => {
     setTopUpReceipt(null);

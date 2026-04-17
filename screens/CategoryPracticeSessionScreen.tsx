@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   Modal,
   Platform,
@@ -24,6 +25,7 @@ import { getRequiredReps } from '../utils/repRange';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
 import { TrainingGuidePreloader, TrainingPoseGuideOverlay, type TrainingGuideModuleFields } from '../lib/trainingGuideMedia';
 import { getPurchasedModuleIds, getUserCreditsBalance, purchaseModulesWithCredits } from '../lib/controllers/modulePurchases';
+import { getCachedVideoUri, prefetchVideo } from '../utils/videoCache';
 
 type SessionStep =
   | 'warmup_countdown'
@@ -228,6 +230,40 @@ export default function CategoryPracticeSessionScreen({
 
   const currentTrainingItem = trainingModules[trainingIndex] ?? null;
   const [module, setModule] = useState<Module | null>(null);
+
+  const introVideoUrl = useMemo(() => {
+    return String(
+      introductionVideoUrl
+        ?? trainingModules[0]?.techniqueVideoUrl
+        ?? trainingModules[0]?.introductionVideoUrl
+        ?? ''
+    ).trim();
+  }, [introductionVideoUrl, trainingModules]);
+  const [introVideoLocalUri, setIntroVideoLocalUri] = useState<string | null>(null);
+  const introVideoRef = useRef<Video | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!introVideoUrl) {
+      setIntroVideoLocalUri(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    prefetchVideo(introVideoUrl);
+    (async () => {
+      try {
+        const localUri = await getCachedVideoUri(introVideoUrl);
+        if (cancelled) return;
+        setIntroVideoLocalUri(localUri || null);
+      } catch {
+        if (!cancelled) setIntroVideoLocalUri(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [introVideoUrl]);
 
   const [poseCorrectReps, setPoseCorrectReps] = useState(0);
   const [poseCurrentRepCorrect, setPoseCurrentRepCorrect] = useState<boolean | null>(null);
@@ -487,11 +523,8 @@ export default function CategoryPracticeSessionScreen({
         return;
       }
       setTrainingIndex(index);
-      const firstTrainingVideoUrl = String(
-        introductionVideoUrl ?? trainingModules[0]?.techniqueVideoUrl ?? trainingModules[0]?.introductionVideoUrl ?? ''
-      ).trim();
       // Show the category introduction video once before safety.
-      if (index === 0 && !hasShownTrainingIntroduction && firstTrainingVideoUrl) {
+      if (index === 0 && !hasShownTrainingIntroduction && introVideoUrl) {
         setStep('training_introduction');
         return;
       }
@@ -499,7 +532,7 @@ export default function CategoryPracticeSessionScreen({
       if (index === 0 && !hasShownTrainingSafety) setStep('training_safety');
       else setStep('training_countdown');
     },
-    [hasShownTrainingIntroduction, hasShownTrainingSafety, introductionVideoUrl, isTrainingModuleLocked, trainingModules]
+    [hasShownTrainingIntroduction, hasShownTrainingSafety, introVideoUrl, isTrainingModuleLocked]
   );
 
   useEffect(() => {
@@ -930,6 +963,22 @@ export default function CategoryPracticeSessionScreen({
   const confirmPrevious = useCallback(() => {
     setShowPreviousConfirm(true);
   }, []);
+
+  // Android hardware back: show the quit-confirm modal instead of leaving the
+  // session silently (which would discard any in-progress workout).
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const onBack = (): boolean => {
+      if (showQuitConfirm || showPreviousConfirm) {
+        // Let the modal's onRequestClose handle it.
+        return false;
+      }
+      setShowQuitConfirm(true);
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [showQuitConfirm, showPreviousConfirm]);
 
   useEffect(() => {
     if (step !== 'session_done') return;
@@ -1448,9 +1497,7 @@ export default function CategoryPracticeSessionScreen({
   }
 
   if (step === 'training_introduction') {
-    const introVideoUrl = String(
-      introductionVideoUrl ?? trainingModules[0]?.techniqueVideoUrl ?? trainingModules[0]?.introductionVideoUrl ?? ''
-    ).trim();
+    const playbackUri = introVideoLocalUri || introVideoUrl;
     return (
       <SafeAreaView style={styles.safeArea}>
         {trainingGuidePreloadLayer}
@@ -1459,15 +1506,20 @@ export default function CategoryPracticeSessionScreen({
           <View style={styles.safetyCard}>
             <Text style={styles.safetyTitle}>Introduction</Text>
             <Text style={styles.safetyIntro}>Watch this introduction before starting your training modules.</Text>
-            {introVideoUrl ? (
+            {playbackUri ? (
               <View style={styles.introductionVideoWrap}>
                 <Video
-                  source={{ uri: introVideoUrl }}
+                  key={playbackUri}
+                  ref={(r) => { introVideoRef.current = r; }}
+                  source={{ uri: playbackUri }}
                   style={styles.introductionVideo}
                   useNativeControls
                   resizeMode={ResizeMode.CONTAIN}
                   shouldPlay
                   isLooping={false}
+                  onLoad={() => {
+                    introVideoRef.current?.playAsync().catch(() => {});
+                  }}
                 />
               </View>
             ) : (

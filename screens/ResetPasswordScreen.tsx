@@ -102,12 +102,16 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
     return (
       <View style={styles.wrapper}>
         <View style={styles.container}>
+          <TouchableOpacity
+            style={styles.topBackButton}
+            onPress={onInvalidLink}
+            activeOpacity={0.8}
+          >
+            <Image source={require('../assets/images/icon-back.png')} style={styles.topBackIcon} resizeMode="contain" />
+          </TouchableOpacity>
           <Image source={require('../assets/images/defendulogo.png')} style={styles.logoImage} resizeMode="contain" />
           <Text style={styles.title}>Invalid or expired link</Text>
           <Text style={styles.subtitle}>{error}</Text>
-          <TouchableOpacity style={styles.button} onPress={onInvalidLink}>
-            <Text style={styles.buttonText}>Back to Login</Text>
-          </TouchableOpacity>
         </View>
         <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
       </View>
@@ -118,6 +122,14 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
     <KeyboardAvoidingView style={styles.wrapper} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.container}>
+          <TouchableOpacity
+            style={styles.topBackButton}
+            onPress={onInvalidLink}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <Image source={require('../assets/images/icon-back.png')} style={styles.topBackIcon} resizeMode="contain" />
+          </TouchableOpacity>
           <Image source={require('../assets/images/defendulogo.png')} style={styles.logoImage} resizeMode="contain" />
           <Text style={styles.title}>Set new password</Text>
           <Text style={styles.subtitle}>Enter your new password below</Text>
@@ -176,10 +188,6 @@ export default function ResetPasswordScreen({ token, onSuccess, onInvalidLink }:
             {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Reset Password</Text>}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.backLink} onPress={onInvalidLink} disabled={loading}>
-            <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
-            <Text style={styles.backText}>Back to Login</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
@@ -194,6 +202,23 @@ const styles = StyleSheet.create({
   centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#FFF', marginTop: 12, fontSize: 14 },
   container: { flex: 1, backgroundColor: '#041527', paddingHorizontal: 24, justifyContent: 'center' },
+  topBackButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    zIndex: 2,
+  },
+  topBackIcon: {
+    width: 22,
+    height: 22,
+    tintColor: '#FFFFFF',
+  },
   logoImage: { width: 160, height: 180, alignSelf: 'center', marginBottom: 16 },
   title: { fontSize: 20, color: '#FFF', fontWeight: '700', textAlign: 'center', marginBottom: 4 },
   subtitle: { fontSize: 14, color: '#FFF', textAlign: 'center', marginBottom: 24 },
@@ -212,7 +237,4 @@ const styles = StyleSheet.create({
   button: { backgroundColor: '#00AABB', borderRadius: 30, paddingVertical: 14, alignItems: 'center', marginBottom: 20 },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#FFF', fontWeight: '700', fontSize: 16 },
-  backLink: { flexDirection: 'row', alignItems: 'center', marginTop: 24 },
-  backIcon: { width: 24, height: 24, marginRight: 8 },
-  backText: { color: '#00AABB', fontWeight: '700', fontSize: 14 },
 });

@@ -427,6 +427,7 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
               <Ionicons name="image-outline" size={40} color="#45616c" />
             </View>
           )}
+          <View style={styles.coverScrim} />
           {uploadingCover ? (
             <View style={styles.coverUploadOverlay}>
               <ActivityIndicator size="large" color="#FFF" />
@@ -437,9 +438,9 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
             onPress={handleCoverImagePickerPress}
             disabled={uploadingCover || uploadingPicture}
             activeOpacity={0.85}
+            accessibilityLabel="Change cover photo"
           >
-            <Ionicons name="camera-outline" size={18} color="#041527" />
-            <Text style={styles.coverChangeButtonText}>Cover photo</Text>
+            <Ionicons name="camera" size={16} color="#041527" />
           </TouchableOpacity>
         </View>
 
@@ -449,53 +450,122 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
               style={styles.avatarTouchable}
               onPress={handleImagePickerPress}
               disabled={uploadingPicture || uploadingCover}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
             >
-              {profilePicture ? (
-                <Image source={{ uri: profilePicture }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarLetter}>{fullName.charAt(0).toUpperCase()}</Text>
-                </View>
-              )}
-              {uploadingPicture && (
-                <View style={styles.avatarUploadOverlay}>
-                  <ActivityIndicator size="large" color="#FFF" />
-                </View>
-              )}
+              <View style={styles.avatarRing}>
+                {profilePicture ? (
+                  <Image source={{ uri: profilePicture }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarLetter}>{fullName.charAt(0).toUpperCase()}</Text>
+                  </View>
+                )}
+                {uploadingPicture && (
+                  <View style={styles.avatarUploadOverlay}>
+                    <ActivityIndicator size="large" color="#FFF" />
+                  </View>
+                )}
+              </View>
               <View style={styles.avatarAddIconWrap}>
-                <Text style={styles.avatarAddIconText}>+</Text>
+                <Ionicons name="camera" size={14} color="#041527" />
               </View>
             </TouchableOpacity>
           </View>
-          <Text style={styles.displayName}>{fullName}</Text>
 
-          <View style={styles.editButtonRow}>
+          <Text style={styles.displayName}>{fullName}</Text>
+          {isApprovedTrainer ? (
+            <View style={styles.roleChip}>
+              <Ionicons name="shield-checkmark" size={12} color="#07bbc0" />
+              <Text style={styles.roleChipText}>Verified Trainer</Text>
+            </View>
+          ) : (
+            <View style={[styles.roleChip, styles.roleChipNeutral]}>
+              <Ionicons name="person-outline" size={12} color="#9aeff2" />
+              <Text style={[styles.roleChipText, styles.roleChipTextNeutral]}>Member</Text>
+            </View>
+          )}
+
+          <View style={styles.actionRow}>
             <TouchableOpacity
-              style={[styles.editButtonHalf, styles.editButtonFull]}
+              style={styles.actionBtn}
               onPress={openEditModal}
+              activeOpacity={0.85}
             >
-              <Text style={styles.editButtonText}>Edit profile</Text>
+              <Ionicons name="create-outline" size={16} color="#07bbc0" />
+              <Text style={styles.actionBtnText}>Edit profile</Text>
             </TouchableOpacity>
+            {isApprovedTrainer && canOpenTrainerInsights ? (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnPrimary]}
+                onPress={() => onOpenTrainerInsights?.()}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="bar-chart-outline" size={16} color="#041527" />
+                <Text style={[styles.actionBtnText, styles.actionBtnPrimaryText]}>Insights</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-          <Text style={styles.editHint}>
-            Change your name and password
-          </Text>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <View style={styles.statIconWrap}>
+                <Ionicons name="cube-outline" size={18} color="#07bbc0" />
+              </View>
+              <Text style={styles.statValue}>{purchasedModules.length}</Text>
+              <Text style={styles.statLabel}>Modules Owned</Text>
+            </View>
+            {isApprovedTrainer ? (
+              <View style={styles.statCard}>
+                <View style={styles.statIconWrap}>
+                  <Ionicons name="rocket-outline" size={18} color="#07bbc0" />
+                </View>
+                <Text style={styles.statValue}>{publishedModules.length}</Text>
+                <Text style={styles.statLabel}>Published</Text>
+              </View>
+            ) : (
+              <View style={styles.statCard}>
+                <View style={styles.statIconWrap}>
+                  <Ionicons name="flash-outline" size={18} color="#07bbc0" />
+                </View>
+                <Text style={styles.statValue}>{purchasedCategoryTabs.filter((c) => getCategoryCount(c) > 0).length}</Text>
+                <Text style={styles.statLabel}>Categories</Text>
+              </View>
+            )}
+          </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Purchased Modules</Text>
-            <Text style={styles.sectionHint}>Modules you unlocked with credits ({purchasedModules.length}).</Text>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionHeaderText}>
+                <Text style={styles.sectionTitle}>My Library</Text>
+                <Text style={styles.sectionHint}>Modules unlocked with credits</Text>
+              </View>
+              <View style={styles.sectionCountPill}>
+                <Text style={styles.sectionCountText}>{purchasedModules.length}</Text>
+              </View>
+            </View>
+
             {loadingPurchasedModules ? (
               <View style={styles.purchasedLoadingWrap}>
                 <ActivityIndicator size="small" color="#07bbc0" />
               </View>
             ) : purchasedModules.length === 0 ? (
-              <Text style={styles.purchasedEmpty}>No purchased modules yet.</Text>
+              <View style={styles.libraryEmptyWrap}>
+                <View style={styles.libraryEmptyIcon}>
+                  <Ionicons name="cube-outline" size={30} color="#07bbc0" />
+                </View>
+                <Text style={styles.libraryEmptyTitle}>Your library is empty</Text>
+                <Text style={styles.libraryEmptyText}>Purchase a module to see it here.</Text>
+              </View>
             ) : (
               <>
-                <View style={styles.categoryTabsWrap}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.categoryTabsWrap}
+                >
                   {purchasedCategoryTabs.map((cat) => {
                     const isActive = selectedPurchasedCategory === cat;
+                    const count = getCategoryCount(cat);
                     return (
                       <TouchableOpacity
                         key={cat}
@@ -504,50 +574,48 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
                         activeOpacity={0.9}
                       >
                         <Text style={[styles.categoryTabBtnText, isActive && styles.categoryTabBtnTextActive]}>
-                          {cat} ({getCategoryCount(cat)})
+                          {cat}
                         </Text>
+                        <View style={[styles.categoryTabCount, isActive && styles.categoryTabCountActive]}>
+                          <Text style={[styles.categoryTabCountText, isActive && styles.categoryTabCountTextActive]}>
+                            {count}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
-                </View>
-                <ScrollView
-                  style={styles.purchasedModalScroll}
-                  contentContainerStyle={styles.purchasedModalScrollContent}
-                  showsVerticalScrollIndicator={false}
-                  nestedScrollEnabled
-                >
+                </ScrollView>
+
+                <View style={styles.purchasedList}>
                   {purchasedInSelectedCategory.length === 0 ? (
-                    <View style={styles.purchasedEmptyCenterWrap}>
-                      <Text style={styles.purchasedEmptyCenterText}>No modules purchased</Text>
+                    <View style={styles.libraryCategoryEmpty}>
+                      <Ionicons name="file-tray-outline" size={28} color="#45616c" />
+                      <Text style={styles.libraryCategoryEmptyText}>
+                        No modules in {selectedPurchasedCategory.toLowerCase()}
+                      </Text>
                     </View>
                   ) : (
                     purchasedInSelectedCategory.map((item) => (
                       <View key={item.moduleId} style={styles.purchasedItem}>
+                        <View style={styles.purchasedItemIcon}>
+                          <Ionicons name="flame" size={18} color="#07bbc0" />
+                        </View>
                         <View style={styles.purchasedTextWrap}>
                           <Text style={styles.purchasedTitle} numberOfLines={1}>{item.moduleTitle}</Text>
-                          {item.referenceNo ? <Text style={styles.purchasedRef} numberOfLines={1}>Ref: {item.referenceNo}</Text> : null}
+                          {item.referenceNo ? (
+                            <Text style={styles.purchasedRef} numberOfLines={1}>Ref: {item.referenceNo}</Text>
+                          ) : (
+                            <Text style={styles.purchasedCategoryMeta} numberOfLines={1}>{item.category}</Text>
+                          )}
                         </View>
                         <View style={styles.purchasedBadge}>
+                          <Ionicons name="checkmark-circle" size={12} color="#07bbc0" />
                           <Text style={styles.purchasedBadgeText}>Owned</Text>
                         </View>
                       </View>
                     ))
                   )}
-                </ScrollView>
-                {isApprovedTrainer ? (
-                  <TouchableOpacity
-                    style={styles.viewPublishedBtn}
-                    onPress={() => onOpenTrainerInsights?.()}
-                    activeOpacity={0.9}
-                    disabled={loadingPublishedModules || !canOpenTrainerInsights}
-                  >
-                    <Text style={styles.viewPublishedBtnText}>
-                      {loadingPublishedModules
-                        ? 'Loading published modules...'
-                        : `Trainer Insights (${publishedModules.length} modules)`}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
+                </View>
               </>
             )}
           </View>
@@ -839,7 +907,7 @@ const styles = StyleSheet.create({
   scrollContent: { alignItems: 'stretch', paddingBottom: 48 },
   coverHero: {
     width: '100%',
-    height: 152,
+    height: 180,
     backgroundColor: '#062731',
     position: 'relative',
   },
@@ -850,6 +918,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#0a3645',
   },
+  coverScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4, 21, 39, 0.35)',
+  },
   coverUploadOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -858,71 +930,86 @@ const styles = StyleSheet.create({
   },
   coverChangeButton: {
     position: 'absolute',
-    bottom: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    top: 14,
+    right: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: '#07bbc0',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   coverChangeButtonText: { color: '#041527', fontSize: 13, fontWeight: '700' },
-  profileBody: { paddingHorizontal: 24, alignItems: 'center', paddingTop: 8, paddingBottom: 8 },
-  avatarWrap: { marginTop: -52, marginBottom: 16, position: 'relative', alignSelf: 'center', zIndex: 2 },
+  profileBody: { paddingHorizontal: 20, alignItems: 'center', paddingTop: 0, paddingBottom: 8 },
+  avatarWrap: { marginTop: -60, marginBottom: 14, position: 'relative', alignSelf: 'center', zIndex: 2 },
   avatarTouchable: { position: 'relative' },
+  avatarRing: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    padding: 4,
+    backgroundColor: '#011f36',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#07bbc0',
+    shadowColor: '#07bbc0',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 108,
+    height: 108,
+    borderRadius: 54,
     backgroundColor: '#062731',
-    borderWidth: 3,
-    borderColor: '#041527',
   },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 108,
+    height: 108,
+    borderRadius: 54,
     backgroundColor: '#07bbc0',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#041527',
   },
-  avatarLetter: { color: '#041527', fontSize: 40, fontWeight: '700' },
+  avatarLetter: { color: '#041527', fontSize: 44, fontWeight: '800' },
   avatarUploadOverlay: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 50,
+    top: 4,
+    left: 4,
+    right: 4,
+    bottom: 4,
+    borderRadius: 54,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarAddIconWrap: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    bottom: 4,
+    right: 4,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#07bbc0',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#041527',
+    borderWidth: 3,
+    borderColor: '#011f36',
     zIndex: 10,
     elevation: 10,
   },
   avatarAddIconText: {
-    color: '#FFF',
-    fontSize: 24,
-    fontWeight: '700',
-    lineHeight: 28,
-    marginTop: -2,
+    color: '#041527',
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 24,
   },
   imagePickerOverlay: {
     flex: 1,
@@ -950,10 +1037,170 @@ const styles = StyleSheet.create({
   imagePickerOptionText: { color: '#FFF', fontSize: 16, fontWeight: '500', marginLeft: 12 },
   imagePickerCancel: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#6b8693', marginTop: 8 },
   imagePickerCancelText: { color: '#FFF', fontSize: 16, textAlign: 'center', width: '100%' },
-  displayName: { color: '#FFF', fontSize: 22, fontWeight: '700', marginBottom: 24, textAlign: 'center' },
-  section: { width: '100%', marginBottom: 24, backgroundColor: '#011f36', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#062731' },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#FFF', marginBottom: 4 },
-  sectionHint: { fontSize: 12, color: '#6b8693', marginBottom: 12 },
+  displayName: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 8, textAlign: 'center', letterSpacing: 0.3 },
+  roleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(7, 187, 192, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.4)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginBottom: 18,
+    gap: 4,
+  },
+  roleChipText: {
+    color: '#9aeff2',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginLeft: 4,
+    textTransform: 'uppercase',
+  },
+  roleChipNeutral: {
+    backgroundColor: 'rgba(154, 239, 242, 0.08)',
+    borderColor: 'rgba(154, 239, 242, 0.25)',
+  },
+  roleChipTextNeutral: {
+    color: '#9aeff2',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 10,
+    marginBottom: 16,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#07bbc0',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(7, 187, 192, 0.08)',
+  },
+  actionBtnText: { color: '#07bbc0', fontSize: 14, fontWeight: '700', marginLeft: 4 },
+  actionBtnPrimary: {
+    backgroundColor: '#07bbc0',
+    borderColor: '#07bbc0',
+  },
+  actionBtnPrimaryText: { color: '#041527' },
+  statsRow: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 10,
+    marginBottom: 18,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#011f36',
+    borderWidth: 1,
+    borderColor: '#0b3247',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'flex-start',
+  },
+  statIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(7, 187, 192, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  statValue: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  statLabel: {
+    color: '#6b8693',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  section: {
+    width: '100%',
+    marginBottom: 24,
+    backgroundColor: '#011f36',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#0b3247',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  sectionHeaderText: { flex: 1, minWidth: 0 },
+  sectionTitle: { fontSize: 17, fontWeight: '800', color: '#FFF', marginBottom: 2 },
+  sectionHint: { fontSize: 12, color: '#6b8693' },
+  sectionCountPill: {
+    backgroundColor: 'rgba(7, 187, 192, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.4)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    minWidth: 36,
+    alignItems: 'center',
+  },
+  sectionCountText: { color: '#9aeff2', fontSize: 12, fontWeight: '800' },
+  libraryEmptyWrap: { alignItems: 'center', paddingVertical: 22, paddingHorizontal: 8 },
+  libraryEmptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: 'rgba(7, 187, 192, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  libraryEmptyTitle: { color: '#FFF', fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  libraryEmptyText: { color: '#6b8693', fontSize: 13, textAlign: 'center' },
+  libraryCategoryEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 30,
+    gap: 8,
+  },
+  libraryCategoryEmptyText: {
+    color: '#6b8693',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  purchasedItemIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: 'rgba(7, 187, 192, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  purchasedCategoryMeta: { color: '#6b8693', fontSize: 12, marginTop: 2 },
   row: { marginBottom: 12 },
   label: { fontSize: 14, color: '#6b8693', marginBottom: 4 },
   input: { backgroundColor: '#062731', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: '#FFF', borderWidth: 1, borderColor: '#0a3645' },
@@ -985,38 +1232,57 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(7, 187, 192, 0.08)',
   },
   viewPublishedBtnText: { color: '#07bbc0', fontSize: 14, fontWeight: '700' },
-  purchasedList: { marginTop: 6, gap: 8 },
+  purchasedList: { marginTop: 4, gap: 10 },
   purchasedItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#041527',
     borderWidth: 1,
-    borderColor: '#062731',
-    borderRadius: 10,
+    borderColor: '#0b3247',
+    borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 10,
   },
-  purchasedTextWrap: { flex: 1, paddingRight: 10 },
-  purchasedTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  purchasedTextWrap: { flex: 1, paddingRight: 10, minWidth: 0 },
+  purchasedTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   purchasedMeta: { color: '#6b8693', fontSize: 12, marginTop: 2 },
   purchasedRef: { color: '#07bbc0', fontSize: 11, marginTop: 4, fontWeight: '700' },
   purchasedModalContent: { maxHeight: '80%' },
   publishedModalContent: { maxHeight: '80%' },
-  categoryTabsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  categoryTabsWrap: { flexDirection: 'row', paddingBottom: 6, paddingRight: 4 },
   categoryTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#07bbc0',
+    borderColor: 'rgba(7, 187, 192, 0.4)',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     backgroundColor: 'rgba(7, 187, 192, 0.08)',
+    marginRight: 8,
   },
   categoryTabBtnActive: {
     backgroundColor: '#07bbc0',
+    borderColor: '#07bbc0',
   },
-  categoryTabBtnText: { color: '#07bbc0', fontSize: 12, fontWeight: '700' },
+  categoryTabBtnText: { color: '#9aeff2', fontSize: 12, fontWeight: '700' },
   categoryTabBtnTextActive: { color: '#041527' },
+  categoryTabCount: {
+    marginLeft: 6,
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 999,
+    backgroundColor: 'rgba(7, 187, 192, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryTabCountActive: {
+    backgroundColor: 'rgba(4, 21, 39, 0.2)',
+  },
+  categoryTabCountText: { color: '#9aeff2', fontSize: 10, fontWeight: '800' },
+  categoryTabCountTextActive: { color: '#041527' },
   purchasedModalScroll: { width: '100%', marginTop: 8, minHeight: 260, maxHeight: 260 },
   publishedModalScroll: { width: '100%', marginTop: 8, minHeight: 300, maxHeight: 300 },
   purchasedModalScrollContent: { paddingBottom: 8, flexGrow: 1 },
@@ -1026,14 +1292,17 @@ const styles = StyleSheet.create({
   purchasedEmptyCenterWrap: { flex: 1, minHeight: 244, justifyContent: 'center', alignItems: 'center' },
   purchasedEmptyCenterText: { color: '#6b8693', fontSize: 26, fontWeight: '800', textAlign: 'center' },
   purchasedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(7, 187, 192, 0.18)',
     borderWidth: 1,
     borderColor: '#07bbc0',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
+    gap: 4,
   },
-  purchasedBadgeText: { color: '#07bbc0', fontSize: 11, fontWeight: '700' },
+  purchasedBadgeText: { color: '#07bbc0', fontSize: 11, fontWeight: '800', marginLeft: 3 },
   publishedMeta: { color: '#6b8693', fontSize: 12, marginTop: 4 },
   publishedBadge: {
     backgroundColor: 'rgba(7, 187, 192, 0.18)',

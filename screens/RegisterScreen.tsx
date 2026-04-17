@@ -59,7 +59,6 @@ function validateConfirmPassword(confirmPassword: string, password: string): str
 
 // --- Types ---
 interface FormState {
-  username: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -85,7 +84,6 @@ interface RegisterScreenProps {
 // --- Component ---
 export default function RegisterScreen({ onLogin, onOtpRequested, onRegistered }: RegisterScreenProps) {
   const [form, setForm] = useState<FormState>({
-    username: '',
     firstName: '',
     lastName: '',
     email: '',
@@ -144,17 +142,15 @@ export default function RegisterScreen({ onLogin, onOtpRequested, onRegistered }
       showToast('This email is not allowed. Please try a different one.');
       return;
     }
-    if (!form.username.trim()) {
-      showToast('Please enter a username');
-      return;
-    }
-
     setLoading(true);
     try {
+      const emailLocalPart = form.email.trim().split('@')[0] || 'user';
+      const safeLocal = emailLocalPart.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 30);
+      const generatedUsername = safeLocal || `user${Date.now().toString().slice(-6)}`;
       const registerData: RegisterData = {
         email: form.email,
         password: form.password,
-        username: form.username.trim(),
+        username: generatedUsername,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
       };
@@ -213,20 +209,6 @@ export default function RegisterScreen({ onLogin, onOtpRequested, onRegistered }
           <Text style={styles.subtitle}>
             Create your account and start building lifesaving skills today.
           </Text>
-
-          <View style={styles.inputWrapper}>
-            <Image source={nameFieldIcon} style={styles.iconImage} resizeMode="contain" />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your username"
-              placeholderTextColor="rgba(255,255,255,0.6)"
-              value={form.username}
-              onChangeText={(text) => setForm((f) => ({ ...f, username: text }))}
-              autoCapitalize="none"
-              maxLength={50}
-              editable={!loading}
-            />
-          </View>
 
           <View style={styles.inputWrapper}>
             <Image source={nameFieldIcon} style={styles.iconImage} resizeMode="contain" />

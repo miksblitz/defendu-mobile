@@ -145,6 +145,7 @@ function getWeekdayColumnDateLabel(dayIndex: number): string {
 const WEEK_BOUNDARY_POLL_MS = 30_000;
 
 const DAY_DOUBLE_TAP_MS = 320;
+const START_HERE_DOUBLE_TAP_MS = 350;
 
 const MODULES_CACHE_KEY = 'dashboard_modules_cache';
 
@@ -501,6 +502,8 @@ export default function DashboardScreen({
   const [dayHistoryModalVisible, setDayHistoryModalVisible] = useState(false);
   const [dayHistoryDayIndex, setDayHistoryDayIndex] = useState(0);
   const lastWeekdayTapRef = useRef<{ index: number; at: number } | null>(null);
+  const lastWarmupTapRef = useRef<{ index: number; at: number }>({ index: -1, at: 0 });
+  const lastCooldownTapRef = useRef<{ index: number; at: number }>({ index: -1, at: 0 });
   /** Tracks the last tap on a Training card so a quick second tap (double-tap) starts the session immediately. */
   const lastTrainingTapRef = useRef<{ id: string; at: number }>({ id: '', at: 0 });
   /** Bumps when the local Mon–Sun week rolls so weekly bars + day history match the new window (same as weekly goal). */
@@ -990,6 +993,8 @@ export default function DashboardScreen({
     setCooldownStartCardIndex(-1);
     setTrainingStartCardIndex(-1);
     setIntroductionStartCardIndex(-1);
+    lastWarmupTapRef.current = { index: -1, at: 0 };
+    lastCooldownTapRef.current = { index: -1, at: 0 };
   }, [selectedCategory]);
 
   function groupByDifficulty<T extends { difficultyLevel?: string | null }>(
@@ -1299,9 +1304,6 @@ export default function DashboardScreen({
           <View style={styles.weeklyGoalHeader}>
             <View>
               <Text style={styles.weeklyGoalTitle}>Weekly Goal</Text>
-              <Text style={styles.weeklyGoalSubtitle}>
-                {targetModulesPerDay} modules/day • {targetModulesPerWeek} modules/week
-              </Text>
             </View>
             <View style={styles.weeklyGoalStats}>
               <Text style={styles.weeklyGoalPercentage}>{Math.round(weeklyProgress * 100)}%</Text>
@@ -1564,11 +1566,20 @@ export default function DashboardScreen({
                                   disabled={isDisabled}
                                   onPress={() => {
                                     if (!isSelectable) return;
+                                    const now = Date.now();
+                                    const last = lastCooldownTapRef.current;
+                                    const isDoubleTap = last.index === idx && now - last.at < START_HERE_DOUBLE_TAP_MS;
                                     // Only one phase can be selected at a time.
                                     setIntroductionStartCardIndex(-1);
                                     setWarmupStartCardIndex(-1);
                                     setTrainingStartCardIndex(-1);
                                     setCooldownStartCardIndex(idx);
+                                    if (isDoubleTap) {
+                                      lastCooldownTapRef.current = { index: -1, at: 0 };
+                                      triggerStartSession();
+                                    } else {
+                                      lastCooldownTapRef.current = { index: idx, at: now };
+                                    }
                                   }}
                                 >
                                   <View style={styles.placeholderTextWrap}>
@@ -1577,7 +1588,7 @@ export default function DashboardScreen({
                                     </View>
                                     <Text style={styles.placeholderTitle} numberOfLines={2}>{t}</Text>
                                     <Text style={styles.placeholderSubtitle}>
-                                      {isSelected ? 'Start here' : 'Tap to start here'}
+                                      {isSelected ? 'Start here (double-tap to start)' : 'Tap to start here'}
                                     </Text>
                                   </View>
                                   <View style={styles.placeholderThumbWrap}>
@@ -1608,12 +1619,21 @@ export default function DashboardScreen({
                                 disabled={isDisabled}
                                 onPress={() => {
                                   if (!isSelectable) return;
+                                  const now = Date.now();
+                                  const last = lastWarmupTapRef.current;
+                                  const isDoubleTap = last.index === idx && now - last.at < START_HERE_DOUBLE_TAP_MS;
                                   // Tap warmup card to start session from that warmup.
                                   // Only one phase can be selected at a time.
                                   setIntroductionStartCardIndex(-1);
                                   setTrainingStartCardIndex(-1);
                                   setCooldownStartCardIndex(-1);
                                   setWarmupStartCardIndex(idx);
+                                  if (isDoubleTap) {
+                                    lastWarmupTapRef.current = { index: -1, at: 0 };
+                                    triggerStartSession();
+                                  } else {
+                                    lastWarmupTapRef.current = { index: idx, at: now };
+                                  }
                                 }}
                               >
                                 <View style={styles.placeholderTextWrap}>
@@ -1622,7 +1642,7 @@ export default function DashboardScreen({
                                   </View>
                                   <Text style={styles.placeholderTitle} numberOfLines={2}>{t}</Text>
                                   <Text style={styles.placeholderSubtitle}>
-                                    {isSelected ? 'Start here' : 'Tap to start here'}
+                                    {isSelected ? 'Start here (double-tap to start)' : 'Tap to start here'}
                                   </Text>
                                 </View>
                                 <View style={styles.placeholderThumbWrap}>
@@ -2300,7 +2320,6 @@ const styles = StyleSheet.create({
   paywallCloseText: { color: '#6b8693', fontSize: 13, fontWeight: '700' },
   weeklyGoalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   weeklyGoalTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
-  weeklyGoalSubtitle: { fontSize: 12, color: '#6b8693', marginTop: 2 },
   weeklyGoalStats: { alignItems: 'flex-end' },
   weeklyGoalPercentage: { fontSize: 24, fontWeight: '700', color: '#07bbc0' },
   progressBarBackground: { height: 8, backgroundColor: '#0a3645', borderRadius: 8, marginBottom: 12, overflow: 'hidden' },

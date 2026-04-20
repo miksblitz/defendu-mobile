@@ -291,7 +291,7 @@ export async function submitTrainerApplication(data: TrainerApplication): Promis
     defenseStyles: data.defenseStyles,
     yearsOfExperience: data.yearsOfExperience,
     yearsOfTeaching: data.yearsOfTeaching,
-    uploadedFiles: data.uploadedFiles,
+    credentialImageUrls: data.credentialImageUrls,
     credentialsRevoked: data.credentialsRevoked,
     felonyConviction: data.felonyConviction,
     certifyAccurate: data.certifyAccurate,

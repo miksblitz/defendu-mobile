@@ -19,7 +19,13 @@ export interface TrainerApplication {
   facebookLink?: string;
   instagramLink?: string;
   otherLink?: string;
-  uploadedFiles: { name: string; uri: string; type: string; size: number }[];
+  /** Cloudinary `secure_url` values for certification photos (images only). Absent on legacy applications. */
+  credentialImageUrls?: string[];
+  /**
+   * Legacy applications only: local file metadata from document picker (not portable).
+   * Prefer `credentialImageUrls` for new data.
+   */
+  uploadedFiles?: { name: string; uri: string; type: string; size: number }[];
   credentialsRevoked: string | null;
   credentialsRevokedExplanation?: string;
   felonyConviction: string | null;

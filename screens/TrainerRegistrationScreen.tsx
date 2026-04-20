@@ -15,7 +15,9 @@ import {
   Image,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { TrainerApplication } from '../lib/models/TrainerApplication';
 import { MARTIAL_ARTS as martialArts, BELT_BASED_MARTIAL_ARTS as beltBasedMartialArts, BELT_SYSTEMS as beltSystems } from '../lib/constants/martialArts';
@@ -57,7 +59,9 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
   const [felonyExplanation, setFelonyExplanation] = useState('');
   const [certifyAccurate, setCertifyAccurate] = useState(false);
   const [agreeConduct, setAgreeConduct] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; uri: string; type: string; size: number }>>([]);
+  const [credentialImages, setCredentialImages] = useState<
+    Array<{ uri: string; name: string; mimeType?: string }>
+  >([]);
   const [showMartialArtsPicker, setShowMartialArtsPicker] = useState(false);
   const [showYearsExpPicker, setShowYearsExpPicker] = useState(false);
   const [showYearsTeachPicker, setShowYearsTeachPicker] = useState(false);
@@ -115,7 +119,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
     const defenseError = selectedMartialArts.length === 0 ? 'Please select at least one defense style' : '';
     const yearsExpError = !yearsExperience ? 'Years of experience is required' : '';
     const yearsTeachError = !yearsTeaching ? 'Years of teaching experience is required' : '';
-    const filesError = uploadedFiles.length === 0 ? 'Please upload at least one certification file' : '';
+    const filesError = credentialImages.length === 0 ? 'Please add at least one certification photo' : '';
     const certifyError = !certifyAccurate ? 'You must certify that all information is accurate' : '';
     const conductError = !agreeConduct ? 'You must agree to maintain professional conduct' : '';
 
@@ -128,7 +132,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
       defenseStyle: defenseError,
       yearsExperience: yearsExpError,
       yearsTeaching: yearsTeachError,
-      uploadedFiles: filesError,
+      credentialImages: filesError,
       certifyAccurate: certifyError,
       agreeConduct: conductError,
     });
@@ -169,6 +173,17 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
         return;
       }
 
+      const credentialImageUrls = await Promise.all(
+        credentialImages.map((img, idx) =>
+          AuthController.uploadFileToCloudinary(
+            img.uri,
+            'image',
+            img.name || `trainer_cert_${idx}.jpg`,
+            img.mimeType
+          )
+        )
+      );
+
       const applicationData: TrainerApplication = {
         uid: user.uid,
         fullLegalName: fullName.trim(),
@@ -187,7 +202,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
         facebookLink: facebookLink.trim() || undefined,
         instagramLink: instagramLink.trim() || undefined,
         otherLink: otherLink.trim() || undefined,
-        uploadedFiles,
+        credentialImageUrls,
         credentialsRevoked,
         credentialsRevokedExplanation: credentialsRevoked === 'yes' && credentialsRevokedExplanation.trim() ? credentialsRevokedExplanation : undefined,
         felonyConviction,
@@ -214,7 +229,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
     selectedMartialArts,
     yearsExperience,
     yearsTeaching,
-    uploadedFiles,
+    credentialImages,
     certifyAccurate,
     agreeConduct,
     professionalAlias,
@@ -232,39 +247,42 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
     loading,
   ]);
 
-  const pickFiles = async () => {
-    let DocumentPicker: { getDocumentAsync: (opts: { type: string[]; multiple: boolean; copyToCacheDirectory: boolean }) => Promise<{ canceled: boolean; assets?: Array<{ name?: string; uri: string; mimeType?: string; size?: number }> }> } | null = null;
+  const MAX_CERTIFICATION_IMAGES = 10;
+
+  const pickCredentialImages = async () => {
     try {
-      DocumentPicker = require('expo-document-picker');
-    } catch (_) {
-      showToast('File picker not available. Run: npx expo install expo-document-picker');
-      return;
-    }
-    if (!DocumentPicker) return;
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/*'],
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
-      if (!result.canceled && result.assets) {
-        const newFiles = result.assets.map((a) => ({
-          name: a.name || 'file',
-          uri: a.uri,
-          type: a.mimeType || 'application/octet-stream',
-          size: a.size || 0,
-        }));
-        setUploadedFiles((prev) => [...prev, ...newFiles]);
-        setErrors((e) => ({ ...e, uploadedFiles: '' }));
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your photos to upload certification images.');
+        return;
       }
+      const remaining = Math.max(0, MAX_CERTIFICATION_IMAGES - credentialImages.length);
+      if (remaining === 0) {
+        showToast(`You can add up to ${MAX_CERTIFICATION_IMAGES} images.`);
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const newImages = result.assets.map((a, i) => ({
+        uri: a.uri,
+        name: a.fileName || `certificate_${Date.now()}_${i}.jpg`,
+        mimeType: a.mimeType ?? undefined,
+      }));
+      setCredentialImages((prev) => [...prev, ...newImages].slice(0, MAX_CERTIFICATION_IMAGES));
+      setErrors((e) => ({ ...e, credentialImages: '' }));
     } catch (err) {
       console.error(err);
-      showToast('Could not pick files. Please try again.');
+      showToast('Could not pick images. Please try again.');
     }
   };
 
-  const removeFile = (index: number) => {
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+  const removeCredentialImage = (index: number) => {
+    setCredentialImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const toggleMartialArt = (art: string) => {
@@ -541,35 +559,40 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
             <TextInput style={styles.input} placeholder="Website or other URL" placeholderTextColor="#6b8693" value={otherLink} onChangeText={setOtherLink} autoCapitalize="none" keyboardType="url" />
           </View>
 
-          {/* Step 3: Certification files */}
+          {/* Step 3: Certification images (Cloudinary) */}
           <View style={styles.section}>
             <View style={styles.sectionBadge}>
               <Text style={styles.sectionBadgeText}>3</Text>
             </View>
-            <Text style={styles.sectionTitle}>Certification documents</Text>
-            <Text style={styles.sectionHint}>Upload at least one file (PDF or image). Max 10MB per file.</Text>
+            <Text style={styles.sectionTitle}>Certification photos</Text>
+            <Text style={styles.sectionHint}>
+              Add at least one clear photo of your credentials. Images are uploaded securely and stored as links for review (up to {MAX_CERTIFICATION_IMAGES}).
+            </Text>
             <TouchableOpacity
-              style={[styles.uploadArea, errors.uploadedFiles ? styles.inputError : null]}
-              onPress={pickFiles}
+              style={[styles.uploadArea, errors.credentialImages ? styles.inputError : null]}
+              onPress={pickCredentialImages}
               activeOpacity={0.8}
             >
               <Text style={styles.uploadIcon}>📤</Text>
-              <Text style={styles.uploadText}>Tap to add files</Text>
-              <Text style={styles.uploadSub}>PDF or image, max 10MB each</Text>
+              <Text style={styles.uploadText}>Tap to add photos</Text>
+              <Text style={styles.uploadSub}>From your gallery — images only</Text>
             </TouchableOpacity>
-            {uploadedFiles.length > 0 && (
+            {credentialImages.length > 0 && (
               <View style={styles.fileList}>
-                {uploadedFiles.map((f, i) => (
-                  <View key={i} style={styles.fileItem}>
-                    <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
-                    <TouchableOpacity onPress={() => removeFile(i)} hitSlop={8}>
+                {credentialImages.map((f, i) => (
+                  <View key={`${f.uri}-${i}`} style={styles.fileItem}>
+                    <Image source={{ uri: f.uri }} style={styles.credentialThumb} resizeMode="cover" />
+                    <Text style={styles.fileName} numberOfLines={1}>
+                      {f.name}
+                    </Text>
+                    <TouchableOpacity onPress={() => removeCredentialImage(i)} hitSlop={8}>
                       <Text style={styles.removeFile}>✕</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
               </View>
             )}
-            {errors.uploadedFiles ? <Text style={styles.errorText}>{errors.uploadedFiles}</Text> : null}
+            {errors.credentialImages ? <Text style={styles.errorText}>{errors.credentialImages}</Text> : null}
           </View>
 
           {/* Step 4: Questions */}
@@ -777,7 +800,18 @@ const styles = StyleSheet.create({
   uploadText: { color: '#FFF', fontSize: 16, fontWeight: '500' },
   uploadSub: { color: '#6b8693', fontSize: 12, marginTop: 4 },
   fileList: { marginBottom: 16 },
-  fileItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#011f36', borderRadius: 8, marginBottom: 8 },
+  fileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#011f36',
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 10,
+  },
+  credentialThumb: { width: 44, height: 44, borderRadius: 6, backgroundColor: '#062731' },
   fileName: { color: '#FFF', fontSize: 14, flex: 1 },
   removeFile: { color: '#FF6B6B', fontSize: 18, padding: 4 },
   row: { flexDirection: 'row', gap: 24, marginBottom: 16 },

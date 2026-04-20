@@ -4,15 +4,18 @@ import { cloudinaryConfig } from '../config/firebaseConfig';
 export async function uploadFileToCloudinary(
   fileUri: string,
   fileType: 'image' | 'video',
-  fileName: string
+  fileName: string,
+  mimeType?: string
 ): Promise<string> {
   const resourceType = fileType === 'video' ? 'video' : 'image';
   const publicId = `${fileType}_${Date.now()}_${(fileName || 'file').replace(/[^a-zA-Z0-9.-]/g, '_')}`;
   const formData = new FormData();
+  const imageMime =
+    fileType === 'image' && mimeType && mimeType.startsWith('image/') ? mimeType : 'image/jpeg';
   (formData as any).append('file', {
     uri: fileUri,
     name: fileName || (fileType === 'video' ? 'video.mp4' : 'image.jpg'),
-    type: fileType === 'video' ? 'video/mp4' : 'image/jpeg',
+    type: fileType === 'video' ? 'video/mp4' : imageMime,
   });
   formData.append('upload_preset', cloudinaryConfig.uploadPreset);
   formData.append('public_id', publicId);

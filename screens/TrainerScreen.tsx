@@ -283,6 +283,12 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
       }
     }
 
+    const cloudinaryUrls = trainer.applicationData?.credentialImageUrls ?? [];
+    const firstCredentialUrl = cloudinaryUrls.find(
+      (u) => typeof u === 'string' && u.trim().match(/^https?:\/\//i)
+    );
+    if (firstCredentialUrl?.trim()) return firstCredentialUrl.trim();
+
     const uploaded = trainer.applicationData?.uploadedFiles ?? [];
     const firstRemoteImage = uploaded.find((f) => {
       const uri = (f.uri || '').trim();

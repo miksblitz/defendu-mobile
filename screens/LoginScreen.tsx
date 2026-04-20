@@ -208,6 +208,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#01151F',
+    borderWidth: 1,
+    borderColor: '#00AABB',
     borderRadius: 25,
     paddingHorizontal: 15,
     marginBottom: 16,

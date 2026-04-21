@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Image,
   Modal,
@@ -445,6 +446,19 @@ export default function CategoryPracticeSessionScreen({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      AsyncStorage.getItem(TRAINING_MUSIC_MUTED_KEY)
+        .then((raw) => {
+          const muted = raw === '1';
+          setTrainingMusicMuted((prev) => (prev === muted ? prev : muted));
+        })
+        .catch(() => {});
+    });
+    return () => sub.remove();
   }, []);
 
   const stopLoopMusic = async () => {

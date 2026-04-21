@@ -16,6 +16,7 @@ import {
   Platform,
   Switch,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController } from '../lib/controllers/AuthController';
 import { usePoseSkeletonOverlay } from '../lib/contexts/PoseSkeletonContext';
 
@@ -26,9 +27,11 @@ const CONTACT_EMAIL = 'support@defendu.com';
 const DAILY_TARGET_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const WEEKLY_TARGET_OPTIONS = [3, 5, 7, 10, 12, 14, 16, 18, 20];
 const TRAINING_FREQUENCIES = ['Never', '1-2 times per week', '3-4 times per week', 'Daily'] as const;
+const TRAINING_MUSIC_MUTED_KEY = 'trainingModeMusicMuted';
 
 export default function SettingsScreen() {
   const { skeletonVisible, setSkeletonVisible } = usePoseSkeletonOverlay();
+  const [trainingMusicMuted, setTrainingMusicMuted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [heightInput, setHeightInput] = useState('');
   const [weightInput, setWeightInput] = useState('');
@@ -99,6 +102,24 @@ export default function SettingsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(TRAINING_MUSIC_MUTED_KEY)
+      .then((raw) => {
+        if (cancelled) return;
+        setTrainingMusicMuted(raw === '1');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleToggleTrainingMusicMuted = useCallback((value: boolean) => {
+    setTrainingMusicMuted(value);
+    AsyncStorage.setItem(TRAINING_MUSIC_MUTED_KEY, value ? '1' : '0').catch(() => {});
+  }, []);
 
   const hasBodyChanges = heightInput !== savedHeight || weightInput !== savedWeight;
   const hasGoalChanges =
@@ -232,6 +253,27 @@ export default function SettingsScreen() {
               onValueChange={setSkeletonVisible}
               trackColor={{ false: '#062731', true: 'rgba(7, 187, 192, 0.45)' }}
               thumbColor={skeletonVisible ? '#07bbc0' : '#6b8693'}
+              ios_backgroundColor="#062731"
+            />
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTag}>MUSIC</Text>
+          <Text style={styles.cardTitle}>Training mode music</Text>
+          <Text style={styles.cardHint}>
+            Control background beat playback during warmups, cooldowns, and pose training.
+          </Text>
+          <View style={styles.switchRow}>
+            <View style={styles.switchLabels}>
+              <Text style={styles.switchTitle}>Mute music during training mode</Text>
+              <Text style={styles.switchSubtitle}>{trainingMusicMuted ? 'Muted' : 'Playing'}</Text>
+            </View>
+            <Switch
+              value={trainingMusicMuted}
+              onValueChange={handleToggleTrainingMusicMuted}
+              trackColor={{ false: '#062731', true: 'rgba(7, 187, 192, 0.45)' }}
+              thumbColor={trainingMusicMuted ? '#07bbc0' : '#6b8693'}
               ios_backgroundColor="#062731"
             />
           </View>

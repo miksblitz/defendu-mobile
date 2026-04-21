@@ -13,7 +13,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { ResizeMode, Video } from 'expo-av';
+import { Audio, ResizeMode, Video } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 import type { PoseFocus, PoseFrame, PoseSequence } from '../lib/pose/types';
@@ -46,6 +47,8 @@ type SessionStep =
   | 'session_done';
 
 type CountdownText = '3' | '2' | '1' | 'READY YOUR STANCE' | 'ARE YOU READY?' | 'GO!!';
+const SESSION_LOOP_TRACK = require('../assets/audio/training-loop.mp3');
+const TRAINING_MUSIC_MUTED_KEY = 'trainingModeMusicMuted';
 
 export interface CategoryPracticeSessionScreenProps {
   category: string;
@@ -210,6 +213,7 @@ export default function CategoryPracticeSessionScreen({
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const stanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loopSoundRef = useRef<Audio.Sound | null>(null);
 
   const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(30);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -227,6 +231,7 @@ export default function CategoryPracticeSessionScreen({
   const [frozenTrainingTimerText, setFrozenTrainingTimerText] = useState<string | null>(null);
   const pauseRemainingMsRef = useRef(0);
   const [segmentTimerPaused, setSegmentTimerPaused] = useState(false);
+  const [trainingMusicMuted, setTrainingMusicMuted] = useState(false);
 
   const currentTrainingItem = trainingModules[trainingIndex] ?? null;
   const [module, setModule] = useState<Module | null>(null);
@@ -427,6 +432,45 @@ export default function CategoryPracticeSessionScreen({
       clearTimeout(successTimeoutRef.current);
       successTimeoutRef.current = null;
     }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(TRAINING_MUSIC_MUTED_KEY)
+      .then((raw) => {
+        if (cancelled) return;
+        setTrainingMusicMuted(raw === '1');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const stopLoopMusic = async () => {
+    const snd = loopSoundRef.current;
+    if (!snd) return;
+    try {
+      await snd.pauseAsync();
+    } catch {}
+  };
+
+  const startLoopMusic = async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        staysActiveInBackground: false,
+      });
+      if (!loopSoundRef.current) {
+        const { sound } = await Audio.Sound.createAsync(
+          SESSION_LOOP_TRACK,
+          { shouldPlay: false, isLooping: true, volume: 0.42 }
+        );
+        loopSoundRef.current = sound;
+      }
+      await loopSoundRef.current.playAsync();
+    } catch {}
   };
 
   const startTimer = (seconds: number, onDone: () => void) => {
@@ -1130,6 +1174,31 @@ export default function CategoryPracticeSessionScreen({
     if (step !== 'warmup_timer' && step !== 'cooldown_timer') clearTimer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  useEffect(() => {
+    const playLoop =
+      !trainingMusicMuted &&
+      (
+        (step === 'warmup_timer' && !segmentTimerPaused) ||
+        (step === 'cooldown_timer' && !segmentTimerPaused) ||
+        (step === 'training_pose' && !trainingPaused)
+      );
+    if (playLoop) {
+      startLoopMusic().catch(() => {});
+    } else {
+      stopLoopMusic().catch(() => {});
+    }
+  }, [step, trainingMusicMuted, trainingPaused, segmentTimerPaused]);
+
+  useEffect(() => {
+    return () => {
+      const snd = loopSoundRef.current;
+      loopSoundRef.current = null;
+      if (!snd) return;
+      snd.stopAsync().catch(() => {});
+      snd.unloadAsync().catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     if (step !== 'training_pose_loading') return;

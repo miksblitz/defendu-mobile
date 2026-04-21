@@ -12,6 +12,9 @@ import {
 
 const CROSS_GUARD_MAX_EXTENSION = 0.24;  // guard arm (user's left = MediaPipe right)
 const CROSS_WRIST_UP_TOL = 0.14;
+const CROSS_HORIZONTAL_Y_TOL = 0.18;
+const CROSS_CENTERLINE_MIN = 0.02;
+const CROSS_TRAVEL_MIN = 0.08;
 
 /** Guard = user's left hand = MediaPipe RIGHT (indices 12,14,16). */
 function rightHandInGuardFromFrame(frame: PoseFrame): { inGuard: boolean; extended: boolean; wristDown: boolean } {
@@ -25,6 +28,27 @@ function rightHandInGuardFromFrame(frame: PoseFrame): { inGuard: boolean; extend
   const wristUp = rw.y <= re.y + CROSS_WRIST_UP_TOL;
   const inGuard = d.right <= CROSS_GUARD_MAX_EXTENSION && wristUp;
   return { inGuard, extended, wristDown: !wristUp };
+}
+
+/**
+ * Cross should travel mostly horizontal and finish on the opposite side (cross center line).
+ * Punching arm for cross = user's RIGHT = MediaPipe LEFT (11, 13, 15).
+ */
+function crossDirectionFromFrame(frame: PoseFrame): { horizontal: boolean; toOppositeSide: boolean } {
+  const ls = frame[11];
+  const lw = frame[15];
+  const rs = frame[12];
+  if (!ls || !lw || !rs) return { horizontal: true, toOppositeSide: true };
+
+  const shoulderMidX = (ls.x + rs.x) / 2;
+  const horizontal = Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
+  const towardOppositeSign = Math.sign(rs.x - ls.x) || 1;
+  const crossedCenterline =
+    (lw.x - shoulderMidX) * towardOppositeSign >= CROSS_CENTERLINE_MIN;
+  const traveledAwayFromPunchShoulder =
+    (lw.x - ls.x) * towardOppositeSign >= CROSS_TRAVEL_MIN;
+  const toOppositeSide = crossedCenterline && traveledAwayFromPunchShoulder;
+  return { horizontal, toOppositeSide };
 }
 
 /**
@@ -42,6 +66,7 @@ export function getJabFeedbackCross(
   const frame = userFrames[Math.min(impactIdx, userFrames.length - 1)]!;
   const metrics = computeJabMetrics(frame);
   const guard = rightHandInGuardFromFrame(frame);
+  const direction = crossDirectionFromFrame(frame);
 
   // Require user's RIGHT to punch = MediaPipe left extending = leadArm 0. If leadArm 1, they're jabbing with left (wrong).
   if (metrics.leadArm === 1) {
@@ -69,6 +94,22 @@ export function getJabFeedbackCross(
       severity: 'error',
     });
   }
+  if (!direction.horizontal) {
+    base.push({
+      id: 'cross-not-horizontal',
+      message: 'Throw the straight punch more horizontally at shoulder level',
+      phase: 'impact',
+      severity: 'error',
+    });
+  }
+  if (!direction.toOppositeSide) {
+    base.push({
+      id: 'cross-not-to-opposite-side',
+      message: 'Send your right straight to the opposite side, not on the same side',
+      phase: 'impact',
+      severity: 'error',
+    });
+  }
 
   return base;
 }
@@ -79,6 +120,8 @@ const CROSS_ERROR_IDS = [
   'wrong-arm',
   'rear-hand-not-in-guard',
   'rear-hand-wrist-down',
+  'cross-not-horizontal',
+  'cross-not-to-opposite-side',
 ];
 
 const CROSS_MAX_ERRORS_TO_PASS = 0;

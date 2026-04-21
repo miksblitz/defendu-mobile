@@ -56,8 +56,24 @@ const UPPERCUT_ELBOW_EXTEND_MIN = 0.0;    // elbow should at least reach shoulde
 const UPPERCUT_LIFT_HIGH_TARGET = 0.055;  // peak lift target for a convincing high uppercut
 const UPPERCUT_LIFT_RETRACT_MAX = 0.01;   // setup "down" position: wrist near/below shoulder
 const UPPERCUT_MIN_REP_FRAMES = 5;
+const UPPERCUT_SAME_SIDE_BUFFER = 0.01;
 
 type UppercutState = 'idle' | 'rising' | 'cooldown';
+
+/** Lead uppercut punch arm (MediaPipe RIGHT) must stay on its own side, not across body. */
+function leadUppercutSameSide(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.rs, idx.rw)) return false;
+  const ls = frame[idx.ls];
+  const rs = frame[idx.rs];
+  const rw = frame[idx.rw];
+  if (!validArmLandmark(ls) || !validArmLandmark(rs) || !validArmLandmark(rw)) return false;
+
+  const shoulderMidX = (ls.x + rs.x) / 2;
+  const towardRightSign = Math.sign(rs.x - ls.x) || 1;
+  // For user's LEFT punch (MediaPipe RIGHT), the wrist should remain on that same side.
+  return (rw.x - shoulderMidX) * towardRightSign >= UPPERCUT_SAME_SIDE_BUFFER;
+}
 
 /** Lead uppercut: rep when punch lift goes from low to clearly high while guard is maintained. */
 export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
@@ -96,7 +112,8 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         lift > UPPERCUT_LIFT_EXTEND_MIN &&
         elbowLift != null &&
         elbowLift >= UPPERCUT_ELBOW_EXTEND_MIN &&
-        leftHandInGuard(frame)
+        leftHandInGuard(frame) &&
+        leadUppercutSameSide(frame)
       ) {
         state = 'rising';
         segment = [frame];
@@ -109,7 +126,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
       segment.push(frame);
       peakLift = Math.max(peakLift, lift);
       // Guard must be maintained; lift must stay reasonably high
-      if (!leftHandInGuard(frame)) {
+      if (!leftHandInGuard(frame) || !leadUppercutSameSide(frame)) {
         state = 'idle';
         segment = [];
         readyFromGuard = false;

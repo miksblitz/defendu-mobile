@@ -22,6 +22,9 @@ const CROSS_PUNCH_RETRACT_MAX = 0.18;
 const CROSS_GUARD_MAX = 0.22;          // guard arm (user's left = MediaPipe right)
 const CROSS_GUARD_WRIST_UP_TOL = 0.12;
 const CROSS_MIN_REP_FRAMES = 5;
+const CROSS_HORIZONTAL_Y_TOL = 0.18;
+const CROSS_CENTERLINE_MIN = 0.02;
+const CROSS_TRAVEL_MIN = 0.08;
 
 function leftExtension(frame: PoseFrame): number | null {
   const d = armExtensionDistances(frame);
@@ -44,6 +47,23 @@ function rightHandInGuard(frame: PoseFrame): boolean {
   const rightDist = Math.sqrt((rw.x - rs.x) ** 2 + (rw.y - rs.y) ** 2);
   const wristUp = rw.y <= re.y + CROSS_GUARD_WRIST_UP_TOL;
   return rightDist <= CROSS_GUARD_MAX && wristUp;
+}
+
+function crossDirectionOk(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.rs, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const rs = frame[idx.rs];
+  const lw = frame[idx.lw];
+  if (!validArmLandmark(ls) || !validArmLandmark(rs) || !validArmLandmark(lw)) return false;
+
+  const horizontal = Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
+  const shoulderMidX = (ls.x + rs.x) / 2;
+  const towardOppositeSign = Math.sign(rs.x - ls.x) || 1;
+  const crossedCenterline = (lw.x - shoulderMidX) * towardOppositeSign >= CROSS_CENTERLINE_MIN;
+  const traveledAwayFromPunchShoulder = (lw.x - ls.x) * towardOppositeSign >= CROSS_TRAVEL_MIN;
+
+  return horizontal && crossedCenterline && traveledAwayFromPunchShoulder;
 }
 
 /** Cross jab: rep = user's RIGHT extends = MediaPipe LEFT extends; user's LEFT in guard = MediaPipe RIGHT in guard. */
@@ -71,7 +91,8 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
         hasRetractedSinceRep &&
         punch > CROSS_PUNCH_EXTEND_MIN &&
         (guard == null || guard <= CROSS_GUARD_MAX) &&
-        rightHandInGuard(frame)
+        rightHandInGuard(frame) &&
+        crossDirectionOk(frame)
       ) {
         phase = 'extended';
         segment = [frame];
@@ -83,7 +104,8 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
       if (
         punch < CROSS_PUNCH_RETRACT_MAX ||
         (guard != null && guard > CROSS_GUARD_MAX) ||
-        !rightHandInGuard(frame)
+        !rightHandInGuard(frame) ||
+        !crossDirectionOk(frame)
       ) {
         phase = 'idle';
         segment = [];

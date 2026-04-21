@@ -46,12 +46,14 @@ type RemoteGuideDesc =
   | { mode: 'video'; uri: string };
 
 export function getTrainingGuideRemoteDesc(module: TrainingGuideModuleFields): RemoteGuideDesc {
+  const uri = pickRemoteGuideUri(module);
+  if (uri) {
+    if (isProbablyStreamableVideoUri(uri)) return { mode: 'video', uri };
+    return { mode: 'image', uri };
+  }
   const bundled = getPunchingGuideSource(module.moduleId, module.moduleTitle ?? undefined, module.category ?? undefined);
   if (bundled) return { mode: 'bundled' };
-  const uri = pickRemoteGuideUri(module);
-  if (!uri) return { mode: 'none' };
-  if (isProbablyStreamableVideoUri(uri)) return { mode: 'video', uri };
-  return { mode: 'image', uri };
+  return { mode: 'none' };
 }
 
 function difficultyLabel(level: TrainingGuideModuleFields['difficultyLevel']): string | null {
@@ -148,26 +150,28 @@ export function TrainingPoseGuideOverlay({
   const title = typeof module.moduleTitle === 'string' ? module.moduleTitle.trim() : '';
 
   const renderMedia = (w: number, h: number) => {
+    if (uri) {
+      if (isProbablyStreamableVideoUri(uri)) {
+        return (
+          <Video
+            source={{ uri }}
+            style={{ width: w, height: h }}
+            resizeMode={ResizeMode.CONTAIN}
+            shouldPlay
+            isLooping
+            isMuted
+          />
+        );
+      }
+      return <Image source={{ uri }} style={{ width: w, height: h }} resizeMode="contain" />;
+    }
     if (bundled) {
       return <Image source={bundled} style={{ width: w, height: h }} resizeMode="contain" />;
     }
-    if (!uri) return null;
-    if (isProbablyStreamableVideoUri(uri)) {
-      return (
-        <Video
-          source={{ uri }}
-          style={{ width: w, height: h }}
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay
-          isLooping
-          isMuted
-        />
-      );
-    }
-    return <Image source={{ uri }} style={{ width: w, height: h }} resizeMode="contain" />;
+    return null;
   };
 
-  const hasMedia = bundled != null || (uri != null && uri.length > 0);
+  const hasMedia = (uri != null && uri.length > 0) || bundled != null;
 
   return (
     <>

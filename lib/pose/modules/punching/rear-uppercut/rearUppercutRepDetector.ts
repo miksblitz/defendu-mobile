@@ -44,8 +44,23 @@ function punchLift(frame: PoseFrame): number | null {
 const UPPERCUT_LIFT_EXTEND_MIN = 0.035;
 const UPPERCUT_LIFT_RETRACT_MAX = 0.01;
 const UPPERCUT_MIN_REP_FRAMES = 5;
+const REAR_UPPERCUT_CENTERLINE_MIN = 0.02;
 
 type UppercutState = 'idle' | 'rising' | 'cooldown';
+
+/** Rear uppercut (user's right hand) must travel across body to opposite side. */
+function rearUppercutAcrossBody(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.rs, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const rs = frame[idx.rs];
+  const lw = frame[idx.lw];
+  if (!validArmLandmark(ls) || !validArmLandmark(rs) || !validArmLandmark(lw)) return false;
+
+  const shoulderMidX = (ls.x + rs.x) / 2;
+  const towardOppositeSign = Math.sign(rs.x - ls.x) || 1;
+  return (lw.x - shoulderMidX) * towardOppositeSign >= REAR_UPPERCUT_CENTERLINE_MIN;
+}
 
 export function createRearUppercutRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let state: UppercutState = 'idle';
@@ -65,7 +80,7 @@ export function createRearUppercutRepDetector(): (frame: PoseFrame, now: number)
     if (lift == null) return { done: false };
 
     if (state === 'idle') {
-      if (lift > UPPERCUT_LIFT_EXTEND_MIN && rightHandInGuard(frame)) {
+      if (lift > UPPERCUT_LIFT_EXTEND_MIN && rightHandInGuard(frame) && rearUppercutAcrossBody(frame)) {
         state = 'rising';
         segment = [frame];
       }
@@ -74,7 +89,7 @@ export function createRearUppercutRepDetector(): (frame: PoseFrame, now: number)
 
     if (state === 'rising') {
       segment.push(frame);
-      if (!rightHandInGuard(frame)) {
+      if (!rightHandInGuard(frame) || !rearUppercutAcrossBody(frame)) {
         state = 'idle';
         segment = [];
         return { done: false };

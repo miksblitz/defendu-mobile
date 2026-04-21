@@ -7,7 +7,8 @@ import type { PoseFrame, PoseSequence, PoseFocus, PoseFeedbackItem } from '../ty
 
 export type RepDetectorResult =
   | { done: false }
-  | { done: true; segment: PoseFrame[] };
+  | { done: true; segment: PoseFrame[] }
+  | { done: true; segment: PoseFrame[]; forcedBadRep: true; feedback: PoseFeedbackItem[] };
 
 export type RepDetectorTick = (frame: PoseFrame, now: number) => RepDetectorResult;
 

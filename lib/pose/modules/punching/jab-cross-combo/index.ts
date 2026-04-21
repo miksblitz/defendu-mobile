@@ -15,7 +15,8 @@ export const jabCrossComboPipeline: ModulePosePipeline = {
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyJabCrossCombo,
   defaultMatchThreshold: PUNCHING_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 5,
+  // Combo reps can be short because straight is counted immediately on valid impact.
+  minFramesForRep: 3,
 };
 
 export { createJabCrossComboRepDetector } from './jabCrossComboRepDetector';

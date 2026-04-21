@@ -24,7 +24,10 @@ function isPunchingCategory(category: string | null | undefined): boolean {
 
 function titleSuggestsJabCrossCombo(t: string): boolean {
   if (t.includes('1-2') || t.includes('1–2') || t.includes('1 — 2')) return true;
-  if (t.includes('combo')) return true;
+  if (t.includes('jab') && t.includes('cross')) return true;
+  if (t.includes('jab') && t.includes('straight')) return true;
+  if (t.includes('straight') && t.includes('combo')) return true;
+  if (t.includes('cross') && t.includes('combo')) return true;
   if (t.includes('basic') && (t.includes('1-2') || t.includes('1–2') || t.includes('combo'))) return true;
   return false;
 }
@@ -48,7 +51,7 @@ export function getPunchingGuideSource(
   if (t.includes('jab uppercut')) {
     return JAB_REAR_UPPERCUT;
   }
-  if (punching && titleSuggestsJabCrossCombo(t)) {
+  if (titleSuggestsJabCrossCombo(t)) {
     return JAB_CROSS;
   }
   if (t.includes('lead') && t.includes('uppercut')) {

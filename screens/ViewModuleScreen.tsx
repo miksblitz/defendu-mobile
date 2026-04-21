@@ -638,6 +638,7 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
               <Text style={styles.safetyItem}>• Warm up before practicing. Do not train if you feel unwell or injured.</Text>
               <Text style={styles.safetyItem}>• This content is for educational purposes. Train at your own risk and within your ability.</Text>
               <Text style={styles.safetyItem}>• If using camera-based features, make sure the area behind you is clear.</Text>
+              <Text style={styles.safetyItem}>• Stand about 2–3 meters from your phone and keep your full body in frame so reps can be detected correctly.</Text>
             </View>
             <TouchableOpacity style={styles.primaryButton} onPress={handleSafetyConfirm}>
               <Text style={styles.primaryButtonText}>Confirm</Text>

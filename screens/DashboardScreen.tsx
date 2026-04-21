@@ -1231,6 +1231,10 @@ export default function DashboardScreen({
     const allWarmups = warmupTop3Values.filter((v) => v !== '—');
     const allCooldowns = cooldownTop3Values.filter((c) => c && c !== '—');
     const trainingSlice = trainingModules.slice(trainingStartIdx);
+    const firstTrainingGuideUri =
+      trainingSlice.length > 0
+        ? extractRemoteUrl(moduleDyn(trainingSlice[0]!).referenceGuideUrl)
+        : null;
 
     onStartCategorySession({
       category: selectedCategory ?? 'Punching',
@@ -1245,7 +1249,7 @@ export default function DashboardScreen({
       startPhase: hasIntroductionStartSelection
         ? 'introduction'
         : (hasCooldownStartSelection ? 'cooldown' : 'warmup'),
-      mannequinGifUri: null,
+      mannequinGifUri: firstTrainingGuideUri,
     });
   };
 
@@ -1846,7 +1850,7 @@ export default function DashboardScreen({
                           warmups: [],
                           cooldowns: [],
                           trainingModules: [mod],
-                          mannequinGifUri: null,
+                          mannequinGifUri: extractRemoteUrl(moduleDyn(mod).referenceGuideUrl),
                           returnToCategoryAfterExit: false,
                         });
                       }}

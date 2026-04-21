@@ -4,7 +4,7 @@ import { createLeadJabRepDetector, createOrthodoxJabRepDetector } from '../jab';
 
 const COMBO_TIMEOUT_MS = 4000;
 const COMBO_COOLDOWN_MS = 900;
-const COMBO_SIDEWAYS_TOL = 0.2;
+const COMBO_SIDEWAYS_TOL = 0.24;
 
 type Phase = 'need_jab' | 'need_uppercut' | 'cooldown';
 
@@ -49,9 +49,9 @@ function rearUppercutLift(frame: PoseFrame): number | null {
   return ls.y - lw.y;
 }
 
-const UPPERCUT_LIFT_EXTEND_MIN = 0.035;
-const UPPERCUT_LIFT_RETRACT_MAX = 0.01;
-const UPPERCUT_MIN_REP_FRAMES = 5;
+const UPPERCUT_LIFT_EXTEND_MIN = 0.028;
+const UPPERCUT_LIFT_RETRACT_MAX = 0.015;
+const UPPERCUT_MIN_REP_FRAMES = 3;
 const UPPERCUT_COOLDOWN_MS = 1000;
 
 /**

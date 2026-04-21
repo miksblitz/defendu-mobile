@@ -111,6 +111,7 @@ const ARM_STATE_CONFIRM_COUNT = 2;
 const ELBOW_BENT_MAX_ANGLE_DEG = 150;
 const LEFT_RIGHT_ELBOW_COMBO_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774765697890';
 const LEFT_RIGHT_ELBOW_COMBO_WINDOW_MS = 5000;
+const JAB_CROSS_COMBO_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670';
 
 export type ArmMotionState = 'extending' | 'contracting' | 'neutral';
 export type RealtimeArmState = {
@@ -476,6 +477,19 @@ export default function PoseCameraView({
 
     const result = repDetectorRef.current(frame, now);
     if (!result.done) return;
+    if ('forcedBadRep' in result && result.forcedBadRep) {
+      const currentCount = correctRepsRef.current;
+      setLastFeedback(result.feedback);
+      onCorrectRepsUpdateRef.current(currentCount, false);
+      setShowWrongOverlay(true);
+      wrongFadeAnim.setValue(1);
+      Animated.timing(wrongFadeAnim, {
+        toValue: 0,
+        duration: WRONG_OVERLAY_MS,
+        useNativeDriver: true,
+      }).start(() => setShowWrongOverlay(false));
+      return;
+    }
     const segment = result.segment;
     const variant = poseVariantRef.current;
     const pl = pipelineRef.current;
@@ -845,9 +859,15 @@ export default function PoseCameraView({
           style={[styles.wrongOverlay, { opacity: wrongFadeAnim }]}
           pointerEvents="none"
         >
-          <Text style={styles.wrongText}>Wrong form</Text>
+          <Text style={styles.wrongText}>
+            {moduleId === JAB_CROSS_COMBO_MODULE_ID && lastFeedback.some((f) => f.id === 'combo-timeout-bad-rep')
+              ? 'Bad Repetition'
+              : 'Wrong form'}
+          </Text>
           <Text style={styles.wrongSubtext}>
-            {lastFeedback.length > 0
+            {moduleId === JAB_CROSS_COMBO_MODULE_ID && lastFeedback.some((f) => f.id === 'combo-timeout-bad-rep')
+              ? 'Try again:'
+              : lastFeedback.length > 0
               ? 'Try again:'
               : 'No match — extend arm fully toward camera. Face the camera.'}
           </Text>

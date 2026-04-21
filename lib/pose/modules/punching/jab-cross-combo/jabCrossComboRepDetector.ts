@@ -5,7 +5,9 @@ import { createCrossJabRepDetector } from '../cross';
 
 const COMBO_TIMEOUT_MS = 4000;
 const COMBO_COOLDOWN_MS = 900;
-const COMBO_SIDEWAYS_TOL = 0.2;
+const COMBO_SIDEWAYS_TOL = 0.24;
+const CROSS_CENTERLINE_MIN = 0.0;
+const CROSS_TRAVEL_MIN = 0.04;
 
 type Phase = 'need_jab' | 'need_cross' | 'cooldown';
 
@@ -35,6 +37,28 @@ function isPunchSideways(frame: PoseFrame, punchingSide: ArmSide): boolean {
   return Math.abs(y.wristY - y.shoulderY) <= COMBO_SIDEWAYS_TOL;
 }
 
+function isCrossAcrossBody(frame: PoseFrame): boolean {
+  // Cross punch in this module = user's RIGHT arm = "left" side in normalized pose coords.
+  const isMP = frame.length > 17;
+  const idx = isMP
+    ? { ls: 11, rs: 12, lw: 15 }
+    : frame.length >= 11
+      ? { ls: 5, rs: 6, lw: 9 }
+      : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.rs, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const rs = frame[idx.rs];
+  const lw = frame[idx.lw];
+  if (!ls || !rs || !lw) return false;
+  if (![ls.x, rs.x, lw.x].every(Number.isFinite)) return false;
+
+  const shoulderMidX = (ls.x + rs.x) / 2;
+  const towardOppositeSign = Math.sign(rs.x - ls.x) || 1;
+  const crossedCenterline = (lw.x - shoulderMidX) * towardOppositeSign >= CROSS_CENTERLINE_MIN;
+  const traveledAwayFromPunchShoulder = (lw.x - ls.x) * towardOppositeSign >= CROSS_TRAVEL_MIN;
+  return crossedCenterline && traveledAwayFromPunchShoulder;
+}
+
 /**
  * Cross detector variant for combos:
  * - Detects the punching arm extension like `createCrossJabRepDetector`
@@ -46,7 +70,6 @@ function createComboCrossRepDetector(): (frame: PoseFrame, now: number) => RepDe
   // Keep thresholds aligned with cross detector.
   const CROSS_PUNCH_EXTEND_MIN = 0.25;
   const CROSS_PUNCH_RETRACT_MAX = 0.18;
-  const CROSS_MIN_REP_FRAMES = 5;
   const COOLDOWN_MS = 1000;
 
   // Inline arm extension distance for the punching arm.
@@ -94,7 +117,7 @@ function createComboCrossRepDetector(): (frame: PoseFrame, now: number) => RepDe
 
     // Cross punching arm = user's RIGHT = MediaPipe/MoveNet LEFT side.
     // Neglect guard requirement, but still require punch to be roughly sideways (slight tilt allowed).
-    if (!isPunchSideways(frame, 'left')) {
+    if (!isPunchSideways(frame, 'left') || !isCrossAcrossBody(frame)) {
       if (phase === 'extended') {
         phase = 'idle';
         segment = [];
@@ -108,8 +131,13 @@ function createComboCrossRepDetector(): (frame: PoseFrame, now: number) => RepDe
     if (phase === 'idle') {
       if (punch < CROSS_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
       if (hasRetractedSinceRep && punch > CROSS_PUNCH_EXTEND_MIN) {
-        phase = 'extended';
-        segment = [frame];
+        // Count immediately on first valid straight impact frame (no hold required).
+        const out = [frame];
+        segment = [];
+        phase = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        hasRetractedSinceRep = false;
+        return { done: true, segment: out };
       }
       return { done: false };
     }
@@ -121,7 +149,7 @@ function createComboCrossRepDetector(): (frame: PoseFrame, now: number) => RepDe
       segment = [];
       return { done: false };
     }
-    if (segment.length >= CROSS_MIN_REP_FRAMES) {
+    if (segment.length >= 2) {
       const out = [...segment];
       segment = [];
       phase = 'cooldown';
@@ -194,8 +222,19 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
 
     // need_cross
     if (now > crossDeadlineMs) {
+      const jab = jabSegment;
       resetToNeedJab();
-      return { done: false };
+      return {
+        done: true,
+        segment: jab && jab.length > 0 ? [...jab] : [],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'combo-timeout-bad-rep',
+          message: 'Bad Repetition — throw the straight right after the jab. Try again.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     const crossRes = crossTick(frame, now);

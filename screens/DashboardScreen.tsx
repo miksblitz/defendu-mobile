@@ -203,6 +203,26 @@ function extractRemoteUrl(value: unknown): string | null {
   return null;
 }
 
+function getModuleIntroductionVideoUrl(mod: ModuleItem | null | undefined): string | null {
+  if (!mod) return null;
+  const r = moduleDyn(mod);
+  return (
+    extractRemoteUrl(r.video_introduction) ||
+    extractRemoteUrl(r.videoIntroduction) ||
+    extractRemoteUrl(r.introductionVideoUrl) ||
+    extractRemoteUrl(r.techniqueVideoUrl)
+  );
+}
+
+function isTrainingModuleOnly(mod: ModuleItem): boolean {
+  const r = moduleDyn(mod);
+  const segment = String(r.moduleSegment ?? r.module_segment ?? '').trim().toLowerCase();
+  if (segment === 'warmup' || segment === 'cooldown' || segment === 'introduction') return false;
+  const title = String(mod.moduleTitle ?? '').trim().toLowerCase();
+  if (title === 'intro' || title.includes('introduction')) return false;
+  return true;
+}
+
 function normalizeExerciseKey(value: string): string {
   return value
     .toLowerCase()
@@ -672,7 +692,8 @@ export default function DashboardScreen({
           }
           return AuthController.getModulesByIds(ids).then((recommended) => {
             const notCompleted = recommended.filter((m) => !completedIds.includes(m.moduleId));
-            setRecommendedModules(notCompleted);
+            const trainingOnly = notCompleted.filter(isTrainingModuleOnly);
+            setRecommendedModules(trainingOnly);
           });
         })
         .catch(() => {
@@ -750,8 +771,27 @@ export default function DashboardScreen({
 
   const personalizedRecModules = React.useMemo(() => {
     const byId = new Map(modules.map((m) => [m.moduleId, m]));
-    return personalizedRecIds.map((id) => byId.get(id)).filter((m): m is ModuleItem => m != null);
-  }, [modules, personalizedRecIds]);
+    const primary = personalizedRecIds
+      .map((id) => byId.get(id))
+      .filter((m): m is ModuleItem => m != null)
+      .filter(isTrainingModuleOnly);
+
+    const selected = new Map(primary.map((m) => [m.moduleId, m]));
+    if (selected.size >= 5) return Array.from(selected.values()).slice(0, 5);
+
+    // Backfill to always show up to 5 training modules (never warmup/cooldown/introduction).
+    const fallbackPool = modules
+      .filter((m) => isTrainingModuleOnly(m))
+      .filter((m) => !completedModuleIds.includes(m.moduleId))
+      .filter((m) => !selected.has(m.moduleId));
+
+    for (const mod of fallbackPool) {
+      if (selected.size >= 5) break;
+      selected.set(mod.moduleId, mod);
+    }
+
+    return Array.from(selected.values()).slice(0, 5);
+  }, [modules, personalizedRecIds, completedModuleIds]);
 
   const dayHistoryEntries = React.useMemo(
     () => getCompletedModulesForWeekdayThisWeek(dayHistoryDayIndex, completionTimestamps),
@@ -1032,6 +1072,20 @@ export default function DashboardScreen({
       return String(a.moduleTitle ?? '').localeCompare(String(b.moduleTitle ?? ''));
     })[0];
   }, [modules, selectedCategory]);
+
+  const getCategoryIntroductionVideoUrl = React.useCallback((categoryName: string | null | undefined): string | null => {
+    const catNorm = normalizeCategory(categoryName ?? '');
+    for (const m of modules) {
+      if (normalizeCategory(m.category) !== catNorm) continue;
+      const seg = String(moduleDyn(m).moduleSegment ?? '').trim().toLowerCase();
+      const title = String(m.moduleTitle ?? '').trim().toLowerCase();
+      const isIntro = seg === 'introduction' || title === 'intro' || title.includes('introduction');
+      if (!isIntro) continue;
+      const introUrl = getModuleIntroductionVideoUrl(m);
+      if (introUrl) return introUrl;
+    }
+    return null;
+  }, [modules]);
   const modulesInCategoryByLevel = groupByDifficulty(
     techniqueModulesInCategory,
     selectedCategory,
@@ -1244,7 +1298,7 @@ export default function DashboardScreen({
       cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
       trainingModules: trainingSlice,
       introductionVideoUrl: introductionModuleForCategory
-        ? String(moduleDyn(introductionModuleForCategory).techniqueVideoUrl ?? '').trim() || null
+        ? getModuleIntroductionVideoUrl(introductionModuleForCategory)
         : null,
       startPhase: hasIntroductionStartSelection
         ? 'introduction'
@@ -1770,11 +1824,16 @@ export default function DashboardScreen({
                           return;
                         }
                         setRecModalVisible(false);
-                        if (onStartRecommendedSingleSession) {
-                          onStartRecommendedSingleSession(mod);
-                        } else {
-                          onOpenModule(mod.moduleId, mod);
-                        }
+                        const cat = mod.category?.trim() ? mod.category : 'Punching';
+                        onStartCategorySession({
+                          category: cat,
+                          warmups: [],
+                          cooldowns: [],
+                          trainingModules: [mod],
+                          introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
+                          mannequinGifUri: extractRemoteUrl(moduleDyn(mod).referenceGuideUrl),
+                          sessionVariant: 'recommendedSingle',
+                        });
                       }}
                     >
                       <View style={styles.recModalRank}>
@@ -1850,6 +1909,7 @@ export default function DashboardScreen({
                           warmups: [],
                           cooldowns: [],
                           trainingModules: [mod],
+                          introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
                           mannequinGifUri: extractRemoteUrl(moduleDyn(mod).referenceGuideUrl),
                           returnToCategoryAfterExit: false,
                         });

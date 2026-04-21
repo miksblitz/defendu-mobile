@@ -103,10 +103,24 @@ export function createSlipRepDetectorForDirection(
     const slippedEnough = m.absOffset >= SLIP_OFFSET_MIN;
 
     if (!sameDirection || !hipStable || !slippedEnough) {
+      const badSegment = [...segment];
       phase = 'idle';
       segment = [];
       baseHipX = null;
       direction = null;
+      if (badSegment.length > 0) {
+        return {
+          done: true,
+          segment: badSegment,
+          forcedBadRep: true,
+          feedback: [{
+            id: 'bad-rep-slip',
+            message: 'Bad Repetition — complete a clean slip to one side and keep hips stable. Try again.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       return { done: false };
     }
 

@@ -93,9 +93,23 @@ export function createParryRepDetectorForSide(
     }
 
     if (side == null || side !== activeSide) {
+      const badSegment = [...segment];
       phase = 'idle';
       activeSide = null;
       segment = [];
+      if (badSegment.length > 0) {
+        return {
+          done: true,
+          segment: badSegment,
+          forcedBadRep: true,
+          feedback: [{
+            id: 'bad-rep-parry',
+            message: 'Bad Repetition — complete a clean parry with one side. Try again.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       return { done: false };
     }
 

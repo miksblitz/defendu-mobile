@@ -111,7 +111,6 @@ const ARM_STATE_CONFIRM_COUNT = 2;
 const ELBOW_BENT_MAX_ANGLE_DEG = 150;
 const LEFT_RIGHT_ELBOW_COMBO_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1774765697890';
 const LEFT_RIGHT_ELBOW_COMBO_WINDOW_MS = 5000;
-const JAB_CROSS_COMBO_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1773840563670';
 
 export type ArmMotionState = 'extending' | 'contracting' | 'neutral';
 export type RealtimeArmState = {
@@ -859,18 +858,25 @@ export default function PoseCameraView({
           style={[styles.wrongOverlay, { opacity: wrongFadeAnim }]}
           pointerEvents="none"
         >
+          {(() => {
+            const isTimeoutBadRep = lastFeedback.some((f) => f.id.includes('combo-timeout-bad-rep'));
+            return (
+              <>
           <Text style={styles.wrongText}>
-            {moduleId === JAB_CROSS_COMBO_MODULE_ID && lastFeedback.some((f) => f.id === 'combo-timeout-bad-rep')
+            {isTimeoutBadRep
               ? 'Bad Repetition'
               : 'Wrong form'}
           </Text>
           <Text style={styles.wrongSubtext}>
-            {moduleId === JAB_CROSS_COMBO_MODULE_ID && lastFeedback.some((f) => f.id === 'combo-timeout-bad-rep')
+            {isTimeoutBadRep
               ? 'Try again:'
               : lastFeedback.length > 0
               ? 'Try again:'
               : 'No match — extend arm fully toward camera. Face the camera.'}
           </Text>
+              </>
+            );
+          })()}
           {lastFeedback.length > 0 && (
             <View style={styles.feedbackList}>
               {lastFeedback.slice(0, 4).map((item) => (

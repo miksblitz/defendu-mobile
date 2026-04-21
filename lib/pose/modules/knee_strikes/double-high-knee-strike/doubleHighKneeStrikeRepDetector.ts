@@ -106,8 +106,19 @@ export function createDoubleHighKneeStrikeRepDetector(): (frame: PoseFrame, now:
     }
 
     if (leadStartMs != null && now - leadStartMs > MAX_REAR_FOLLOWUP_MS) {
+      const lead = segment;
       resetToIdle();
-      return { done: false };
+      return {
+        done: true,
+        segment: lead.length > 0 ? [...lead] : [],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'combo-timeout-bad-rep-double-high-knee',
+          message: 'Bad Repetition — throw the second knee right after the first. Try again.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     // phase === 'waiting_rear'

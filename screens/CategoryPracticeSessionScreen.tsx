@@ -1623,7 +1623,13 @@ export default function CategoryPracticeSessionScreen({
           ? 'Cool Down'
           : 'Training';
     const isTrainingStanceStep = step === 'training_stance' || step === 'training_between_stance';
-    const trainingStanceSource = require('../assets/images/guides/side fighting stance gif.gif');
+    const moduleStancePosition = String(
+      (module as any)?.stancePosition ?? (currentTrainingItem as any)?.stancePosition ?? ''
+    ).trim().toLowerCase();
+    const isFrontViewStance = moduleStancePosition === 'front view' || moduleStancePosition === 'frontview';
+    const trainingStanceSource = isFrontViewStance
+      ? require('../assets/images/Facing front.gif')
+      : require('../assets/images/guides/side fighting stance gif.gif');
     const isNumericCountdown = countdownText === '3' || countdownText === '2' || countdownText === '1';
     const isSuccessStep = step === 'training_success';
     const hideControls =

@@ -159,8 +159,19 @@ export function createJabUppercutComboRepDetector(): (frame: PoseFrame, now: num
     }
 
     if (now > uppercutDeadlineMs) {
+      const jab = jabSegment;
       resetToNeedJab();
-      return { done: false };
+      return {
+        done: true,
+        segment: jab && jab.length > 0 ? [...jab] : [],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'combo-timeout-bad-rep-uppercut',
+          message: 'Bad Repetition — throw the uppercut right after the jab. Try again.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     const upRes = uppercutTick(frame, now);

@@ -7,7 +7,7 @@ import {
 } from '../elbow-strike-right/rightElbowStrikeFormRules';
 
 const RIGHT_STRIKE_WINDOW_MS = 5000;
-const COOLDOWN_MS = 900;
+const COOLDOWN_MS = 650;
 const MIN_GUARD_FRAMES = 2;
 const MIN_RESET_GUARD_FRAMES = 2;
 
@@ -60,9 +60,19 @@ export function createLeftRightElbowStrikeRepDetector(): (frame: PoseFrame, now:
 
     // need_right
     if (now > rightDeadlineMs) {
-      // Right elbow was not completed within 5 seconds -> not a perfect rep.
+      const lead = leadSegment;
       resetToNeedLead();
-      return { done: false };
+      return {
+        done: true,
+        segment: lead && lead.length > 0 ? [...lead] : [],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'combo-timeout-bad-rep-elbow',
+          message: 'Bad Repetition — throw the second elbow right after the first. Try again.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     // Flexible transition: allow brief lead/right overlap, but right must appear in window.

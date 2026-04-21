@@ -15,7 +15,7 @@ export const jabUppercutComboPipeline: ModulePosePipeline = {
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyJabUppercutCombo,
   defaultMatchThreshold: PUNCHING_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 5,
+  minFramesForRep: 3,
 };
 
 export { createJabUppercutComboRepDetector } from './jabUppercutComboRepDetector';

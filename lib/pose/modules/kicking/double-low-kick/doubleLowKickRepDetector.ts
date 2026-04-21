@@ -50,8 +50,19 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
 
     // need_rear
     if (now > rearDeadlineMs) {
+      const lead = leadSegment;
       resetToNeedLead();
-      return { done: false };
+      return {
+        done: true,
+        segment: lead && lead.length > 0 ? [...lead] : [],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'combo-timeout-bad-rep-double-low-kick',
+          message: 'Bad Repetition — throw the second low kick right after the first. Try again.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     if (!rearTick) {

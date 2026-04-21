@@ -12,6 +12,21 @@ import { getIdx, inLeadLowKickStrikePose, leadLowKickResetPose } from './leadLow
 
 const COOLDOWN_MS = 700;
 const MIN_REP_FRAMES = 3;
+const LEAD_KICK_SAME_SIDE_CENTERLINE_MIN = 0.01;
+
+function leadKickSameSide(frame: PoseFrame, idx: ReturnType<typeof getIdx>): boolean {
+  if (!idx) return false;
+  const lh = frame[idx.lh];
+  const rh = frame[idx.rh];
+  const ra = frame[idx.ra]; // lead low kick uses right-chain ankle
+  if (!lh || !rh || !ra) return false;
+  if (![lh.x, rh.x, ra.x].every(Number.isFinite)) return false;
+
+  const bodyMidX = (lh.x + rh.x) / 2;
+  const sameSideSign = Math.sign(rh.x - lh.x) || 1;
+  // Lead kick must remain on its own side (no across-body kick).
+  return (ra.x - bodyMidX) * sameSideSign >= LEAD_KICK_SAME_SIDE_CENTERLINE_MIN;
+}
 
 export function createLeadLowKickRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'striking' | 'cooldown' = 'idle';
@@ -33,7 +48,7 @@ export function createLeadLowKickRepDetector(): (frame: PoseFrame, now: number) 
       return { done: false };
     }
 
-    const strike = inLeadLowKickStrikePose(frame, idx);
+    const strike = inLeadLowKickStrikePose(frame, idx) && leadKickSameSide(frame, idx);
     const reset = leadLowKickResetPose(frame, idx);
 
     if (phase === 'idle') {

@@ -1,5 +1,5 @@
 /**
- * Side kick — left leg out to the **side** (image left), straight leg; same pipeline shape as low/high kicks.
+ * Side kick — right leg out to its own side, with reset/cooldown rep logic.
  */
 
 import type { ModulePosePipeline } from '../../types';
@@ -22,5 +22,5 @@ export const sideKickPipeline: ModulePosePipeline = {
   compareRepWithFeedbackAny: compareRepWithFeedbackAnySideKick,
   defaultMatchThreshold: DEFAULT_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 3,
+  minFramesForRep: 2,
 };

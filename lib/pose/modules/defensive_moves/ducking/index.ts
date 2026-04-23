@@ -23,7 +23,7 @@ export const defensiveDuckingPipeline: ModulePosePipeline = {
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyDucking,
   defaultMatchThreshold: DUCKING_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 4,
+  minFramesForRep: 3,
 };
 
 export { createDuckingRepDetector } from './duckingRepDetector';

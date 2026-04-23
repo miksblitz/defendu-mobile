@@ -11,10 +11,17 @@ const COOLDOWN_MS = 900;
 const MIN_REP_FRAMES = 5;
 const GUARD_MAX_EXTENSION = 0.24;
 const GUARD_WRIST_UP_TOL = 0.12;
+const FACE_GUARD_MAX_DIST = 0.34;
+const FOREARM_MIN_VERTICAL_DY = 0.05;
+const FOREARM_MAX_SIDEWAYS_RATIO = 0.5;
 const RESET_MIN_EXTENSION = 0.2;
 
-const MP = { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
-const MN17 = { ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };
+const MP = { nose: 0, ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
+const MN17 = { nose: 0, ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };
+
+function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+}
 
 function validPoint(p: { x: number; y: number } | undefined): boolean {
   return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
@@ -29,19 +36,43 @@ function getArmIndices(frame: PoseFrame): typeof MP | typeof MN17 | null {
 function isBlockingFrame(frame: PoseFrame): boolean {
   const d = armExtensionDistances(frame);
   const idx = getArmIndices(frame);
-  if (!d || !idx || frame.length <= Math.max(idx.rw, idx.re, idx.lw, idx.le)) return false;
+  if (!d || !idx || frame.length <= Math.max(idx.nose, idx.rw, idx.re, idx.lw, idx.le)) return false;
 
+  const nose = frame[idx.nose];
   const le = frame[idx.le];
   const re = frame[idx.re];
   const lw = frame[idx.lw];
   const rw = frame[idx.rw];
-  if (!validPoint(le) || !validPoint(re) || !validPoint(lw) || !validPoint(rw)) return false;
+  if (!validPoint(nose) || !validPoint(le) || !validPoint(re) || !validPoint(lw) || !validPoint(rw)) return false;
 
   const leftGuard = d.left <= GUARD_MAX_EXTENSION;
   const rightGuard = d.right <= GUARD_MAX_EXTENSION;
   const leftWristUp = lw.y <= le.y + GUARD_WRIST_UP_TOL;
   const rightWristUp = rw.y <= re.y + GUARD_WRIST_UP_TOL;
-  return leftGuard && rightGuard && leftWristUp && rightWristUp;
+  const leftNearFace = dist(lw, nose) <= FACE_GUARD_MAX_DIST;
+  const rightNearFace = dist(rw, nose) <= FACE_GUARD_MAX_DIST;
+
+  const leftForearmDx = Math.abs(lw.x - le.x);
+  const rightForearmDx = Math.abs(rw.x - re.x);
+  const leftForearmDy = Math.abs(lw.y - le.y);
+  const rightForearmDy = Math.abs(rw.y - re.y);
+  const leftForearmVertical =
+    leftForearmDy >= FOREARM_MIN_VERTICAL_DY &&
+    leftForearmDx <= leftForearmDy * FOREARM_MAX_SIDEWAYS_RATIO;
+  const rightForearmVertical =
+    rightForearmDy >= FOREARM_MIN_VERTICAL_DY &&
+    rightForearmDx <= rightForearmDy * FOREARM_MAX_SIDEWAYS_RATIO;
+
+  return (
+    leftGuard &&
+    rightGuard &&
+    leftWristUp &&
+    rightWristUp &&
+    leftNearFace &&
+    rightNearFace &&
+    leftForearmVertical &&
+    rightForearmVertical
+  );
 }
 
 function isNeutralFrame(frame: PoseFrame): boolean {

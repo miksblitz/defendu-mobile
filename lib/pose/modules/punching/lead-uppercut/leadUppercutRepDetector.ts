@@ -50,13 +50,55 @@ function punchMetrics(frame: PoseFrame): { lift: number | null; elbowLift: numbe
   return { lift, elbowLift };
 }
 
+function armExtension(frame: PoseFrame, side: 'left' | 'right'): number | null {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx) return null;
+  const s = side === 'left' ? frame[idx.ls] : frame[idx.rs];
+  const w = side === 'left' ? frame[idx.lw] : frame[idx.rw];
+  if (!validArmLandmark(s) || !validArmLandmark(w)) return null;
+  return Math.sqrt((w.x - s.x) ** 2 + (w.y - s.y) ** 2);
+}
+
+/**
+ * Detect jab/straight-like action on lead uppercut hand:
+ * extension is present, but motion is mostly lateral instead of vertical rise.
+ */
+function leadHandLooksLikeJabOrStraight(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.rs, idx.rw)) return false;
+  const rs = frame[idx.rs];
+  const rw = frame[idx.rw];
+  if (!validArmLandmark(rs) || !validArmLandmark(rw)) return false;
+  const ext = armExtension(frame, 'right');
+  if (ext == null || ext < 0.2) return false;
+  const dx = Math.abs(rw.x - rs.x);
+  const dy = Math.abs(rw.y - rs.y);
+  // Straight/jab line tends to travel outward more than upward.
+  return dx >= dy * 1.0;
+}
+
+/** Wrong-hand uppercut attempt: user's RIGHT hand rising like an uppercut. */
+function wrongHandUppercutAttempt(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.le, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const le = frame[idx.le];
+  const lw = frame[idx.lw];
+  if (!validArmLandmark(ls) || !validArmLandmark(le) || !validArmLandmark(lw)) return false;
+  const lift = ls.y - lw.y;
+  const elbowLift = ls.y - le.y;
+  const ext = armExtension(frame, 'left');
+  return ext != null && ext >= 0.14 && lift >= UPPERCUT_LIFT_EXTEND_MIN && elbowLift >= UPPERCUT_ELBOW_EXTEND_MIN;
+}
+
 // Tuned heuristics for uppercut motion (from guard -> drive up high)
-const UPPERCUT_LIFT_EXTEND_MIN = 0.04;    // entering rising phase: wrist clearly above shoulder
-const UPPERCUT_ELBOW_EXTEND_MIN = 0.0;    // elbow should at least reach shoulder height
-const UPPERCUT_LIFT_HIGH_TARGET = 0.055;  // peak lift target for a convincing high uppercut
-const UPPERCUT_LIFT_RETRACT_MAX = 0.01;   // setup "down" position: wrist near/below shoulder
+const UPPERCUT_LIFT_EXTEND_MIN = 0.04; // entering rising phase: wrist clearly above shoulder
+const UPPERCUT_ELBOW_EXTEND_MIN = 0.0; // elbow should at least reach shoulder height
+const UPPERCUT_LIFT_HIGH_TARGET = 0.055; // peak lift target for a convincing high uppercut
+const UPPERCUT_LIFT_RETRACT_MAX = 0.01; // setup "down" position: wrist near/below shoulder
 const UPPERCUT_MIN_REP_FRAMES = 5;
 const UPPERCUT_SAME_SIDE_BUFFER = 0.01;
+const BAD_REP_MIN_STREAK = 2;
 
 type UppercutState = 'idle' | 'rising' | 'cooldown';
 
@@ -83,9 +125,66 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
   let hasDroppedSinceRep = false;
   let readyFromGuard = false;
   let peakLift = -Infinity;
+  let badJabStraightStreak = 0;
+  let wrongHandStreak = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const { lift, elbowLift } = punchMetrics(frame);
+
+    const jabStraightLike = leadHandLooksLikeJabOrStraight(frame);
+    const wrongHandLike = wrongHandUppercutAttempt(frame);
+    badJabStraightStreak = jabStraightLike ? badJabStraightStreak + 1 : 0;
+    wrongHandStreak = wrongHandLike ? wrongHandStreak + 1 : 0;
+
+    if (badJabStraightStreak >= BAD_REP_MIN_STREAK) {
+      const out = segment.length > 0 ? [...segment, frame] : [frame];
+      state = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      segment = [];
+      readyFromGuard = false;
+      peakLift = -Infinity;
+      hasDroppedSinceRep = false;
+      badJabStraightStreak = 0;
+      wrongHandStreak = 0;
+      return {
+        done: true,
+        segment: out,
+        forcedBadRep: true,
+        feedback: [
+          {
+            id: 'lead-uppercut-jab-straight-bad-rep',
+            message: 'Bad Repetition — for lead uppercut, do not throw a jab/straight line (high or low). Drive upward.',
+            severity: 'error',
+            phase: 'impact',
+          },
+        ],
+      };
+    }
+
+    if (wrongHandStreak >= BAD_REP_MIN_STREAK) {
+      const out = segment.length > 0 ? [...segment, frame] : [frame];
+      state = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      segment = [];
+      readyFromGuard = false;
+      peakLift = -Infinity;
+      hasDroppedSinceRep = false;
+      badJabStraightStreak = 0;
+      wrongHandStreak = 0;
+      return {
+        done: true,
+        segment: out,
+        forcedBadRep: true,
+        feedback: [
+          {
+            id: 'lead-uppercut-wrong-hand-bad-rep',
+            message: 'Bad Repetition — wrong hand. Lead uppercut must be with your left hand.',
+            severity: 'error',
+            phase: 'impact',
+          },
+        ],
+      };
+    }
 
     if (state === 'cooldown') {
       // Wait until the punch has dropped back down before counting another rep
@@ -131,6 +230,8 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         segment = [];
         readyFromGuard = false;
         peakLift = -Infinity;
+        badJabStraightStreak = 0;
+        wrongHandStreak = 0;
         return { done: false };
       }
       if (lift < UPPERCUT_LIFT_RETRACT_MAX) {
@@ -139,6 +240,8 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         segment = [];
         readyFromGuard = true;
         peakLift = -Infinity;
+        badJabStraightStreak = 0;
+        wrongHandStreak = 0;
         return { done: false };
       }
       if (segment.length >= UPPERCUT_MIN_REP_FRAMES && peakLift >= UPPERCUT_LIFT_HIGH_TARGET) {
@@ -149,6 +252,8 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         hasDroppedSinceRep = false;
         readyFromGuard = false;
         peakLift = -Infinity;
+        badJabStraightStreak = 0;
+        wrongHandStreak = 0;
         return { done: true, segment: out };
       }
       return { done: false };

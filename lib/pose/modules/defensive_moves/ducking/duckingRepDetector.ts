@@ -11,11 +11,11 @@ import type { RepDetectorResult } from '../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
 
 const COOLDOWN_MS = 900;
-const MIN_REP_FRAMES = 4;
-const DUCK_DOWN_DELTA_Y = 0.06;
+const MIN_REP_FRAMES = 3;
+const DUCK_DOWN_DELTA_Y = 0.04;
 const RESET_UP_DELTA_Y = 0.02;
-const MAX_GUARD_EXTENSION = 0.3;
-const WRIST_UP_TOL = 0.06;
+const MAX_GUARD_EXTENSION = 0.36;
+const WRIST_UP_TOL = 0.1;
 
 const MP = { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
 const MN17 = { ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };

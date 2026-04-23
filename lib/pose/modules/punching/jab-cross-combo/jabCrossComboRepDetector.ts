@@ -1,9 +1,9 @@
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
-import { createLeadJabRepDetector, createOrthodoxJabRepDetector } from '../jab';
+import { createOrthodoxJabRepDetectorWithBadRep } from '../orthodox-jab/orthodoxJabRepDetector';
 import { createCrossJabRepDetector } from '../cross';
 
-const COMBO_TIMEOUT_MS = 4000;
+const COMBO_TIMEOUT_MS = 3000;
 const COMBO_COOLDOWN_MS = 900;
 const COMBO_SIDEWAYS_TOL = 0.24;
 const CROSS_CENTERLINE_MIN = 0.0;
@@ -170,10 +170,8 @@ function createComboCrossRepDetector(): (frame: PoseFrame, now: number) => RepDe
 export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: Phase = 'need_jab';
 
-  // Prefer lead-jab detection (matches "lead jab" labeling/data), but keep orthodox as fallback
-  // so users with slightly different form still progress the combo.
-  let leadJabTick = createLeadJabRepDetector();
-  let orthodoxJabTick = createOrthodoxJabRepDetector();
+  // Strict combo rule: jab must be orthodox left jab first.
+  let orthodoxJabTick = createOrthodoxJabRepDetectorWithBadRep();
   let crossTick = createCrossJabRepDetector();
 
   let jabSegment: PoseFrame[] | null = null;
@@ -182,8 +180,7 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
 
   function resetToNeedJab() {
     phase = 'need_jab';
-    leadJabTick = createLeadJabRepDetector();
-    orthodoxJabTick = createOrthodoxJabRepDetector();
+    orthodoxJabTick = createOrthodoxJabRepDetectorWithBadRep();
     crossTick = createCrossJabRepDetector();
     jabSegment = null;
     crossDeadlineMs = 0;
@@ -197,19 +194,29 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
     }
 
     if (phase === 'need_jab') {
-      const leadRes = leadJabTick(frame, now);
-      const orthodoxRes = leadRes.done ? ({ done: false } as const) : orthodoxJabTick(frame, now);
-
-      const jabRes = leadRes.done ? leadRes : orthodoxRes;
+      const jabRes = orthodoxJabTick(frame, now);
 
       if (jabRes.done) {
+        if ('forcedBadRep' in jabRes && jabRes.forcedBadRep) {
+          resetToNeedJab();
+          return jabRes;
+        }
         // Jab punching arm = user's LEFT = MediaPipe/MoveNet RIGHT side.
         // Require jab to be roughly sideways (slight tilt allowed).
         if (!isPunchSideways(frame, 'right')) {
-          // Reset detectors so we don't immediately re-trigger on the same held pose.
-          leadJabTick = createLeadJabRepDetector();
-          orthodoxJabTick = createOrthodoxJabRepDetector();
-          return { done: false };
+          const badSeg = jabRes.segment && jabRes.segment.length > 0 ? [...jabRes.segment] : [frame];
+          resetToNeedJab();
+          return {
+            done: true,
+            segment: badSeg,
+            forcedBadRep: true,
+            feedback: [{
+              id: 'combo-jab-line-bad-rep',
+              message: 'Bad Repetition — jab must stay roughly horizontal (not too high or too low).',
+              severity: 'error',
+              phase: 'impact',
+            }],
+          };
         }
         jabSegment = jabRes.segment;
         phase = 'need_cross';

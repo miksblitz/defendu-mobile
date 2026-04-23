@@ -36,6 +36,10 @@ import {
   leftRightElbowStrikePipeline,
   LEFT_RIGHT_ELBOW_STRIKE_REGISTRY_KEY,
 } from './elbow_strikes/elbow-strike-left-and-right';
+import {
+  backwardsElbowStrikePipeline,
+  BACKWARDS_ELBOW_STRIKE_REGISTRY_KEY,
+} from './elbow_strikes/backwards-elbow-strike';
 import { kneeStrikesDefaultPipeline } from './knee_strikes/default';
 import {
   lowLeadKneeStrikePipeline,
@@ -114,6 +118,8 @@ register(LEAD_ELBOW_STRIKE_REGISTRY_KEY, leadElbowStrikePipeline);
 register(RIGHT_ELBOW_STRIKE_REGISTRY_KEY, rightElbowStrikePipeline);
 // Elbow Strike (Left and Right) combo — lead strike first, then right strike within 5 seconds.
 register(LEFT_RIGHT_ELBOW_STRIKE_REGISTRY_KEY, leftRightElbowStrikePipeline);
+// Backwards elbow strike module — right elbow drives backward behind shoulder.
+register(BACKWARDS_ELBOW_STRIKE_REGISTRY_KEY, backwardsElbowStrikePipeline);
 register('knee_strikes/default', kneeStrikesDefaultPipeline);
 register(LOW_LEAD_KNEE_STRIKE_REGISTRY_KEY, lowLeadKneeStrikePipeline);
 register(LOW_REAR_KNEE_STRIKE_REGISTRY_KEY, lowRearKneeStrikePipeline);

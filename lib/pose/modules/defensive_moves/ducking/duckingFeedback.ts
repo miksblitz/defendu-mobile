@@ -8,9 +8,9 @@ import type { PoseFrame, PoseFeedbackItem } from '../../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
 
 const MP = { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
-const DUCK_MIN_DELTA_Y = 0.06;
-const MAX_GUARD_EXTENSION = 0.3;
-const WRIST_UP_TOL = 0.06;
+const DUCK_MIN_DELTA_Y = 0.04;
+const MAX_GUARD_EXTENSION = 0.36;
+const WRIST_UP_TOL = 0.1;
 
 function validPoint(p: { x: number; y: number } | undefined): boolean {
   return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);

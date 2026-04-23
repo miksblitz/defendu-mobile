@@ -25,6 +25,9 @@ const CROSS_MIN_REP_FRAMES = 5;
 const CROSS_HORIZONTAL_Y_TOL = 0.18;
 const CROSS_CENTERLINE_MIN = 0.02;
 const CROSS_TRAVEL_MIN = 0.08;
+const CROSS_LINE_BAD_MIN_STREAK = 3;
+const CROSS_WRONG_HAND_MIN_STREAK = 2;
+const CROSS_WRONG_HAND_EXTEND_MIN = 0.23;
 
 function leftExtension(frame: PoseFrame): number | null {
   const d = armExtensionDistances(frame);
@@ -57,13 +60,31 @@ function crossDirectionOk(frame: PoseFrame): boolean {
   const lw = frame[idx.lw];
   if (!validArmLandmark(ls) || !validArmLandmark(rs) || !validArmLandmark(lw)) return false;
 
-  const horizontal = Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
   const shoulderMidX = (ls.x + rs.x) / 2;
   const towardOppositeSign = Math.sign(rs.x - ls.x) || 1;
   const crossedCenterline = (lw.x - shoulderMidX) * towardOppositeSign >= CROSS_CENTERLINE_MIN;
   const traveledAwayFromPunchShoulder = (lw.x - ls.x) * towardOppositeSign >= CROSS_TRAVEL_MIN;
 
-  return horizontal && crossedCenterline && traveledAwayFromPunchShoulder;
+  return crossedCenterline && traveledAwayFromPunchShoulder;
+}
+
+function crossDirectionAndLineOk(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const lw = frame[idx.lw];
+  if (!validArmLandmark(ls) || !validArmLandmark(lw)) return false;
+  const horizontal = Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
+  return horizontal && crossDirectionOk(frame);
+}
+
+function crossLineOk(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const lw = frame[idx.lw];
+  if (!validArmLandmark(ls) || !validArmLandmark(lw)) return false;
+  return Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
 }
 
 /** Cross jab: rep = user's RIGHT extends = MediaPipe LEFT extends; user's LEFT in guard = MediaPipe RIGHT in guard. */
@@ -92,7 +113,7 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
         punch > CROSS_PUNCH_EXTEND_MIN &&
         (guard == null || guard <= CROSS_GUARD_MAX) &&
         rightHandInGuard(frame) &&
-        crossDirectionOk(frame)
+        crossDirectionAndLineOk(frame)
       ) {
         phase = 'extended';
         segment = [frame];
@@ -105,7 +126,7 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
         punch < CROSS_PUNCH_RETRACT_MAX ||
         (guard != null && guard > CROSS_GUARD_MAX) ||
         !rightHandInGuard(frame) ||
-        !crossDirectionOk(frame)
+        !crossDirectionAndLineOk(frame)
       ) {
         phase = 'idle';
         segment = [];
@@ -120,6 +141,126 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
         return { done: true, segment: out };
       }
       return { done: false };
+    }
+    return { done: false };
+  };
+}
+
+function badLineFeedback() {
+  return [{
+    id: 'cross-line-bad-rep',
+    message: 'Bad Repetition — keep the straight punch more horizontal (not too high or too low).',
+    severity: 'error' as const,
+    phase: 'impact' as const,
+  }];
+}
+
+function wrongHandFeedback() {
+  return [{
+    id: 'cross-wrong-hand-bad-rep',
+    message: 'Bad Repetition — wrong hand. For straight, punch with your right hand.',
+    severity: 'error' as const,
+    phase: 'impact' as const,
+  }];
+}
+
+/** Cross with explicit bad-rep outcomes (line too high/low, wrong hand). */
+export function createCrossJabRepDetectorWithBadRep(): (frame: PoseFrame, now: number) => RepDetectorResult {
+  let phase: 'idle' | 'extended' | 'cooldown' = 'idle';
+  let segment: PoseFrame[] = [];
+  let cooldownUntil = 0;
+  let hasRetractedSinceRep = false;
+  let badLineStreak = 0;
+  let wrongHandStreak = 0;
+
+  return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (phase === 'cooldown') {
+      const punch = leftExtension(frame); // user's right = MediaPipe left
+      if (punch != null && punch < CROSS_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
+      if (now >= cooldownUntil && hasRetractedSinceRep) phase = 'idle';
+      return { done: false };
+    }
+
+    const punch = leftExtension(frame); // user's right hand = punching = MediaPipe left
+    const guard = rightExtension(frame); // user's left hand = guard = MediaPipe right
+    if (punch == null) return { done: false };
+
+    if (phase === 'idle') {
+      if (punch < CROSS_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
+
+      const wrongPunching = guard != null && guard > CROSS_WRONG_HAND_EXTEND_MIN && punch < CROSS_PUNCH_EXTEND_MIN;
+      wrongHandStreak = wrongPunching ? wrongHandStreak + 1 : 0;
+      if (hasRetractedSinceRep && wrongHandStreak >= CROSS_WRONG_HAND_MIN_STREAK) {
+        const out = [frame];
+        wrongHandStreak = 0;
+        phase = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        hasRetractedSinceRep = false;
+        return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
+      }
+
+      if (
+        hasRetractedSinceRep &&
+        punch > CROSS_PUNCH_EXTEND_MIN &&
+        (guard == null || guard <= CROSS_GUARD_MAX) &&
+        rightHandInGuard(frame) &&
+        crossDirectionOk(frame)
+      ) {
+        phase = 'extended';
+        segment = [frame];
+        badLineStreak = crossLineOk(frame) ? 0 : 1;
+      }
+      return { done: false };
+    }
+
+    segment.push(frame);
+    badLineStreak = punch >= CROSS_PUNCH_EXTEND_MIN && !crossLineOk(frame) ? badLineStreak + 1 : 0;
+    if (badLineStreak >= CROSS_LINE_BAD_MIN_STREAK) {
+      const out = [...segment];
+      segment = [];
+      phase = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      hasRetractedSinceRep = false;
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: true, segment: out, forcedBadRep: true, feedback: badLineFeedback() };
+    }
+
+    const wrongPunching = guard != null && guard > CROSS_WRONG_HAND_EXTEND_MIN && punch < CROSS_PUNCH_EXTEND_MIN;
+    wrongHandStreak = wrongPunching ? wrongHandStreak + 1 : 0;
+    if (wrongHandStreak >= CROSS_WRONG_HAND_MIN_STREAK) {
+      const out = [...segment];
+      segment = [];
+      phase = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      hasRetractedSinceRep = false;
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
+    }
+
+    if (
+      punch < CROSS_PUNCH_RETRACT_MAX ||
+      (guard != null && guard > CROSS_GUARD_MAX) ||
+      !rightHandInGuard(frame) ||
+      !crossDirectionOk(frame)
+    ) {
+      phase = 'idle';
+      segment = [];
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: false };
+    }
+
+    if (segment.length >= CROSS_MIN_REP_FRAMES) {
+      const out = [...segment];
+      segment = [];
+      phase = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      hasRetractedSinceRep = false;
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: true, segment: out };
     }
     return { done: false };
   };

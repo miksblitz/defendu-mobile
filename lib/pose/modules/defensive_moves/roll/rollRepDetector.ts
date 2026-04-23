@@ -143,7 +143,7 @@ export function createSlipParryRepDetector(): (frame: PoseFrame, now: number) =>
       if (slipFrames >= MIN_SLIP_FRAMES) {
         phase = 'parrying';
         parryFrames = 0;
-      }
+          }
       return { done: false };
     }
 

@@ -7,7 +7,7 @@
 import type { ModulePosePipeline } from '../../types';
 import type { PoseFocus } from '../../../types';
 import { PUNCHING_MATCH_THRESHOLD } from '../../../comparator';
-import { createCrossJabRepDetector } from './crossJabRepDetector';
+import { createCrossJabRepDetectorWithBadRep, createCrossJabRepDetector } from './crossJabRepDetector';
 import {
   compareRepWithFeedbackCross,
   compareRepWithFeedbackAnyCross,
@@ -16,7 +16,7 @@ import {
 const poseFocus: PoseFocus = 'punching';
 
 export const crossJabPipeline: ModulePosePipeline = {
-  createRepDetector: () => createCrossJabRepDetector(),
+  createRepDetector: () => createCrossJabRepDetectorWithBadRep(),
   compareRepWithFeedback: compareRepWithFeedbackCross,
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyCross,
   defaultMatchThreshold: PUNCHING_MATCH_THRESHOLD,
@@ -24,6 +24,6 @@ export const crossJabPipeline: ModulePosePipeline = {
   minFramesForRep: 5,
 };
 
-export { createCrossJabRepDetector } from './crossJabRepDetector';
+export { createCrossJabRepDetector, createCrossJabRepDetectorWithBadRep } from './crossJabRepDetector';
 export { getJabFeedbackCross, isImpactFormAcceptableCross } from './crossJabFeedback';
 export { compareRepWithFeedbackCross, compareRepWithFeedbackAnyCross } from './crossJabComparator';

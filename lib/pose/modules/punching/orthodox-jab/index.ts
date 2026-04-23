@@ -12,13 +12,13 @@ import {
   compareRepWithFeedbackAnyOrthodox,
   PUNCHING_MATCH_THRESHOLD,
 } from '../../../comparator';
-import { createOrthodoxJabRepDetector } from '../jab';
+import { createOrthodoxJabRepDetectorWithBadRep } from './orthodoxJabRepDetector';
 import type { PoseFocus } from '../../../types';
 
 const poseFocus: PoseFocus = 'punching';
 
 export const orthodoxJabPipeline: ModulePosePipeline = {
-  createRepDetector: () => createOrthodoxJabRepDetector(),
+  createRepDetector: () => createOrthodoxJabRepDetectorWithBadRep(),
   compareRepWithFeedback: compareRepWithFeedbackOrthodox,
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyOrthodox,
   defaultMatchThreshold: PUNCHING_MATCH_THRESHOLD,

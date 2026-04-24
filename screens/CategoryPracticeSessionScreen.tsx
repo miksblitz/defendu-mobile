@@ -207,6 +207,18 @@ export default function CategoryPracticeSessionScreen({
   const [warmupIndex, setWarmupIndex] = useState(0);
   const [cooldownIndex, setCooldownIndex] = useState(0);
   const [trainingIndex, setTrainingIndex] = useState(0);
+  const warmupIndexRef = useRef(0);
+  const cooldownIndexRef = useRef(0);
+  const trainingIndexRef = useRef(0);
+  useEffect(() => {
+    warmupIndexRef.current = warmupIndex;
+  }, [warmupIndex]);
+  useEffect(() => {
+    cooldownIndexRef.current = cooldownIndex;
+  }, [cooldownIndex]);
+  useEffect(() => {
+    trainingIndexRef.current = trainingIndex;
+  }, [trainingIndex]);
 
   const [activeExerciseName, setActiveExerciseName] = useState<string>('');
 
@@ -574,7 +586,8 @@ export default function CategoryPracticeSessionScreen({
   }, [cooldownNames, hideSessionNav, exitSession]);
 
   const startTrainingCountdown = useCallback(
-    (index: number) => {
+    (index: number, options?: { skipIntroSafety?: boolean }) => {
+      const skipIntroSafety = !!options?.skipIntroSafety;
       if (isTrainingModuleLocked(index)) {
         setPendingLockedTrainingIndex(index);
         setPurchaseModalVisible(true);
@@ -582,12 +595,12 @@ export default function CategoryPracticeSessionScreen({
       }
       setTrainingIndex(index);
       // Show the category introduction video once before safety.
-      if (index === 0 && !hasShownTrainingIntroduction && introVideoUrl) {
+      if (!skipIntroSafety && index === 0 && !hasShownTrainingIntroduction && introVideoUrl) {
         setStep('training_introduction');
         return;
       }
       // Show safety protocol exactly once: before the first training module countdown.
-      if (index === 0 && !hasShownTrainingSafety) setStep('training_safety');
+      if (!skipIntroSafety && index === 0 && !hasShownTrainingSafety) setStep('training_safety');
       else setStep('training_countdown');
     },
     [hasShownTrainingIntroduction, hasShownTrainingSafety, introVideoUrl, isTrainingModuleLocked]
@@ -890,6 +903,11 @@ export default function CategoryPracticeSessionScreen({
   }, [skipCurrentWorkout]);
 
   const goToPreviousWorkout = useCallback(() => {
+    const currentStep = stepRef.current;
+    const currentWarmupIndex = warmupIndexRef.current;
+    const currentTrainingIndex = trainingIndexRef.current;
+    const currentCooldownIndex = cooldownIndexRef.current;
+
     clearCountdown();
     clearTimer();
     clearSuccessTimeout();
@@ -902,21 +920,23 @@ export default function CategoryPracticeSessionScreen({
     setHasRecordedCompletion(false);
     setIsTrainingPrepared(false);
     setModule(null);
-    const isWarmupStep = step === 'warmup_countdown' || step === 'warmup_timer' || step === 'warmup_between_countdown';
+    const isWarmupStep =
+      currentStep === 'warmup_countdown' || currentStep === 'warmup_timer' || currentStep === 'warmup_between_countdown';
     const isTrainingStep =
-      step === 'training_introduction' ||
-      step === 'training_safety' ||
-      step === 'training_countdown' ||
-      step === 'training_stance' ||
-      step === 'training_pose_loading' ||
-      step === 'training_pose' ||
-      step === 'training_success' ||
-      step === 'training_between_countdown' ||
-      step === 'training_between_stance';
-    const isCooldownStep = step === 'cooldown_countdown' || step === 'cooldown_timer' || step === 'cooldown_between_countdown';
+      currentStep === 'training_introduction' ||
+      currentStep === 'training_safety' ||
+      currentStep === 'training_countdown' ||
+      currentStep === 'training_stance' ||
+      currentStep === 'training_pose_loading' ||
+      currentStep === 'training_pose' ||
+      currentStep === 'training_success' ||
+      currentStep === 'training_between_countdown' ||
+      currentStep === 'training_between_stance';
+    const isCooldownStep =
+      currentStep === 'cooldown_countdown' || currentStep === 'cooldown_timer' || currentStep === 'cooldown_between_countdown';
 
     if (isWarmupStep) {
-      const prevWarmup = warmupIndex - 1;
+      const prevWarmup = currentWarmupIndex - 1;
       if (prevWarmup >= 0) {
         setWarmupIndex(prevWarmup);
         setActiveExerciseName(warmupNames[prevWarmup] ?? '');
@@ -931,9 +951,11 @@ export default function CategoryPracticeSessionScreen({
     }
 
     if (isTrainingStep) {
-      const prevTraining = trainingIndex - 1;
+      const prevTraining = currentTrainingIndex - 1;
       if (prevTraining >= 0) {
-        startTrainingCountdown(prevTraining);
+        // Previous navigation should go directly to the previous module,
+        // while still enforcing module lock checks.
+        startTrainingCountdown(prevTraining, { skipIntroSafety: true });
         return;
       }
       // From first training module, jump back to last warmup if available.
@@ -950,7 +972,7 @@ export default function CategoryPracticeSessionScreen({
     }
 
     if (isCooldownStep) {
-      const prevCooldown = cooldownIndex - 1;
+      const prevCooldown = currentCooldownIndex - 1;
       if (prevCooldown >= 0) {
         setCooldownIndex(prevCooldown);
         setActiveExerciseName(cooldownNames[prevCooldown] ?? '');
@@ -987,7 +1009,7 @@ export default function CategoryPracticeSessionScreen({
       setActiveExerciseName(warmupNames[lastWarmup] ?? '');
       setStep('warmup_countdown');
     }
-  }, [cooldownIndex, cooldownNames, startTrainingCountdown, step, trainingIndex, trainingModules.length, warmupIndex, warmupNames]);
+  }, [cooldownNames, startTrainingCountdown, trainingModules.length, warmupNames]);
 
   const handleSkipNo = useCallback(() => {
     setShowSkipConfirm(false);

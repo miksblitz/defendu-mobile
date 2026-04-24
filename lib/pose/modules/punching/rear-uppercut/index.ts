@@ -20,7 +20,7 @@ export const rearUppercutPipeline: ModulePosePipeline = {
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyRearUppercut,
   defaultMatchThreshold: PUNCHING_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 5,
+  minFramesForRep: 2,
 };
 
 export {

@@ -5,6 +5,8 @@ import { createLeadJabRepDetector, createOrthodoxJabRepDetector } from '../jab';
 const COMBO_TIMEOUT_MS = 4000;
 const COMBO_COOLDOWN_MS = 900;
 const COMBO_SIDEWAYS_TOL = 0.24;
+const WRONG_STRAIGHT_MIN_STREAK = 2;
+const JAB_LINE_BAD_HOLD_MS = 1500;
 
 type Phase = 'need_jab' | 'need_uppercut' | 'cooldown';
 
@@ -32,11 +34,55 @@ function isPunchSideways(frame: PoseFrame, punchingSide: ArmSide): boolean {
   return Math.abs(y.wristY - y.shoulderY) <= COMBO_SIDEWAYS_TOL;
 }
 
+function jabAttemptDetected(frame: PoseFrame): boolean {
+  // Jab in this combo = user's LEFT arm = normalized "right" side.
+  const y = getArmShoulderWrist(frame, 'right');
+  if (!y) return false;
+  const dx = Math.abs(y.wristY - y.shoulderY);
+  // Any clearly extended attempt with visible displacement can count as an attempt.
+  return dx >= 0.12 || isPunchSideways(frame, 'right');
+}
+
 const MP = { ls: 11, lw: 15 };
 const MN17 = { ls: 5, lw: 9 };
 
 function validArmLandmark(p: { x: number; y: number } | undefined): boolean {
   return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
+}
+
+function elbowAngleDeg(
+  shoulder: { x: number; y: number },
+  elbow: { x: number; y: number },
+  wrist: { x: number; y: number }
+): number {
+  const ax = shoulder.x - elbow.x;
+  const ay = shoulder.y - elbow.y;
+  const bx = wrist.x - elbow.x;
+  const by = wrist.y - elbow.y;
+  const dot = ax * bx + ay * by;
+  const magA = Math.sqrt(ax * ax + ay * ay) || 1e-6;
+  const magB = Math.sqrt(bx * bx + by * by) || 1e-6;
+  const cos = Math.max(-1, Math.min(1, dot / (magA * magB)));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/** Straight/jab-line detector (flat/up/down angles), used to flag wrong move in jab+uppercut combo. */
+function handLooksLikeStraight(frame: PoseFrame, side: ArmSide): boolean {
+  const isMP = frame.length > 17;
+  const idx = isMP
+    ? (side === 'left' ? { s: 11, e: 13, w: 15 } : { s: 12, e: 14, w: 16 })
+    : frame.length >= 11
+      ? (side === 'left' ? { s: 5, e: 7, w: 9 } : { s: 6, e: 8, w: 10 })
+      : null;
+  if (!idx || frame.length <= Math.max(idx.s, idx.e, idx.w)) return false;
+  const shoulder = frame[idx.s];
+  const elbow = frame[idx.e];
+  const wrist = frame[idx.w];
+  if (!validArmLandmark(shoulder) || !validArmLandmark(elbow) || !validArmLandmark(wrist)) return false;
+  const ext = Math.sqrt((wrist.x - shoulder.x) ** 2 + (wrist.y - shoulder.y) ** 2);
+  if (ext < 0.2) return false;
+  const angle = elbowAngleDeg(shoulder, elbow, wrist);
+  return angle >= 150;
 }
 
 /** Rear uppercut lift: user's RIGHT hand = MediaPipe LEFT shoulder/wrist. */
@@ -122,6 +168,8 @@ export function createJabUppercutComboRepDetector(): (frame: PoseFrame, now: num
   let jabSegment: PoseFrame[] | null = null;
   let uppercutDeadlineMs = 0;
   let cooldownUntilMs = 0;
+  let wrongStraightStreak = 0;
+  let jabLineBadSinceMs: number | null = null;
 
   function resetToNeedJab() {
     phase = 'need_jab';
@@ -131,6 +179,8 @@ export function createJabUppercutComboRepDetector(): (frame: PoseFrame, now: num
     jabSegment = null;
     uppercutDeadlineMs = 0;
     cooldownUntilMs = 0;
+    wrongStraightStreak = 0;
+    jabLineBadSinceMs = null;
   }
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
@@ -140,38 +190,69 @@ export function createJabUppercutComboRepDetector(): (frame: PoseFrame, now: num
     }
 
     if (phase === 'need_jab') {
+      const jabLineBadNow = jabAttemptDetected(frame) && !isPunchSideways(frame, 'right');
+      if (jabLineBadNow) {
+        if (jabLineBadSinceMs == null) jabLineBadSinceMs = now;
+      } else {
+        jabLineBadSinceMs = null;
+      }
+
       const leadRes = leadJabTick(frame, now);
       const orthodoxRes = leadRes.done ? ({ done: false } as const) : orthodoxJabTick(frame, now);
       const jabRes = leadRes.done ? leadRes : orthodoxRes;
 
       if (jabRes.done) {
         if (!isPunchSideways(frame, 'right')) {
-          leadJabTick = createLeadJabRepDetector();
-          orthodoxJabTick = createOrthodoxJabRepDetector();
-          return { done: false };
+          if (jabLineBadSinceMs == null) jabLineBadSinceMs = now;
+          if (now - jabLineBadSinceMs < JAB_LINE_BAD_HOLD_MS) {
+            return { done: false };
+          }
+          const badSeg = jabRes.segment && jabRes.segment.length > 0 ? [...jabRes.segment] : [frame];
+          resetToNeedJab();
+          return {
+            done: true,
+            segment: badSeg,
+            forcedBadRep: true,
+            feedback: [{
+              id: 'combo-jab-line-bad-rep-uppercut',
+              message: 'Bad Repetition — jab is too high/too low. Keep it roughly horizontal.',
+              severity: 'error',
+              phase: 'impact',
+            }],
+          };
         }
         jabSegment = jabRes.segment;
         phase = 'need_uppercut';
         uppercutTick = createComboRearUppercutRepDetector();
         uppercutDeadlineMs = now + COMBO_TIMEOUT_MS;
+        wrongStraightStreak = 0;
+        jabLineBadSinceMs = null;
+      } else {
+        // In jab+uppercut combo, "straight" wrong move is the opposite arm (user's right),
+        // which maps to normalized left side. Do not treat the jab arm as straight.
+        const wrongStraight = handLooksLikeStraight(frame, 'left');
+        wrongStraightStreak = wrongStraight ? wrongStraightStreak + 1 : 0;
+        if (wrongStraightStreak >= WRONG_STRAIGHT_MIN_STREAK) {
+          resetToNeedJab();
+          return {
+            done: true,
+            segment: [frame],
+            forcedBadRep: true,
+            feedback: [{
+              id: 'combo-straight-bad-rep-uppercut',
+              message: 'Bad Repetition — straight punch detected (flat/up/down). Use jab then uppercut.',
+              severity: 'error',
+              phase: 'impact',
+            }],
+          };
+        }
       }
       return { done: false };
     }
 
     if (now > uppercutDeadlineMs) {
-      const jab = jabSegment;
       resetToNeedJab();
-      return {
-        done: true,
-        segment: jab && jab.length > 0 ? [...jab] : [],
-        forcedBadRep: true,
-        feedback: [{
-          id: 'combo-timeout-bad-rep-uppercut',
-          message: 'Bad Repetition — throw the uppercut right after the jab. Try again.',
-          severity: 'error',
-          phase: 'impact',
-        }],
-      };
+      return { done: false };
     }
 
     const upRes = uppercutTick(frame, now);

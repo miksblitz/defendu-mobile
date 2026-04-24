@@ -43,8 +43,9 @@ function punchLift(frame: PoseFrame): number | null {
 
 const UPPERCUT_LIFT_EXTEND_MIN = 0.035;
 const UPPERCUT_LIFT_RETRACT_MAX = 0.01;
-const UPPERCUT_MIN_REP_FRAMES = 5;
+const UPPERCUT_MIN_REP_FRAMES = 2;
 const REAR_UPPERCUT_CENTERLINE_MIN = 0.02;
+const BAD_PUNCH_MIN_STREAK = 2;
 
 type UppercutState = 'idle' | 'rising' | 'cooldown';
 
@@ -62,14 +63,77 @@ function rearUppercutAcrossBody(frame: PoseFrame): boolean {
   return (lw.x - shoulderMidX) * towardOppositeSign >= REAR_UPPERCUT_CENTERLINE_MIN;
 }
 
+function elbowAngleDeg(
+  shoulder: { x: number; y: number },
+  elbow: { x: number; y: number },
+  wrist: { x: number; y: number }
+): number {
+  const ax = shoulder.x - elbow.x;
+  const ay = shoulder.y - elbow.y;
+  const bx = wrist.x - elbow.x;
+  const by = wrist.y - elbow.y;
+  const dot = ax * bx + ay * by;
+  const magA = Math.sqrt(ax * ax + ay * ay) || 1e-6;
+  const magB = Math.sqrt(bx * bx + by * by) || 1e-6;
+  const cos = Math.max(-1, Math.min(1, dot / (magA * magB)));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/** Jab/straight detector (captures flat, up-angled, and down-angled straight-line punches). */
+function handLooksLikeJabOrStraight(frame: PoseFrame, side: 'left' | 'right'): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx) return false;
+  const shoulder = side === 'left' ? frame[idx.ls] : frame[idx.rs];
+  const elbow = side === 'left' ? frame[idx.le] : frame[idx.re];
+  const wrist = side === 'left' ? frame[idx.lw] : frame[idx.rw];
+  if (!validArmLandmark(shoulder) || !validArmLandmark(elbow) || !validArmLandmark(wrist)) return false;
+  const ext = Math.sqrt((wrist.x - shoulder.x) ** 2 + (wrist.y - shoulder.y) ** 2);
+  if (ext < 0.2) return false;
+  const angle = elbowAngleDeg(shoulder, elbow, wrist);
+  return angle >= 145;
+}
+
 export function createRearUppercutRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let state: UppercutState = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let hasDroppedSinceRep = false;
+  let badPunchStreak = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const lift = punchLift(frame);
+    const uppercutLikeNow =
+      lift != null && lift > UPPERCUT_LIFT_EXTEND_MIN && rightHandInGuard(frame) && rearUppercutAcrossBody(frame);
+
+    if (state !== 'rising') {
+      if (uppercutLikeNow) {
+        badPunchStreak = 0;
+      } else {
+        const badPunch =
+          handLooksLikeJabOrStraight(frame, 'left') || handLooksLikeJabOrStraight(frame, 'right');
+        badPunchStreak = badPunch ? badPunchStreak + 1 : 0;
+      }
+
+      if (badPunchStreak >= BAD_PUNCH_MIN_STREAK) {
+        const out = segment.length > 0 ? [...segment, frame] : [frame];
+        state = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        segment = [];
+        hasDroppedSinceRep = false;
+        badPunchStreak = 0;
+        return {
+          done: true,
+          segment: out,
+          forcedBadRep: true,
+          feedback: [{
+            id: 'rear-uppercut-jab-straight-bad-rep',
+            message: 'Bad Repetition — you threw a jab/straight line (flat/up/down). Throw a rear uppercut upward.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
+    }
 
     if (state === 'cooldown') {
       if (lift != null && lift < UPPERCUT_LIFT_RETRACT_MAX) hasDroppedSinceRep = true;
@@ -92,11 +156,13 @@ export function createRearUppercutRepDetector(): (frame: PoseFrame, now: number)
       if (!rightHandInGuard(frame) || !rearUppercutAcrossBody(frame)) {
         state = 'idle';
         segment = [];
+        badPunchStreak = 0;
         return { done: false };
       }
       if (lift < UPPERCUT_LIFT_RETRACT_MAX) {
         state = 'idle';
         segment = [];
+        badPunchStreak = 0;
         return { done: false };
       }
       if (segment.length >= UPPERCUT_MIN_REP_FRAMES) {
@@ -105,6 +171,7 @@ export function createRearUppercutRepDetector(): (frame: PoseFrame, now: number)
         state = 'cooldown';
         cooldownUntil = now + COOLDOWN_MS;
         hasDroppedSinceRep = false;
+        badPunchStreak = 0;
         return { done: true, segment: out };
       }
       return { done: false };

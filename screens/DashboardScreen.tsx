@@ -465,8 +465,11 @@ interface DashboardScreenProps {
     cooldowns: string[];
     trainingModules: ModuleItem[];
     introductionVideoUrl?: string | null;
-    startPhase?: 'warmup' | 'cooldown' | 'introduction';
+    startPhase?: 'warmup' | 'cooldown' | 'introduction' | 'training';
     mannequinGifUri?: string | null;
+    initialWarmupIndex?: number;
+    initialCooldownIndex?: number;
+    initialTrainingIndex?: number;
     sessionVariant?: 'default' | 'recommendedSingle';
     /** When false, returning from the session does not reopen the category overlay (e.g. opened from day history). */
     returnToCategoryAfterExit?: boolean;
@@ -1280,30 +1283,36 @@ export default function DashboardScreen({
     const trainingStartIdx = isOverride
       ? (overrideTrainingIdx as number)
       : (trainingStartCardIndex >= 0 ? trainingStartCardIndex : 0);
-    const warmupsToDo = warmupTop3Values.filter((v, idx) => idx >= warmupStartIdx && v !== '—');
-    const selectedCooldowns = cooldownTop3Values.filter((c, idx) => idx >= cooldownStartIdx && c && c !== '—');
     const allWarmups = warmupTop3Values.filter((v) => v !== '—');
     const allCooldowns = cooldownTop3Values.filter((c) => c && c !== '—');
     const trainingSlice = trainingModules.slice(trainingStartIdx);
+    const useFullTrainingList = hasTrainingStartSelection;
+    const trainingModulesForSession = useFullTrainingList ? trainingModules : trainingSlice;
+    const initialTrainingIndex = useFullTrainingList ? trainingStartIdx : 0;
     const firstTrainingGuideUri =
-      trainingSlice.length > 0
-        ? extractRemoteUrl(moduleDyn(trainingSlice[0]!).referenceGuideUrl)
+      trainingModulesForSession[initialTrainingIndex]
+        ? extractRemoteUrl(moduleDyn(trainingModulesForSession[initialTrainingIndex]!).referenceGuideUrl)
         : null;
 
     onStartCategorySession({
       category: selectedCategory ?? 'Punching',
-      warmups: (hasIntroductionStartSelection || hasCooldownStartSelection || hasTrainingStartSelection)
+      warmups: (hasIntroductionStartSelection || hasCooldownStartSelection)
         ? []
-        : (warmupsToDo.length ? warmupsToDo : allWarmups),
-      cooldowns: selectedCooldowns.length ? selectedCooldowns : allCooldowns,
-      trainingModules: trainingSlice,
+        : allWarmups,
+      cooldowns: allCooldowns,
+      trainingModules: trainingModulesForSession,
       introductionVideoUrl: introductionModuleForCategory
         ? getModuleIntroductionVideoUrl(introductionModuleForCategory)
         : null,
       startPhase: hasIntroductionStartSelection
         ? 'introduction'
-        : (hasCooldownStartSelection ? 'cooldown' : 'warmup'),
+        : (hasCooldownStartSelection ? 'cooldown' : (hasTrainingStartSelection ? 'training' : 'warmup')),
       mannequinGifUri: firstTrainingGuideUri,
+      initialWarmupIndex: (!hasIntroductionStartSelection && !hasCooldownStartSelection && !hasTrainingStartSelection)
+        ? warmupStartIdx
+        : 0,
+      initialCooldownIndex: hasCooldownStartSelection ? cooldownStartIdx : 0,
+      initialTrainingIndex,
     });
   };
 

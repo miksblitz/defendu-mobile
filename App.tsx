@@ -106,8 +106,11 @@ export default function App() {
     cooldowns: string[];
     trainingModules: ModuleItem[];
     introductionVideoUrl?: string | null;
-    startPhase?: 'warmup' | 'cooldown' | 'introduction';
+    startPhase?: 'warmup' | 'cooldown' | 'introduction' | 'training';
     mannequinGifUri?: string | null;
+    initialWarmupIndex?: number;
+    initialCooldownIndex?: number;
+    initialTrainingIndex?: number;
     sessionVariant?: 'default' | 'recommendedSingle';
     returnToCategoryAfterExit?: boolean;
   } | null>(null);
@@ -634,6 +637,9 @@ export default function App() {
                 trainingModules={categoryPracticeSession.trainingModules}
                 startPhase={categoryPracticeSession.startPhase}
                 mannequinGifUri={categoryPracticeSession.mannequinGifUri ?? null}
+                initialWarmupIndex={categoryPracticeSession.initialWarmupIndex ?? 0}
+                initialCooldownIndex={categoryPracticeSession.initialCooldownIndex ?? 0}
+                initialTrainingIndex={categoryPracticeSession.initialTrainingIndex ?? 0}
                 sessionVariant={categoryPracticeSession.sessionVariant ?? 'default'}
                 {...({ introductionVideoUrl: categoryPracticeSession.introductionVideoUrl ?? null } as any)}
                 onExit={() => {

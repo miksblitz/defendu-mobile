@@ -57,8 +57,11 @@ export interface CategoryPracticeSessionScreenProps {
   cooldowns: string[];
   trainingModules: ModuleItem[];
   introductionVideoUrl?: string | null;
-  startPhase?: 'warmup' | 'cooldown' | 'introduction';
+  startPhase?: 'warmup' | 'cooldown' | 'introduction' | 'training';
   mannequinGifUri?: string | null;
+  initialWarmupIndex?: number;
+  initialCooldownIndex?: number;
+  initialTrainingIndex?: number;
   /**
    * Recommended pick: same countdown → pose flow; **no** previous/skip or pose back button.
    * Quit (top-left) stays available so users can leave the session.
@@ -191,6 +194,9 @@ export default function CategoryPracticeSessionScreen({
   introductionVideoUrl = null,
   startPhase = 'warmup',
   mannequinGifUri,
+  initialWarmupIndex = 0,
+  initialCooldownIndex = 0,
+  initialTrainingIndex = 0,
   sessionVariant = 'default',
   onExit,
 }: CategoryPracticeSessionScreenProps) {
@@ -246,17 +252,29 @@ export default function CategoryPracticeSessionScreen({
   const [segmentTimerPaused, setSegmentTimerPaused] = useState(false);
   const [trainingMusicMuted, setTrainingMusicMuted] = useState(false);
 
-  const currentTrainingItem = trainingModules[trainingIndex] ?? null;
+  const orderedTrainingModules = useMemo(() => {
+    return [...trainingModules].sort((a, b) => {
+      const sa = typeof (a as { sortOrder?: unknown }).sortOrder === 'number'
+        ? (a as { sortOrder?: number }).sortOrder as number
+        : Number.MAX_SAFE_INTEGER;
+      const sb = typeof (b as { sortOrder?: unknown }).sortOrder === 'number'
+        ? (b as { sortOrder?: number }).sortOrder as number
+        : Number.MAX_SAFE_INTEGER;
+      if (sa !== sb) return sa - sb;
+      return String(a.moduleId ?? '').localeCompare(String(b.moduleId ?? ''));
+    });
+  }, [trainingModules]);
+  const currentTrainingItem = orderedTrainingModules[trainingIndex] ?? null;
   const [module, setModule] = useState<Module | null>(null);
 
   const introVideoUrl = useMemo(() => {
     return String(
       introductionVideoUrl
-        ?? trainingModules[0]?.techniqueVideoUrl
-        ?? trainingModules[0]?.introductionVideoUrl
+        ?? orderedTrainingModules[0]?.techniqueVideoUrl
+        ?? orderedTrainingModules[0]?.introductionVideoUrl
         ?? ''
     ).trim();
-  }, [introductionVideoUrl, trainingModules]);
+  }, [introductionVideoUrl, orderedTrainingModules]);
   const [introVideoLocalUri, setIntroVideoLocalUri] = useState<string | null>(null);
   const introVideoRef = useRef<Video | null>(null);
 
@@ -303,6 +321,8 @@ export default function CategoryPracticeSessionScreen({
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [showPreviousConfirm, setShowPreviousConfirm] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [confirmActionLocked, setConfirmActionLocked] = useState(false);
+  const confirmActionLockedRef = useRef(false);
   const [hasShownTrainingIntroduction, setHasShownTrainingIntroduction] = useState(false);
   const [hasShownTrainingSafety, setHasShownTrainingSafety] = useState(false);
   const [showTrainingFailed, setShowTrainingFailed] = useState(false);
@@ -317,6 +337,7 @@ export default function CategoryPracticeSessionScreen({
     trainingDefeatLockedRef.current = trainingDefeatLocked;
   }, [trainingDefeatLocked]);
   const [purchasedModuleIds, setPurchasedModuleIds] = useState<string[]>([]);
+  const [hasLoadedPurchases, setHasLoadedPurchases] = useState(false);
   const [userCredits, setUserCredits] = useState(0);
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
@@ -330,20 +351,31 @@ export default function CategoryPracticeSessionScreen({
 
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
   const matchThreshold = referencePoseFocus === 'punching' ? PUNCHING_MATCH_THRESHOLD : DEFAULT_MATCH_THRESHOLD;
+  const purchasedModuleIdSet = useMemo(() => {
+    return new Set(
+      purchasedModuleIds
+        .map((id) => String(id ?? '').trim())
+        .filter(Boolean)
+    );
+  }, [purchasedModuleIds]);
   const isTrainingModuleLocked = useCallback(
     (index: number) => {
+      // Avoid false lock popups before purchase state is hydrated.
+      if (!hasLoadedPurchases) return false;
       // first module in category stays free
       if (index === 0) return false;
-      const mod = trainingModules[index];
+      const mod = orderedTrainingModules[index];
       if (!mod) return false;
-      return !purchasedModuleIds.includes(mod.moduleId);
+      const moduleId = String(mod.moduleId ?? '').trim();
+      if (!moduleId) return false;
+      return !purchasedModuleIdSet.has(moduleId);
     },
-    [purchasedModuleIds, trainingModules]
+    [hasLoadedPurchases, orderedTrainingModules, purchasedModuleIdSet]
   );
 
   const trainersInSession = useMemo(() => {
     const byId = new Map<string, string>();
-    for (const mod of trainingModules as unknown as Array<Record<string, unknown>>) {
+    for (const mod of orderedTrainingModules as unknown as Array<Record<string, unknown>>) {
       const uid = String(
         mod.trainerId ?? mod.trainerUid ?? mod.trainerUID ?? mod.ownerId ?? mod.userId ?? ''
       ).trim();
@@ -352,10 +384,10 @@ export default function CategoryPracticeSessionScreen({
       if (!byId.has(uid)) byId.set(uid, name || 'Trainer');
     }
     return Array.from(byId.entries()).map(([uid, name]) => ({ uid, name }));
-  }, [trainingModules]);
+  }, [orderedTrainingModules]);
 
   const resolveTrainersFromModuleDocs = useCallback(async (): Promise<Array<{ uid: string; name: string }>> => {
-    const ids = Array.from(new Set(trainingModules.map((m) => m.moduleId).filter(Boolean)));
+    const ids = Array.from(new Set(orderedTrainingModules.map((m) => m.moduleId).filter(Boolean)));
     if (!ids.length) return [];
     const byId = new Map<string, string>();
     await Promise.all(
@@ -609,13 +641,21 @@ export default function CategoryPracticeSessionScreen({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [purchased, liveCredits] = await Promise.all([
-        getPurchasedModuleIds(),
-        getUserCreditsBalance(),
-      ]);
-      if (cancelled) return;
-      setUserCredits(liveCredits);
-      setPurchasedModuleIds(purchased);
+      try {
+        const [purchased, liveCredits] = await Promise.all([
+          getPurchasedModuleIds(),
+          getUserCreditsBalance(),
+        ]);
+        if (cancelled) return;
+        setUserCredits(liveCredits);
+        setPurchasedModuleIds(
+          (purchased ?? [])
+            .map((id) => String(id ?? '').trim())
+            .filter(Boolean)
+        );
+      } finally {
+        if (!cancelled) setHasLoadedPurchases(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -687,12 +727,12 @@ export default function CategoryPracticeSessionScreen({
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
     const next = trainingIndex + 1;
-    if (next < trainingModules.length) {
+    if (next < orderedTrainingModules.length) {
       startTrainingCountdown(next);
     } else {
       exitTrainingToCooldownOrDone();
     }
-  }, [exitTrainingToCooldownOrDone, startTrainingCountdown, clearTimer, trainingIndex, trainingModules.length]);
+  }, [exitTrainingToCooldownOrDone, orderedTrainingModules.length, startTrainingCountdown, clearTimer, trainingIndex]);
 
   const commitTrainingSuccess = useCallback(() => {
     const mod = moduleRef.current;
@@ -758,7 +798,7 @@ export default function CategoryPracticeSessionScreen({
         setActiveExerciseName(warmupNames[next] ?? '');
         // Skip should trigger a single countdown only once.
         setStep('warmup_countdown');
-      } else if (trainingModules.length > 0) {
+      } else if (orderedTrainingModules.length > 0) {
         startTrainingCountdown(0);
       } else {
         exitTrainingToCooldownOrDone();
@@ -794,7 +834,7 @@ export default function CategoryPracticeSessionScreen({
       setIsTrainingPrepared(false);
       setModule(null);
       const next = trainingIndex + 1;
-      if (next < trainingModules.length) {
+      if (next < orderedTrainingModules.length) {
         startTrainingCountdown(next);
       } else {
         exitTrainingToCooldownOrDone();
@@ -827,7 +867,7 @@ export default function CategoryPracticeSessionScreen({
     step,
     startTrainingCountdown,
     trainingIndex,
-    trainingModules.length,
+    orderedTrainingModules.length,
     warmupIndex,
     warmupNames,
   ]);
@@ -980,8 +1020,8 @@ export default function CategoryPracticeSessionScreen({
         return;
       }
       // From first cooldown, jump to last training if available.
-      if (trainingModules.length > 0) {
-        startTrainingCountdown(trainingModules.length - 1);
+      if (orderedTrainingModules.length > 0) {
+        startTrainingCountdown(orderedTrainingModules.length - 1);
         return;
       }
       // Fallback: restart first cooldown.
@@ -999,8 +1039,8 @@ export default function CategoryPracticeSessionScreen({
       setStep('cooldown_countdown');
       return;
     }
-    if (trainingModules.length > 0) {
-      startTrainingCountdown(trainingModules.length - 1);
+    if (orderedTrainingModules.length > 0) {
+      startTrainingCountdown(orderedTrainingModules.length - 1);
       return;
     }
     if (warmupNames.length > 0) {
@@ -1009,13 +1049,22 @@ export default function CategoryPracticeSessionScreen({
       setActiveExerciseName(warmupNames[lastWarmup] ?? '');
       setStep('warmup_countdown');
     }
-  }, [cooldownNames, startTrainingCountdown, trainingModules.length, warmupNames]);
+  }, [cooldownNames, orderedTrainingModules.length, startTrainingCountdown, warmupNames]);
 
   const handleSkipNo = useCallback(() => {
     setShowSkipConfirm(false);
   }, []);
 
+  useEffect(() => {
+    if (showSkipConfirm || showPreviousConfirm) return;
+    confirmActionLockedRef.current = false;
+    setConfirmActionLocked(false);
+  }, [showSkipConfirm, showPreviousConfirm]);
+
   const handleSkipYes = useCallback(() => {
+    if (confirmActionLockedRef.current) return;
+    confirmActionLockedRef.current = true;
+    setConfirmActionLocked(true);
     setShowSkipConfirm(false);
     skipCurrentWorkout();
   }, [skipCurrentWorkout]);
@@ -1025,6 +1074,9 @@ export default function CategoryPracticeSessionScreen({
   }, []);
 
   const handlePreviousYes = useCallback(() => {
+    if (confirmActionLockedRef.current) return;
+    confirmActionLockedRef.current = true;
+    setConfirmActionLocked(true);
     setShowPreviousConfirm(false);
     goToPreviousWorkout();
   }, [goToPreviousWorkout]);
@@ -1070,27 +1122,33 @@ export default function CategoryPracticeSessionScreen({
     if (hasInitializedSessionRef.current) return;
     hasInitializedSessionRef.current = true;
 
-    if (startPhase === 'introduction' && trainingModules.length > 0) {
-      startTrainingCountdown(0);
+    if ((startPhase === 'introduction' || startPhase === 'training') && orderedTrainingModules.length > 0) {
+      const initialIdx = startPhase === 'training'
+        ? Math.min(Math.max(0, initialTrainingIndex), Math.max(0, orderedTrainingModules.length - 1))
+        : 0;
+      startTrainingCountdown(initialIdx);
       return;
     }
 
     if (startPhase === 'cooldown' && cooldownNames.length > 0) {
-      setCooldownIndex(0);
-      setActiveExerciseName(cooldownNames[0] ?? '');
+      const clampedInitialCooldownIndex = Math.min(Math.max(0, initialCooldownIndex), Math.max(0, cooldownNames.length - 1));
+      setCooldownIndex(clampedInitialCooldownIndex);
+      setActiveExerciseName(cooldownNames[clampedInitialCooldownIndex] ?? '');
       setStep('cooldown_countdown');
       return;
     }
 
     if (warmupNames.length > 0) {
-      setActiveExerciseName(warmupNames[0] ?? '');
-      setWarmupIndex(0);
+      const clampedInitialWarmupIndex = Math.min(Math.max(0, initialWarmupIndex), Math.max(0, warmupNames.length - 1));
+      setActiveExerciseName(warmupNames[clampedInitialWarmupIndex] ?? '');
+      setWarmupIndex(clampedInitialWarmupIndex);
       setStep('warmup_countdown');
       return;
     }
 
-    if (trainingModules.length > 0) {
-      startTrainingCountdown(0);
+    if (orderedTrainingModules.length > 0) {
+      const clampedInitialTrainingIndex = Math.min(Math.max(0, initialTrainingIndex), Math.max(0, orderedTrainingModules.length - 1));
+      startTrainingCountdown(clampedInitialTrainingIndex);
       return;
     }
 
@@ -1103,7 +1161,16 @@ export default function CategoryPracticeSessionScreen({
 
     setStep('session_done');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cooldownNames, startPhase, trainingModules.length, warmupNames.length, startTrainingCountdown]);
+  }, [
+    cooldownNames,
+    initialCooldownIndex,
+    initialTrainingIndex,
+    initialWarmupIndex,
+    startPhase,
+    orderedTrainingModules.length,
+    warmupNames,
+    startTrainingCountdown,
+  ]);
 
   // Warmup: countdown then 30s timer.
   useEffect(() => {
@@ -1116,7 +1183,7 @@ export default function CategoryPracticeSessionScreen({
           setWarmupIndex(next);
           setActiveExerciseName(warmupNames[next] ?? '');
           setStep('warmup_between_countdown');
-        } else if (trainingModules.length > 0) {
+        } else if (orderedTrainingModules.length > 0) {
           startTrainingCountdown(0);
         } else {
           exitTrainingToCooldownOrDone();
@@ -1125,7 +1192,7 @@ export default function CategoryPracticeSessionScreen({
     });
     return () => clearCountdown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, warmupIndex, warmupNames.length, trainingModules.length, exitTrainingToCooldownOrDone, startTrainingCountdown]);
+  }, [step, warmupIndex, warmupNames.length, orderedTrainingModules.length, exitTrainingToCooldownOrDone, startTrainingCountdown]);
 
   // Between warmups: countdown then next warmup countdown phase.
   useEffect(() => {
@@ -1360,10 +1427,14 @@ export default function CategoryPracticeSessionScreen({
           <Text style={styles.modalTitle}>Skip workout?</Text>
           <Text style={styles.modalMessage}>Are you sure?</Text>
           <View style={styles.modalActions}>
-            <Pressable style={styles.modalNoButton} onPress={handleSkipNo}>
+            <Pressable style={styles.modalNoButton} onPress={handleSkipNo} disabled={confirmActionLocked}>
               <Text style={styles.modalNoText}>No</Text>
             </Pressable>
-            <Pressable style={styles.modalYesButton} onPress={handleSkipYes}>
+            <Pressable
+              style={[styles.modalYesButton, confirmActionLocked ? styles.modalDisabled : null]}
+              onPress={handleSkipYes}
+              disabled={confirmActionLocked}
+            >
               <Text style={styles.modalYesText}>Yes</Text>
             </Pressable>
           </View>
@@ -1379,10 +1450,14 @@ export default function CategoryPracticeSessionScreen({
           <Text style={styles.modalTitle}>Previous workout?</Text>
           <Text style={styles.modalMessage}>Are you sure you want to go back to the previous workout?</Text>
           <View style={styles.modalActions}>
-            <Pressable style={styles.modalNoButton} onPress={handlePreviousNo}>
+            <Pressable style={styles.modalNoButton} onPress={handlePreviousNo} disabled={confirmActionLocked}>
               <Text style={styles.modalNoText}>No</Text>
             </Pressable>
-            <Pressable style={styles.modalYesButton} onPress={handlePreviousYes}>
+            <Pressable
+              style={[styles.modalYesButton, confirmActionLocked ? styles.modalDisabled : null]}
+              onPress={handlePreviousYes}
+              disabled={confirmActionLocked}
+            >
               <Text style={styles.modalYesText}>Yes</Text>
             </Pressable>
           </View>
@@ -1454,7 +1529,11 @@ export default function CategoryPracticeSessionScreen({
 
   const categoryBundlePrice = Math.max(
     0,
-    trainingModules.filter((_, idx) => idx > 0 && !purchasedModuleIds.includes(trainingModules[idx].moduleId)).length * 50
+    orderedTrainingModules.filter((_, idx) => {
+      if (idx === 0) return false;
+      const moduleId = String(orderedTrainingModules[idx]?.moduleId ?? '').trim();
+      return !!moduleId && !purchasedModuleIdSet.has(moduleId);
+    }).length * 50
   );
   const purchaseModal = (
     <Modal transparent visible={purchaseModalVisible} animationType="fade" onRequestClose={() => setPurchaseModalVisible(false)}>
@@ -1476,7 +1555,7 @@ export default function CategoryPracticeSessionScreen({
               onPress={async () => {
                 const idx = pendingLockedTrainingIndex;
                 if (idx == null) return;
-                const target = trainingModules[idx];
+                const target = orderedTrainingModules[idx];
                 if (!target) return;
                 try {
                   setPurchasing(true);
@@ -1506,7 +1585,11 @@ export default function CategoryPracticeSessionScreen({
               style={[styles.paywallSecondaryButton, (purchasing || categoryBundlePrice <= 0 || userCredits < categoryBundlePrice) && styles.modalDisabled]}
               disabled={purchasing || categoryBundlePrice <= 0 || userCredits < categoryBundlePrice}
               onPress={async () => {
-                const remaining = trainingModules.filter((m, idx) => idx > 0 && !purchasedModuleIds.includes(m.moduleId));
+                const remaining = orderedTrainingModules.filter((m, idx) => {
+                  if (idx === 0) return false;
+                  const moduleId = String(m.moduleId ?? '').trim();
+                  return !!moduleId && !purchasedModuleIdSet.has(moduleId);
+                });
                 const price = remaining.length * 50;
                 if (price <= 0) return;
                 try {

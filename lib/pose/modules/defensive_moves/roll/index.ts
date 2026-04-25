@@ -21,7 +21,7 @@ export const defensiveRollPipeline: ModulePosePipeline = {
   compareRepWithFeedbackAny: compareRepWithFeedbackAnyRoll,
   defaultMatchThreshold: SLIP_PARRY_MATCH_THRESHOLD,
   poseFocus,
-  minFramesForRep: 7,
+  minFramesForRep: 5,
 };
 
 export { createSlipParryRepDetector, createRollRepDetector } from './rollRepDetector';

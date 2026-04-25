@@ -82,6 +82,8 @@ export function getRightElbowStrikeArmSnapshot(frame: PoseFrame): RightElbowStri
  * (Normalized coords; ~0.2 ≈ ~20% of frame height.)
  */
 export const MAX_SHOULDER_ELBOW_LEVEL_Y = 0.22;
+/** Require elbow to be above shoulder line by at least a small margin. */
+export const MIN_ELBOW_ABOVE_SHOULDER_Y = 0.01;
 
 /** Elbow out to the side; kept moderate so slight angles still pass. */
 export const MIN_ELBOW_LATERAL_OFFSET = 0.045;
@@ -102,7 +104,8 @@ export const MAX_FLARE_ANGLE_DEG = 155;
  * Rejects vertical reach-up (bad level/lateral) and near-straight extension.
  */
 export function isRightElbowStrikeAlignedAndFlared(s: RightElbowStrikeSnapshot): boolean {
-  if (Math.abs(s.elbowLift) > MAX_SHOULDER_ELBOW_LEVEL_Y) return false;
+  if (s.elbowLift < MIN_ELBOW_ABOVE_SHOULDER_Y) return false;
+  if (s.elbowLift > MAX_SHOULDER_ELBOW_LEVEL_Y) return false;
   if (s.elbowFromShoulder < MIN_ELBOW_LATERAL_OFFSET) return false;
   if (s.wristLateralFromShoulder < MIN_WRIST_LATERAL_OFFSET) return false;
   if (s.elbowAngleDeg < MIN_FLARE_ANGLE_DEG) return false;

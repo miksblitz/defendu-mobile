@@ -3,6 +3,7 @@ import {
   getLeadArmSnapshot,
   isLeadElbowStrikeAlignedAndFlared,
   MAX_FLARE_ANGLE_DEG,
+  MIN_ELBOW_ABOVE_SHOULDER_Y,
   MAX_SHOULDER_ELBOW_LEVEL_Y,
   MIN_ELBOW_LATERAL_OFFSET,
   MIN_FLARE_ANGLE_DEG,
@@ -19,7 +20,7 @@ const ERROR_IDS = {
 export function getLeadElbowStrikeFeedback(userFrames: PoseFrame[]): PoseFeedbackItem[] {
   if (userFrames.length === 0) return [];
 
-  let minAbsLift = Infinity;
+  let maxElbowLift = -Infinity;
   let maxElbowLat = -Infinity;
   let maxWristLat = -Infinity;
   let minAngle = Infinity;
@@ -33,7 +34,7 @@ export function getLeadElbowStrikeFeedback(userFrames: PoseFrame[]): PoseFeedbac
     if (!s) continue;
     hadLandmarks = true;
 
-    minAbsLift = Math.min(minAbsLift, Math.abs(s.elbowLift));
+    maxElbowLift = Math.max(maxElbowLift, s.elbowLift);
     /** Best lateral reach in this segment. */
     maxElbowLat = Math.max(maxElbowLat, s.elbowFromShoulder);
     maxWristLat = Math.max(maxWristLat, s.wristLateralFromShoulder);
@@ -64,16 +65,16 @@ export function getLeadElbowStrikeFeedback(userFrames: PoseFrame[]): PoseFeedbac
   feedback.push({
     id: ERROR_IDS.noFinal,
     message:
-      'Finish sideways: right elbow roughly near shoulder height (a bit lower or higher is fine) and arm flared—not straight up.',
+      'Finish sideways: right elbow above shoulder level and arm flared—not straight up.',
     phase: 'impact',
     severity: 'error',
   });
 
-  if (minAbsLift > MAX_SHOULDER_ELBOW_LEVEL_Y) {
+  if (maxElbowLift < MIN_ELBOW_ABOVE_SHOULDER_Y || maxElbowLift > MAX_SHOULDER_ELBOW_LEVEL_Y) {
     feedback.push({
       id: ERROR_IDS.level,
       message:
-        'Get the right elbow closer to the shoulder-height band—small differences above/below are okay.',
+        'Keep the right elbow above shoulder level during the strike.',
       phase: 'impact',
       severity: 'error',
     });

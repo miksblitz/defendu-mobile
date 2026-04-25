@@ -10,7 +10,7 @@ import { armExtensionDistances } from '../../../phaseDetection';
 
 const COOLDOWN_MS = 800;
 const MIN_SLIP_FRAMES = 3;
-const MIN_PARRY_FRAMES = 4;
+const MIN_PARRY_FRAMES = 2;
 const NEUTRAL_OFFSET_MAX = 0.04;
 const SLIP_OFFSET_MIN = 0.075;
 /** While parrying, allow slight return toward center. */

@@ -102,6 +102,7 @@ const MAX_BUFFER_FRAMES = 120;
 const SUCCESS_OVERLAY_MS = 1800;
 const WRONG_OVERLAY_MS = 1200;
 const ARM_STATE_THROTTLE_MS = 180;
+const PERFECT_REP_TRACK = require('../assets/audio/perfect-rep.mp3');
 /** Hand only: wrist–shoulder distance. Need clear sustained move to show extending/contracting (reduces jitter). */
 const ARM_TREND_THRESHOLD = 0.018;
 /** Smooth over this many samples (recent avg vs older avg). */
@@ -123,13 +124,15 @@ type RealtimeElbowState = {
   left: { label: ElbowBendLabel; angleDeg: number | null };
   right: { label: ElbowBendLabel; angleDeg: number | null };
 };
-/** Short success beep when rep is correct (no asset file needed). */
+/** Loud local success sound when rep is correct. */
 async function playSuccessSound() {
   try {
     const { Audio } = await import('expo-av');
-    const { sound } = await Audio.Sound.createAsync({
-      uri: 'https://assets.mixkit.co/active_storage/sfx/2570-success.mp3',
+    const { sound } = await Audio.Sound.createAsync(PERFECT_REP_TRACK, {
+      shouldPlay: false,
+      volume: 1.0,
     });
+    await sound.setVolumeAsync(1.0);
     await sound.playAsync();
     sound.setOnPlaybackStatusUpdate((s) => {
       if (s.isLoaded && s.didJustFinishNotify) sound.unloadAsync().catch(() => {});

@@ -59,6 +59,10 @@ function isNeutral(frame: PoseFrame): boolean {
   return d.left <= NEUTRAL_MAX_EXTENSION && d.right <= NEUTRAL_MAX_EXTENSION;
 }
 
+function oppositeSide(side: 'left' | 'right'): 'left' | 'right' {
+  return side === 'left' ? 'right' : 'left';
+}
+
 export function createParryRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   return createParryRepDetectorForSide('either');
 }
@@ -88,23 +92,47 @@ export function createParryRepDetectorForSide(
         phase = 'parrying';
         activeSide = side!;
         segment = [frame];
+      } else if (
+        hasNeutralSinceRep &&
+        side != null &&
+        expectedSide !== 'either' &&
+        side === oppositeSide(expectedSide)
+      ) {
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'wrong-parry-arm',
+            message: expectedSide === 'left' ? 'Bad Repetition — use your left arm for this parry.' : 'Bad Repetition — use your right arm for this parry.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
       }
       return { done: false };
     }
 
-    if (side == null || side !== activeSide) {
-      const badSegment = [...segment];
+    if (side == null) {
       phase = 'idle';
       activeSide = null;
       segment = [];
-      if (badSegment.length > 0) {
+      return { done: false };
+    }
+
+    if (side !== activeSide) {
+      const badSegment = [...segment, frame];
+      phase = 'idle';
+      activeSide = null;
+      segment = [];
+      if (expectedSide !== 'either' && side === oppositeSide(expectedSide) && badSegment.length > 0) {
         return {
           done: true,
           segment: badSegment,
           forcedBadRep: true,
           feedback: [{
-            id: 'bad-rep-parry',
-            message: 'Bad Repetition — complete a clean parry with one side. Try again.',
+            id: 'wrong-parry-arm',
+            message: expectedSide === 'left' ? 'Bad Repetition — use your left arm for this parry.' : 'Bad Repetition — use your right arm for this parry.',
             severity: 'error',
             phase: 'impact',
           }],

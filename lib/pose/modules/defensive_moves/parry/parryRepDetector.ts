@@ -13,8 +13,9 @@ const COOLDOWN_MS = 900;
 const MIN_REP_FRAMES = 4;
 const NEUTRAL_MAX_EXTENSION = 0.23;
 const PARRY_MIN_EXTENSION = 0.26;
-const PARRY_MIN_LATERAL = 0.1;
-const WRIST_ABOVE_SHOULDER_MIN = 0.04;
+const PARRY_MIN_LATERAL = 0.065;
+const MIN_LATERAL_SHOULDER_RATIO = 0.5;
+const WRIST_ABOVE_SHOULDER_MIN = 0.005;
 
 const MP = { ls: 11, rs: 12, lw: 15, rw: 16 };
 const MN17 = { ls: 5, rs: 6, lw: 9, rw: 10 };
@@ -36,12 +37,15 @@ function isParryArm(frame: PoseFrame, side: 'left' | 'right'): boolean {
 
   const shoulder = side === 'left' ? frame[idx.ls] : frame[idx.rs];
   const wrist = side === 'left' ? frame[idx.lw] : frame[idx.rw];
+  const otherShoulder = side === 'left' ? frame[idx.rs] : frame[idx.ls];
   const ext = side === 'left' ? d.left : d.right;
-  if (!validPoint(shoulder) || !validPoint(wrist)) return false;
+  if (!validPoint(shoulder) || !validPoint(otherShoulder) || !validPoint(wrist)) return false;
 
   const lateral = Math.abs(wrist.x - shoulder.x);
+  const shoulderWidth = Math.abs(otherShoulder.x - shoulder.x);
+  const lateralThreshold = Math.min(PARRY_MIN_LATERAL, shoulderWidth * MIN_LATERAL_SHOULDER_RATIO);
   const wristAbove = shoulder.y - wrist.y;
-  return ext >= PARRY_MIN_EXTENSION && lateral >= PARRY_MIN_LATERAL && wristAbove >= WRIST_ABOVE_SHOULDER_MIN;
+  return ext >= PARRY_MIN_EXTENSION && lateral >= lateralThreshold && wristAbove >= WRIST_ABOVE_SHOULDER_MIN;
 }
 
 function detectParrySide(frame: PoseFrame): 'left' | 'right' | null {
@@ -57,6 +61,10 @@ function isNeutral(frame: PoseFrame): boolean {
   const d = armExtensionDistances(frame);
   if (!d) return false;
   return d.left <= NEUTRAL_MAX_EXTENSION && d.right <= NEUTRAL_MAX_EXTENSION;
+}
+
+function oppositeSide(side: 'left' | 'right'): 'left' | 'right' {
+  return side === 'left' ? 'right' : 'left';
 }
 
 export function createParryRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
@@ -88,23 +96,47 @@ export function createParryRepDetectorForSide(
         phase = 'parrying';
         activeSide = side!;
         segment = [frame];
+      } else if (
+        hasNeutralSinceRep &&
+        side != null &&
+        expectedSide !== 'either' &&
+        side === oppositeSide(expectedSide)
+      ) {
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'wrong-parry-arm',
+            message: expectedSide === 'left' ? 'Bad Repetition — use your left arm for this parry.' : 'Bad Repetition — use your right arm for this parry.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
       }
       return { done: false };
     }
 
-    if (side == null || side !== activeSide) {
-      const badSegment = [...segment];
+    if (side == null) {
       phase = 'idle';
       activeSide = null;
       segment = [];
-      if (badSegment.length > 0) {
+      return { done: false };
+    }
+
+    if (side !== activeSide) {
+      const badSegment = [...segment, frame];
+      phase = 'idle';
+      activeSide = null;
+      segment = [];
+      if (expectedSide !== 'either' && side === oppositeSide(expectedSide) && badSegment.length > 0) {
         return {
           done: true,
           segment: badSegment,
           forcedBadRep: true,
           feedback: [{
-            id: 'bad-rep-parry',
-            message: 'Bad Repetition — complete a clean parry with one side. Try again.',
+            id: 'wrong-parry-arm',
+            message: expectedSide === 'left' ? 'Bad Repetition — use your left arm for this parry.' : 'Bad Repetition — use your right arm for this parry.',
             severity: 'error',
             phase: 'impact',
           }],

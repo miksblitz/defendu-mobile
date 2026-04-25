@@ -9,7 +9,7 @@ export function compareRepWithFeedbackRoll(
   focus?: PoseFocus
 ): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
   const distance = compareRepsWithFocus(userFrames, referenceFrames, focus ?? 'full');
-  if ((focus && focus !== 'full') || userFrames.length === 0 || referenceFrames.length === 0) {
+  if (userFrames.length === 0 || referenceFrames.length === 0) {
     return { match: distance < threshold, distance, feedback: [] };
   }
   const form = isRollFormAcceptable(userFrames, referenceFrames);

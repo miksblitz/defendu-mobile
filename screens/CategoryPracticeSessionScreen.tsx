@@ -49,6 +49,7 @@ type SessionStep =
 
 type CountdownText = '3' | '2' | '1' | 'READY YOUR STANCE' | 'ARE YOU READY?' | 'GO!!';
 const SESSION_LOOP_TRACK = require('../assets/audio/training-loop.mp3');
+const FAILURE_TRACK = require('../assets/audio/failure-rep.mp3');
 const TRAINING_MUSIC_MUTED_KEY = 'trainingModeMusicMuted';
 
 export interface CategoryPracticeSessionScreenProps {
@@ -233,6 +234,7 @@ export default function CategoryPracticeSessionScreen({
   const stanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loopSoundRef = useRef<Audio.Sound | null>(null);
+  const failureSoundRef = useRef<Audio.Sound | null>(null);
 
   const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(30);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -513,6 +515,45 @@ export default function CategoryPracticeSessionScreen({
     } catch {}
   };
 
+  const resetLoopMusic = async () => {
+    const snd = loopSoundRef.current;
+    loopSoundRef.current = null;
+    if (!snd) return;
+    try {
+      await snd.stopAsync();
+    } catch {}
+    try {
+      await snd.unloadAsync();
+    } catch {}
+  };
+
+  const stopFailureSound = async () => {
+    const snd = failureSoundRef.current;
+    if (!snd) return;
+    try {
+      await snd.stopAsync();
+    } catch {}
+  };
+
+  const playFailureSound = async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        staysActiveInBackground: false,
+      });
+      if (!failureSoundRef.current) {
+        const { sound } = await Audio.Sound.createAsync(
+          FAILURE_TRACK,
+          { shouldPlay: false, isLooping: false, volume: 1.0 }
+        );
+        failureSoundRef.current = sound;
+      }
+      await failureSoundRef.current.setPositionAsync(0);
+      await failureSoundRef.current.playAsync();
+    } catch {}
+  };
+
   const startLoopMusic = async () => {
     try {
       await Audio.setAudioModeAsync({
@@ -530,6 +571,29 @@ export default function CategoryPracticeSessionScreen({
       await loopSoundRef.current.playAsync();
     } catch {}
   };
+
+  const lastMusicContextKeyRef = useRef<string | null>(null);
+  const musicContextKey = useMemo(() => {
+    if (step === 'warmup_timer') return `warmup:${warmupIndex}`;
+    if (step === 'cooldown_timer') return `cooldown:${cooldownIndex}`;
+    if (step === 'training_pose') {
+      const moduleId = String(currentTrainingItem?.moduleId ?? '').trim();
+      // Include pose session key so "Restart" on the same module also resets music.
+      return moduleId ? `training:${moduleId}:${poseSessionKey}` : `training:${trainingIndex}:${poseSessionKey}`;
+    }
+    return null;
+  }, [cooldownIndex, currentTrainingItem?.moduleId, poseSessionKey, step, trainingIndex, warmupIndex]);
+
+  useEffect(() => {
+    if (!musicContextKey) return;
+    const prevKey = lastMusicContextKeyRef.current;
+    lastMusicContextKeyRef.current = musicContextKey;
+    if (prevKey === musicContextKey) return;
+    if (trainingMusicMuted) return;
+    const snd = loopSoundRef.current;
+    if (!snd) return;
+    snd.setPositionAsync(0).catch(() => {});
+  }, [musicContextKey, trainingMusicMuted]);
 
   const startTimer = (seconds: number, onDone: () => void) => {
     clearTimer();
@@ -721,6 +785,7 @@ export default function CategoryPracticeSessionScreen({
     setHasRecordedCompletion(false);
     setShowTrainingFailed(false);
     setTrainingDefeatLocked(false);
+    stopFailureSound().catch(() => {});
     clearSuccessTimeout();
     clearTimer();
     // Reset the pose timer so returning to this module starts fresh.
@@ -732,7 +797,7 @@ export default function CategoryPracticeSessionScreen({
     } else {
       exitTrainingToCooldownOrDone();
     }
-  }, [exitTrainingToCooldownOrDone, orderedTrainingModules.length, startTrainingCountdown, clearTimer, trainingIndex]);
+  }, [exitTrainingToCooldownOrDone, orderedTrainingModules.length, startTrainingCountdown, clearTimer, trainingIndex, stopFailureSound]);
 
   const commitTrainingSuccess = useCallback(() => {
     const mod = moduleRef.current;
@@ -761,15 +826,18 @@ export default function CategoryPracticeSessionScreen({
       trainingDefeatLockedRef.current = true;
       setTrainingDefeatLocked(true);
       setShowTrainingFailed(true);
+      stopLoopMusic().catch(() => {});
+      playFailureSound().catch(() => {});
       return;
     }
     commitTrainingSuccess();
-  }, [commitTrainingSuccess, logTrainingFailureOnce]);
+  }, [commitTrainingSuccess, logTrainingFailureOnce, playFailureSound, stopLoopMusic]);
 
   const skipCurrentWorkout = useCallback(() => {
     clearCountdown();
     clearTimer();
     clearSuccessTimeout();
+    stopFailureSound().catch(() => {});
     setShowTrainingFailed(false);
     setTrainingDefeatLocked(false);
     trainingTimerEpochRef.current = -1;
@@ -870,6 +938,7 @@ export default function CategoryPracticeSessionScreen({
     orderedTrainingModules.length,
     warmupIndex,
     warmupNames,
+    stopFailureSound,
   ]);
 
   const handleRetryTraining = useCallback(() => {
@@ -886,11 +955,14 @@ export default function CategoryPracticeSessionScreen({
     setTrainingTimerEndTimeMs(null);
     setTrainingPaused(false);
     setFrozenTrainingTimerText(null);
+    stopFailureSound().catch(() => {});
+    resetLoopMusic().catch(() => {});
+    lastMusicContextKeyRef.current = null;
     // Force PoseCameraView remount to reset its internal state.
     setPoseSessionKey((k) => k + 1);
     // Go back to module's pose phase without changing trainingIndex.
     setStep('training_pose_loading');
-  }, []);
+  }, [resetLoopMusic, stopFailureSound]);
 
   const toggleTrainingPosePause = useCallback(() => {
     if (!trainingPaused) {
@@ -1085,8 +1157,9 @@ export default function CategoryPracticeSessionScreen({
   const handleQuitYes = useCallback(() => {
     setShowQuitConfirm(false);
     setTrainingDefeatLocked(false);
+    stopFailureSound().catch(() => {});
     void exitSession();
-  }, [exitSession]);
+  }, [exitSession, stopFailureSound]);
 
   const confirmQuit = useCallback(() => {
     setShowQuitConfirm(true);
@@ -1284,14 +1357,14 @@ export default function CategoryPracticeSessionScreen({
       (
         (step === 'warmup_timer' && !segmentTimerPaused) ||
         (step === 'cooldown_timer' && !segmentTimerPaused) ||
-        (step === 'training_pose' && !trainingPaused)
+        (step === 'training_pose' && !trainingPaused && !showTrainingFailed && !trainingDefeatLocked)
       );
     if (playLoop) {
       startLoopMusic().catch(() => {});
     } else {
       stopLoopMusic().catch(() => {});
     }
-  }, [step, trainingMusicMuted, trainingPaused, segmentTimerPaused]);
+  }, [step, trainingMusicMuted, trainingPaused, segmentTimerPaused, showTrainingFailed, trainingDefeatLocked]);
 
   useEffect(() => {
     return () => {
@@ -1300,6 +1373,12 @@ export default function CategoryPracticeSessionScreen({
       if (!snd) return;
       snd.stopAsync().catch(() => {});
       snd.unloadAsync().catch(() => {});
+
+      const fail = failureSoundRef.current;
+      failureSoundRef.current = null;
+      if (!fail) return;
+      fail.stopAsync().catch(() => {});
+      fail.unloadAsync().catch(() => {});
     };
   }, []);
 

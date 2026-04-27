@@ -56,13 +56,14 @@ const MIN_REP_FRAMES = 1;
 const GOOD_MIN_REAR_ELBOW_LIFT = 0.10;
 const GOOD_MAX_REAR_ELBOW_FROM_SHOULDER = 0.35;
 const GOOD_MAX_REAR_WRIST_ABOVE_ELBOW = 1.0;
+const OPPOSITE_ONLY_MIN_STREAK = 2;
 
 type State = 'idle' | 'holding' | 'cooldown';
 
-function isRearPoseAttemptOk(frame: PoseFrame): boolean {
+function classifyRearPoseAttempt(frame: PoseFrame): 'none' | 'valid' | 'opposite_only' {
   const left = bestMetricsForSide(frame, 'left');
   const right = bestMetricsForSide(frame, 'right');
-  if (!left && !right) return false;
+  if (!left && !right) return 'none';
 
   const leftOk =
     !!left &&
@@ -75,7 +76,11 @@ function isRearPoseAttemptOk(frame: PoseFrame): boolean {
     right.elbowFromShoulder <= GOOD_MAX_REAR_ELBOW_FROM_SHOULDER &&
     right.wristAboveElbow <= GOOD_MAX_REAR_WRIST_ABOVE_ELBOW;
 
-  return leftOk || rightOk;
+  // Rear-side success: left side qualifies. If both qualify, still a valid perfect rep.
+  if (leftOk) return 'valid';
+  // Opposite side only (without rear side) is a bad rep.
+  if (rightOk) return 'opposite_only';
+  return 'none';
 }
 
 export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
@@ -83,10 +88,17 @@ export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, n
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
+  let oppositeOnlyStreak = 0;
   const MIN_RETRACT_FRAMES = 2;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
-    const attempt = isRearPoseAttemptOk(frame);
+    const attemptClass = classifyRearPoseAttempt(frame);
+    const attempt = attemptClass === 'valid';
+    if (attemptClass === 'opposite_only') {
+      oppositeOnlyStreak = Math.min(oppositeOnlyStreak + 1, OPPOSITE_ONLY_MIN_STREAK);
+    } else {
+      oppositeOnlyStreak = 0;
+    }
 
     if (state === 'cooldown') {
       if (!attempt) retractFrames = Math.min(retractFrames + 1, MIN_RETRACT_FRAMES);
@@ -95,8 +107,29 @@ export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, n
         state = 'idle';
         segment = [];
         retractFrames = 0;
+        oppositeOnlyStreak = 0;
       }
       return { done: false };
+    }
+
+    if (oppositeOnlyStreak >= OPPOSITE_ONLY_MIN_STREAK) {
+      const out = segment.length > 0 ? [...segment, frame] : [frame];
+      state = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      segment = [];
+      retractFrames = 0;
+      oppositeOnlyStreak = 0;
+      return {
+        done: true,
+        segment: out,
+        forcedBadRep: true,
+        feedback: [{
+          id: 'rear-uppercut-elbow-opposite-hand-bad-rep',
+          message: 'Bad Repetition — you used the opposite hand only. Use your rear hand (or both arms) for this module.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     if (state === 'idle') {

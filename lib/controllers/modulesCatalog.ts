@@ -45,6 +45,12 @@ export type CategorySegmentProgramRow = {
 
 export type CategorySegmentProgramMap = Record<string, CategorySegmentProgramRow>;
 
+export interface ModuleCategoryWithMeta {
+  key: string;
+  name: string;
+  thumbnailUrl: string | null;
+}
+
 function processModulesList(data: Record<string, Record<string, unknown>>): ModuleItem[] {
   const modules: ModuleItem[] = [];
   for (const id in data) {
@@ -151,6 +157,89 @@ export async function getCategorySegmentProgram(): Promise<CategorySegmentProgra
   } catch (e) {
     console.error('getCategorySegmentProgram:', e);
     return {};
+  }
+}
+
+function normalizeModuleCategoryKey(category: string): string {
+  return String(category ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[#$.[\]\/]/g, '_');
+}
+
+function readRemoteUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+}
+
+export async function getModuleCategoriesWithMeta(): Promise<ModuleCategoryWithMeta[]> {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return [];
+
+    const categoriesSnapshot = await get(ref(db, 'moduleCategories'));
+    let metaRaw: Record<string, unknown> = {};
+    try {
+      const metaSnapshot = await get(ref(db, 'moduleCategoryMeta'));
+      if (metaSnapshot.exists()) {
+        metaRaw = metaSnapshot.val() as Record<string, unknown>;
+      }
+    } catch (metaErr) {
+      // Metadata is optional. If access is denied, still return category names from `moduleCategories`.
+      const metaMsg = String((metaErr as Error)?.message ?? metaErr ?? '');
+      if (!/permission denied/i.test(metaMsg)) {
+        console.warn('getModuleCategoriesWithMeta: moduleCategoryMeta read failed:', metaErr);
+      }
+    }
+
+    if (!categoriesSnapshot.exists()) return [];
+    const categoriesRaw = categoriesSnapshot.val();
+
+    const rawNames: string[] = [];
+    if (Array.isArray(categoriesRaw)) {
+      for (const entry of categoriesRaw) {
+        const name = String(entry ?? '').trim();
+        if (name) rawNames.push(name);
+      }
+    } else if (categoriesRaw && typeof categoriesRaw === 'object') {
+      for (const value of Object.values(categoriesRaw as Record<string, unknown>)) {
+        const name = String(value ?? '').trim();
+        if (name) rawNames.push(name);
+      }
+    }
+
+    const deduped = new Set<string>();
+    const out: ModuleCategoryWithMeta[] = [];
+    for (const name of rawNames) {
+      const normalizedKey = normalizeModuleCategoryKey(name);
+      if (!normalizedKey || deduped.has(normalizedKey)) continue;
+      deduped.add(normalizedKey);
+
+      const meta =
+        metaRaw && typeof metaRaw === 'object' && metaRaw[normalizedKey] && typeof metaRaw[normalizedKey] === 'object'
+          ? (metaRaw[normalizedKey] as Record<string, unknown>)
+          : null;
+      const thumbnailUrl =
+        readRemoteUrl(meta?.thumbnailUrl) ??
+        readRemoteUrl(meta?.thumbnailURL) ??
+        readRemoteUrl(meta?.thumbnail) ??
+        readRemoteUrl(meta?.imageUrl) ??
+        readRemoteUrl(meta?.image) ??
+        null;
+
+      out.push({
+        key: normalizedKey,
+        name,
+        thumbnailUrl,
+      });
+    }
+
+    return out;
+  } catch (e) {
+    console.error('getModuleCategoriesWithMeta:', e);
+    return [];
   }
 }
 

@@ -52,7 +52,12 @@ export {
   changePassword,
 } from './userProfile';
 
-export { getApprovedModules, getCategorySegmentProgram } from './modulesCatalog';
+export {
+  getApprovedModules,
+  getCategorySegmentProgram,
+  getModuleCategoriesWithMeta,
+  type ModuleCategoryWithMeta,
+} from './modulesCatalog';
 
 export {
   getModulesByIds,
@@ -110,7 +115,7 @@ import {
   updateCoverPhoto,
   changePassword,
 } from './userProfile';
-import { getApprovedModules, getCategorySegmentProgram } from './modulesCatalog';
+import { getApprovedModules, getCategorySegmentProgram, getModuleCategoriesWithMeta } from './modulesCatalog';
 import {
   getModulesByIds,
   getReferencePoseData,
@@ -157,6 +162,7 @@ export const AuthController = {
   changePassword,
   getApprovedModules,
   getCategorySegmentProgram,
+  getModuleCategoriesWithMeta,
   forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,

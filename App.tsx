@@ -455,6 +455,7 @@ export default function App() {
                 initialToastMessage={dashboardToastMessage}
                 onClearInitialToast={() => setDashboardToastMessage(null)}
                 onOpenTopUp={openTopUp}
+                onCreditsUpdated={setCreditsBalance}
                 onModulePurchaseComplete={(payload) => {
                   setCreditsBalance(payload.newCredits);
                   setModulePurchaseReceipt(payload);

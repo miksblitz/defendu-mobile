@@ -23,7 +23,7 @@ import {
   type ImageSourcePropType,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
+import { AuthController, type ModuleItem, type ModuleCategoryWithMeta } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 import type { SkillProfile } from '../lib/models/SkillProfile';
 import type { ModuleTrainingStat, WeeklyReward } from '../lib/controllers/userProgress';
@@ -163,7 +163,7 @@ function reviveCachedModules(raw: unknown): ModuleItem[] {
   })) as ModuleItem[];
 }
 
-const MODULE_CATEGORIES = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes', 'Defensive Moves'] as const;
+const MODULE_CATEGORY_FALLBACK_NAMES = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes', 'Defensive Moves'] as const;
 
 function normalizeCategory(cat: string | undefined): string {
   const s = (cat ?? '').trim().toLowerCase();
@@ -360,12 +360,14 @@ function readExerciseThumbnailMap(
 /** Animated category card for horizontal strip: hero image, gradient, glow border, press scale, slide-in. */
 function TrainingCategoryCard({
   category,
+  thumbnailUrl,
   moduleCount,
   onPress,
   index = 0,
   cardWidth,
 }: {
   category: string;
+  thumbnailUrl?: string | null;
   moduleCount: number;
   onPress: () => void;
   index?: number;
@@ -374,9 +376,17 @@ function TrainingCategoryCard({
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(32)).current;
-  const [imageError, setImageError] = useState(false);
-  const imageSource = CATEGORY_IMAGES[category];
-  const showImage = imageSource && !imageError;
+  const [remoteImageError, setRemoteImageError] = useState(false);
+  const [bundledImageError, setBundledImageError] = useState(false);
+  const remoteImageSource = !remoteImageError ? toImageSource(thumbnailUrl ?? undefined) : undefined;
+  const bundledImageSource = !bundledImageError ? CATEGORY_IMAGES[category] : undefined;
+  const imageSource = remoteImageSource ?? bundledImageSource;
+  const showImage = imageSource != null;
+
+  useEffect(() => {
+    setRemoteImageError(false);
+    setBundledImageError(false);
+  }, [category, thumbnailUrl]);
 
   useEffect(() => {
     Animated.parallel([
@@ -435,7 +445,10 @@ function TrainingCategoryCard({
               source={imageSource}
               style={styles.categoryCardImage}
               resizeMode="cover"
-              onError={() => setImageError(true)}
+              onError={() => {
+                if (remoteImageSource) setRemoteImageError(true);
+                else setBundledImageError(true);
+              }}
             />
           ) : (
             <View style={styles.categoryCardImagePlaceholder}>
@@ -493,6 +506,7 @@ interface DashboardScreenProps {
   initialToastMessage?: string | null;
   onClearInitialToast?: () => void;
   onModulePurchaseComplete?: (payload: { invoice: ModulePurchaseInvoice; newCredits: number }) => void;
+  onCreditsUpdated?: (newCredits: number) => void;
 }
 
 // --- Component ---
@@ -509,13 +523,18 @@ export default function DashboardScreen({
   initialToastMessage,
   onClearInitialToast,
   onModulePurchaseComplete,
+  onCreditsUpdated,
 }: DashboardScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
+  const [moduleCategories, setModuleCategories] = useState<ModuleCategoryWithMeta[]>([]);
   const [categorySegmentProgram, setCategorySegmentProgram] = useState<Record<string, { warmupModuleIds?: string[]; cooldownModuleIds?: string[] }>>({});
   const [recommendedModules, setRecommendedModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
+  const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [expandedRemoteImageError, setExpandedRemoteImageError] = useState(false);
+  const [expandedBundledImageError, setExpandedBundledImageError] = useState(false);
   // -1 means: nothing selected yet; session starts from index 0.
   const [warmupStartCardIndex, setWarmupStartCardIndex] = useState<number>(-1);
   const [cooldownStartCardIndex, setCooldownStartCardIndex] = useState<number>(-1);
@@ -567,7 +586,12 @@ export default function DashboardScreen({
     const prompt = await AuthController.popCategoryReviewPrompt();
     if (!prompt) return;
     const existing = await AuthController.getMyCategoryReview(prompt.category);
-    if (existing) return;
+    const existingRatings = existing?.trainerRatings ?? {};
+    const unratedTrainers = prompt.trainers.filter((t) => {
+      const v = Number(existingRatings[t.uid]);
+      return !(Number.isFinite(v) && v >= 1 && v <= 5);
+    });
+    if (unratedTrainers.length === 0) return;
     const approvedTrainers = await AuthController.getApprovedTrainers().catch(() => []);
     const photoMap: Record<string, string> = {};
     for (const t of approvedTrainers) {
@@ -575,9 +599,9 @@ export default function DashboardScreen({
       if (url.startsWith('http://') || url.startsWith('https://')) photoMap[t.uid] = url;
     }
     setTrainerPhotoByUid(photoMap);
-    setCategoryReviewPrompt(prompt);
+    setCategoryReviewPrompt({ category: prompt.category, trainers: unratedTrainers });
     const initial: Record<string, number> = {};
-    for (const t of prompt.trainers) {
+    for (const t of unratedTrainers) {
       initial[t.uid] = 0;
     }
     setTrainerRatings(initial);
@@ -656,7 +680,7 @@ export default function DashboardScreen({
       }
 
       // Load modules and progress (query only approved, so payload is smaller).
-      const [list, progress, currentUser, fullProfile, purchased, liveCredits, segmentProgram] = await Promise.all([
+      const [list, progress, currentUser, fullProfile, purchased, liveCredits, segmentProgram, categoriesWithMeta] = await Promise.all([
         AuthController.getApprovedModules(),
         AuthController.getUserProgress(),
         AuthController.getCurrentUser(),
@@ -664,10 +688,23 @@ export default function DashboardScreen({
         getPurchasedModuleIds(),
         getUserCreditsBalance(),
         AuthController.getCategorySegmentProgram(),
+        AuthController.getModuleCategoriesWithMeta(),
       ]);
       if (done) return;
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
       setModules(list ?? []);
+      const fallbackCategories = MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
+        key: toCategoryProgramKey(name),
+        name,
+        thumbnailUrl: null,
+      }));
+      if (Array.isArray(categoriesWithMeta) && categoriesWithMeta.length > 0) {
+        setModuleCategories(categoriesWithMeta);
+        setCategoryLoadError(null);
+      } else {
+        setModuleCategories(fallbackCategories);
+        setCategoryLoadError('Category metadata unavailable. Showing default category cards.');
+      }
       setCompletionTimestamps(progress?.completionTimestamps ?? {});
       setCompletedModuleIds(completedIds);
       setModuleTrainingStats(progress?.moduleTrainingStats ?? {});
@@ -718,6 +755,14 @@ export default function DashboardScreen({
         });
     } catch (e) {
       if (!done) setModules([]);
+      setModuleCategories(
+        MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
+          key: toCategoryProgramKey(name),
+          name,
+          thumbnailUrl: null,
+        }))
+      );
+      setCategoryLoadError('Unable to refresh categories right now.');
       done = true;
       clearTimeout(timeoutId);
       setLoading(false);
@@ -762,6 +807,7 @@ export default function DashboardScreen({
         return;
       }
       setUserCredits(result.newCredits);
+      onCreditsUpdated?.(result.newCredits);
       setWeeklyReward(result.weeklyReward);
       setWeeklyRewardModalVisible(false);
       showToast(`Congrats! You claimed ${result.creditsAwarded} credits.`);
@@ -770,7 +816,7 @@ export default function DashboardScreen({
     } finally {
       setClaimingWeeklyReward(false);
     }
-  }, [claimingWeeklyReward, showToast]);
+  }, [claimingWeeklyReward, onCreditsUpdated, showToast]);
 
   const handleWeekdayPress = React.useCallback((dayIndex: number) => {
     const now = Date.now();
@@ -934,6 +980,17 @@ export default function DashboardScreen({
   const cooldownTop3Values = assignedCooldownModules.length
     ? [...assignedCooldownModules.map((m) => String(m.moduleTitle ?? '').trim()).filter(Boolean), '—', '—', '—'].slice(0, 3)
     : ['—', '—', '—'];
+  const selectedCategoryMeta = React.useMemo(
+    () => moduleCategories.find((row) => normalizeCategory(row.name) === normalizeCategory(selectedCategory ?? '')) ?? null,
+    [moduleCategories, selectedCategory]
+  );
+  const selectedCategoryRemoteImageSource = !expandedRemoteImageError
+    ? toImageSource(selectedCategoryMeta?.thumbnailUrl ?? undefined)
+    : undefined;
+  const selectedCategoryBundledImageSource = !expandedBundledImageError && selectedCategory
+    ? CATEGORY_IMAGES[selectedCategory]
+    : undefined;
+  const selectedCategoryHeroImageSource = selectedCategoryRemoteImageSource ?? selectedCategoryBundledImageSource;
 
   const warmupModuleThumbByTitle = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -1071,6 +1128,8 @@ export default function DashboardScreen({
     setIntroductionStartCardIndex(-1);
     lastWarmupTapRef.current = { index: -1, at: 0 };
     lastCooldownTapRef.current = { index: -1, at: 0 };
+    setExpandedRemoteImageError(false);
+    setExpandedBundledImageError(false);
   }, [selectedCategory]);
 
   function groupByDifficulty<T extends { difficultyLevel?: string | null }>(
@@ -1463,6 +1522,7 @@ export default function DashboardScreen({
         ) : (
           <>
             <Text style={styles.swipeHint}>Swipe to explore categories</Text>
+            {categoryLoadError ? <Text style={styles.categoryErrorText}>{categoryLoadError}</Text> : null}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1473,7 +1533,8 @@ export default function DashboardScreen({
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
             >
-              {MODULE_CATEGORIES.map((cat, index) => {
+              {moduleCategories.map((categoryRow, index) => {
+                const cat = categoryRow.name;
                 const count = modules.filter(
                   (m) =>
                     normalizeCategory(m.category) === normalizeCategory(cat) &&
@@ -1481,8 +1542,9 @@ export default function DashboardScreen({
                 ).length;
                 return (
                   <TrainingCategoryCard
-                    key={cat}
+                    key={categoryRow.key}
                     category={cat}
+                    thumbnailUrl={categoryRow.thumbnailUrl}
                     moduleCount={count}
                     index={index}
                     cardWidth={HORIZONTAL_CARD_WIDTH}
@@ -1526,11 +1588,15 @@ export default function DashboardScreen({
               ]}
             >
               <View style={styles.expandedCategoryHeroImageWrap}>
-                {CATEGORY_IMAGES[selectedCategory] != null ? (
+                {selectedCategoryHeroImageSource != null ? (
                   <Image
-                    source={CATEGORY_IMAGES[selectedCategory]}
+                    source={selectedCategoryHeroImageSource}
                     style={styles.expandedCategoryHeroImage}
                     resizeMode="cover"
+                    onError={() => {
+                      if (selectedCategoryRemoteImageSource) setExpandedRemoteImageError(true);
+                      else setExpandedBundledImageError(true);
+                    }}
                   />
                 ) : (
                   <View style={styles.expandedCategoryHeroPlaceholder}>
@@ -1829,19 +1895,20 @@ export default function DashboardScreen({
         onRequestClose={() => {}}
       >
         <View style={styles.recModalBackdrop}>
-          <View style={styles.recModalCard}>
-            <Text style={styles.recModalTitle}>Congratulations!</Text>
-            <Text style={styles.recModalSub}>
+          <View style={styles.weeklyRewardCard}>
+            <Text style={styles.weeklyRewardEyebrow}>WEEKLY GOAL ACHIEVED</Text>
+            <Text style={styles.weeklyRewardTitle}>Congratulations!</Text>
+            <Text style={styles.weeklyRewardSub}>
               You completed your weekly goal. You earned{' '}
               {weeklyReward?.credits ?? (targetModulesPerWeek + targetModulesPerDay)} credits.
             </Text>
             <Pressable
-              style={[styles.modalYesButton, claimingWeeklyReward ? styles.modalDisabled : null]}
+              style={[styles.weeklyRewardClaimButton, claimingWeeklyReward ? styles.modalDisabled : null]}
               onPress={handleClaimWeeklyReward}
               disabled={claimingWeeklyReward}
             >
-              <Text style={styles.modalYesText}>
-                {claimingWeeklyReward ? 'Claiming...' : 'Claim reward'}
+              <Text style={styles.weeklyRewardClaimButtonText}>
+                {claimingWeeklyReward ? 'CLAIMING...' : 'CLAIM'}
               </Text>
             </Pressable>
           </View>
@@ -2281,6 +2348,61 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     maxHeight: SCREEN_HEIGHT * 0.72,
   },
+  weeklyRewardCard: {
+    backgroundColor: '#011f36',
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: '#07bbc0',
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 20,
+    maxHeight: SCREEN_HEIGHT * 0.72,
+    shadowColor: '#07bbc0',
+    shadowOpacity: 0.24,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  weeklyRewardEyebrow: {
+    color: '#9aeff2',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  weeklyRewardTitle: {
+    color: '#07bbc0',
+    fontSize: 30,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: 0.4,
+  },
+  weeklyRewardSub: {
+    color: '#d7e3e8',
+    fontSize: 16,
+    lineHeight: 24,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  weeklyRewardClaimButton: {
+    width: '100%',
+    borderRadius: 14,
+    backgroundColor: '#07bbc0',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#61f1f5',
+  },
+  weeklyRewardClaimButtonText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
   recModalTitle: { color: '#07bbc0', fontSize: 18, fontWeight: '800', marginBottom: 8 },
   recModalSub: { color: '#6b8693', fontSize: 12, lineHeight: 17, marginBottom: 14 },
   recModalEmpty: { color: '#6b8693', fontSize: 14, paddingVertical: 16 },
@@ -2659,6 +2781,7 @@ const styles = StyleSheet.create({
   moduleListMeta: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600', marginTop: 8 },
   categoryHeading: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 16 },
   swipeHint: { color: '#6b8693', fontSize: 12, marginBottom: 12, letterSpacing: 0.5 },
+  categoryErrorText: { color: '#f3a53a', fontSize: 12, marginBottom: 12 },
   categoryScrollContent: {
     paddingLeft: HORIZONTAL_PADDING,
     paddingRight: HORIZONTAL_PADDING + HORIZONTAL_CARD_GAP,

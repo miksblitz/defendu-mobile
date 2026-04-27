@@ -489,7 +489,7 @@ export async function submitCategoryReview(
     throw new Error('Please add at least one rating or comment.');
   }
   const now = Date.now();
-  const payload = {
+  const basePayload = {
     category,
     rating: hasOverall ? rating : null,
     comment: comment?.trim() || null,
@@ -514,11 +514,31 @@ export async function submitCategoryReview(
         const prevRaw = existing.val() as Record<string, unknown>;
         const prev = parseCategoryReviewValue(prevRaw);
         if (isMeaningfulCategoryReview(prev)) {
-          throw new Error('You already reviewed this category.');
+          const prevRatings = prev.trainerRatings ?? {};
+          const mergedRatings: Record<string, number> = { ...prevRatings, ...normalizedTrainerRatings };
+          const hasAnyMergedTrainerRating = Object.keys(mergedRatings).length > 0;
+          const payload = {
+            ...basePayload,
+            rating: hasOverall ? rating : (prev.rating ?? null),
+            comment: hasComment ? (comment?.trim() || null) : (prev.comment ?? null),
+            trainerRatings: hasAnyMergedTrainerRating ? mergedRatings : null,
+            createdAt: prevRaw?.createdAt && Number.isFinite(Number(prevRaw.createdAt)) ? Number(prevRaw.createdAt) : now,
+            updatedAt: now,
+          };
+          // Allow incremental trainer ratings only when at least one previously unrated trainer is newly rated.
+          const hasNewTrainerRatings = Object.keys(normalizedTrainerRatings).some((uid) => {
+            const prevVal = Number(prevRatings[uid]);
+            return !(Number.isFinite(prevVal) && prevVal >= 1 && prevVal <= 5);
+          });
+          if (!hasNewTrainerRatings && !hasOverall && !hasComment) {
+            throw new Error('You already reviewed this category.');
+          }
+          await set(reviewRef, payload);
+        } else {
+          await set(reviewRef, basePayload);
         }
-        await set(reviewRef, payload);
       } else {
-        await set(reviewRef, payload);
+        await set(reviewRef, basePayload);
       }
       if (hasAnyTrainerRating) {
         try {
@@ -555,14 +575,33 @@ export async function submitCategoryReview(
       const prevRaw = JSON.parse(localExistingRaw) as Record<string, unknown>;
       const prev = parseCategoryReviewValue(prevRaw);
       if (isMeaningfulCategoryReview(prev)) {
-        throw new Error('You already reviewed this category.');
+        const prevRatings = prev.trainerRatings ?? {};
+        const mergedRatings: Record<string, number> = { ...prevRatings, ...normalizedTrainerRatings };
+        const hasAnyMergedTrainerRating = Object.keys(mergedRatings).length > 0;
+        const payload = {
+          ...basePayload,
+          rating: hasOverall ? rating : (prev.rating ?? null),
+          comment: hasComment ? (comment?.trim() || null) : (prev.comment ?? null),
+          trainerRatings: hasAnyMergedTrainerRating ? mergedRatings : null,
+          createdAt: prevRaw?.createdAt && Number.isFinite(Number(prevRaw.createdAt)) ? Number(prevRaw.createdAt) : now,
+          updatedAt: now,
+        };
+        const hasNewTrainerRatings = Object.keys(normalizedTrainerRatings).some((uid) => {
+          const prevVal = Number(prevRatings[uid]);
+          return !(Number.isFinite(prevVal) && prevVal >= 1 && prevVal <= 5);
+        });
+        if (!hasNewTrainerRatings && !hasOverall && !hasComment) {
+          throw new Error('You already reviewed this category.');
+        }
+        await AsyncStorage.setItem(localKey, JSON.stringify(payload));
+      } else {
+        await AsyncStorage.setItem(localKey, JSON.stringify(basePayload));
       }
-      await AsyncStorage.setItem(localKey, JSON.stringify(payload));
     } catch (e) {
       if ((e as Error)?.message === 'You already reviewed this category.') throw e;
     }
   } else {
-    await AsyncStorage.setItem(localKey, JSON.stringify(payload));
+    await AsyncStorage.setItem(localKey, JSON.stringify(basePayload));
   }
   if (hasAnyTrainerRating) {
     try {

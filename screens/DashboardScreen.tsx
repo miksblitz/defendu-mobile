@@ -546,6 +546,8 @@ export default function DashboardScreen({
   const [skillProfile, setSkillProfile] = useState<SkillProfile | null>(null);
   const [mlRecommendedModuleIds, setMlRecommendedModuleIds] = useState<string[]>([]);
   const [recModalVisible, setRecModalVisible] = useState(false);
+  const [recDetailModalVisible, setRecDetailModalVisible] = useState(false);
+  const [recDetailModule, setRecDetailModule] = useState<ModuleItem | null>(null);
   const [dayHistoryModalVisible, setDayHistoryModalVisible] = useState(false);
   const [dayHistoryDayIndex, setDayHistoryDayIndex] = useState(0);
   const lastWeekdayTapRef = useRef<{ index: number; at: number } | null>(null);
@@ -874,6 +876,51 @@ export default function DashboardScreen({
 
     return Array.from(selected.values()).slice(0, 5);
   }, [modules, personalizedRecIds, completedModuleIds]);
+
+  const recDetailReasons = React.useMemo(() => {
+    if (!recDetailModule) return [];
+    const reasons: string[] = [];
+    const failCount = moduleTrainingStats[recDetailModule.moduleId]?.failCount ?? 0;
+    const categoryLabel = recDetailModule.category?.trim() || 'Training';
+    if (failCount > 0) {
+      reasons.push(`Needs practice: ${failCount} incomplete training session${failCount === 1 ? '' : 's'} detected.`);
+    }
+    if (skillProfile) {
+      reasons.push('Matched with your skill profile answers for experience level and current fitness level.');
+      reasons.push('Matched with your selected preferences: preferred technique and training goals.');
+      reasons.push('Adjusted for your limitations/injuries to avoid high-demand mismatch.');
+    } else {
+      reasons.push('Skill profile is incomplete, so this is currently based more on similar learners and progress history.');
+    }
+    reasons.push(`Category fit: ${categoryLabel}.`);
+    reasons.push(
+      completedModuleIds.length >= PERFORMANCE_PHASE_COMPLETION_THRESHOLD
+        ? 'Your training performance now has stronger weight after several completed modules.'
+        : 'As you complete more modules, training performance will gain stronger weight.'
+    );
+    return reasons;
+  }, [recDetailModule, moduleTrainingStats, skillProfile, completedModuleIds.length]);
+
+  const openRecommendedReason = React.useCallback((mod: ModuleItem) => {
+    setRecDetailModule(mod);
+    setRecDetailModalVisible(true);
+  }, []);
+
+  const continueRecommendedFlow = React.useCallback(() => {
+    if (!recDetailModule) return;
+    setRecDetailModalVisible(false);
+    setRecModalVisible(false);
+    const cat = recDetailModule.category?.trim() ? recDetailModule.category : 'Punching';
+    onStartCategorySession({
+      category: cat,
+      warmups: [],
+      cooldowns: [],
+      trainingModules: [recDetailModule],
+      introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
+      mannequinGifUri: extractRemoteUrl(moduleDyn(recDetailModule).referenceGuideUrl),
+      sessionVariant: 'recommendedSingle',
+    });
+  }, [recDetailModule, onStartCategorySession]);
 
   const dayHistoryEntries = React.useMemo(
     () => getCompletedModulesForWeekdayThisWeek(dayHistoryDayIndex, completionTimestamps),
@@ -1964,17 +2011,7 @@ export default function DashboardScreen({
                           setPurchaseModalVisible(true);
                           return;
                         }
-                        setRecModalVisible(false);
-                        const cat = mod.category?.trim() ? mod.category : 'Punching';
-                        onStartCategorySession({
-                          category: cat,
-                          warmups: [],
-                          cooldowns: [],
-                          trainingModules: [mod],
-                          introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
-                          mannequinGifUri: extractRemoteUrl(moduleDyn(mod).referenceGuideUrl),
-                          sessionVariant: 'recommendedSingle',
-                        });
+                        openRecommendedReason(mod);
                       }}
                     >
                       <View style={styles.recModalRank}>
@@ -1997,6 +2034,59 @@ export default function DashboardScreen({
             <Pressable style={styles.recModalClose} onPress={() => setRecModalVisible(false)}>
               <Text style={styles.recModalCloseText}>Close</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={recDetailModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRecDetailModalVisible(false)}
+      >
+        <View style={styles.recModalBackdrop}>
+          <View style={styles.recModalCard}>
+            <Text style={styles.recModalTitle}>Why this is recommended</Text>
+            <Text style={styles.recModalSub}>
+              Review these recommendation factors before continuing to the introduction.
+            </Text>
+            {recDetailModule ? (
+              <>
+                <View style={styles.recWhyModuleHeader}>
+                  <Text style={styles.recWhyModuleTitle} numberOfLines={2}>
+                    {recDetailModule.moduleTitle ?? recDetailModule.moduleId}
+                  </Text>
+                  <Text style={styles.recWhyModuleMeta} numberOfLines={1}>
+                    {recDetailModule.category ?? 'Training'}
+                  </Text>
+                </View>
+                <ScrollView style={styles.recWhyReasonList} showsVerticalScrollIndicator={false}>
+                  {recDetailReasons.map((reason) => (
+                    <View key={reason} style={styles.recWhyReasonRow}>
+                      <Text style={styles.recWhyBullet}>•</Text>
+                      <Text style={styles.recWhyReasonText}>{reason}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </>
+            ) : (
+              <Text style={styles.recModalEmpty}>No recommendation selected.</Text>
+            )}
+            <View style={styles.recWhyActions}>
+              <Pressable
+                style={styles.recWhyBackButton}
+                onPress={() => setRecDetailModalVisible(false)}
+              >
+                <Text style={styles.recWhyBackButtonText}>Back</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.recWhyContinueButton, !recDetailModule ? styles.modalDisabled : null]}
+                onPress={continueRecommendedFlow}
+                disabled={!recDetailModule}
+              >
+                <Text style={styles.recWhyContinueButtonText}>Continue</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2456,6 +2546,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   recModalCloseText: { color: '#07bbc0', fontSize: 15, fontWeight: '700' },
+  recWhyModuleHeader: {
+    backgroundColor: '#041527',
+    borderWidth: 1,
+    borderColor: '#062731',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  recWhyModuleTitle: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
+  recWhyModuleMeta: { color: '#6b8693', fontSize: 12, marginTop: 4 },
+  recWhyReasonList: { maxHeight: SCREEN_HEIGHT * 0.34, marginBottom: 14 },
+  recWhyReasonRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  recWhyBullet: { color: '#07bbc0', fontSize: 16, lineHeight: 19, marginRight: 8, fontWeight: '700' },
+  recWhyReasonText: { flex: 1, color: '#d7e3e8', fontSize: 13, lineHeight: 19 },
+  recWhyActions: { flexDirection: 'row', gap: 10 },
+  recWhyBackButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1a4657',
+    backgroundColor: '#041527',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recWhyBackButtonText: { color: '#9eb4be', fontSize: 14, fontWeight: '700' },
+  recWhyContinueButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#07bbc0',
+    backgroundColor: '#07bbc0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recWhyContinueButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
   reviewStarRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   reviewStarSmall: { fontSize: 24, color: '#45616c' },
   reviewStarActive: { color: '#f0c14b' },

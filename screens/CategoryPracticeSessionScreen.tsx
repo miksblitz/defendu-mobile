@@ -549,8 +549,15 @@ export default function CategoryPracticeSessionScreen({
         );
         failureSoundRef.current = sound;
       }
-      await failureSoundRef.current.setPositionAsync(0);
-      await failureSoundRef.current.playAsync();
+      try {
+        await failureSoundRef.current.stopAsync();
+      } catch {}
+      try {
+        await failureSoundRef.current.setPositionAsync(0);
+        await failureSoundRef.current.playAsync();
+      } catch {
+        await failureSoundRef.current.replayAsync();
+      }
     } catch {}
   };
 

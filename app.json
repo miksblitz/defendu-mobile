@@ -1,14 +1,16 @@
 {
   "expo": {
-    "name": "defendu-mobile",
+    "name": "DEFENDU",
     "slug": "defendu-mobile",
     "scheme": "defenduapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/defendulogo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "updates": { "enabled": false },
+    "updates": {
+      "enabled": false
+    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -17,20 +19,33 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true },
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
         "NSCameraUsageDescription": "This app uses the camera for pose-based technique feedback during exercises."
       }
     },
     "android": {
       "package": "com.defendu.mobile",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/defendulogo.png",
+        "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
-      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
       "expo-camera",
       [
         "expo-image-picker",
@@ -45,6 +60,13 @@
         }
       ]
     ],
-    "web": { "favicon": "./assets/favicon.png" }
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "013c0a8a-c020-4d00-8421-58db0e1304ea"
+      }
+    }
   }
 }

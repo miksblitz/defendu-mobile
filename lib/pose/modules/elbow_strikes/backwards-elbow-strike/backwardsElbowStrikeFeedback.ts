@@ -3,6 +3,7 @@ import {
   getBackwardsElbowStrikeSnapshot,
   isBackwardsElbowStrikeFinalPose,
   MIN_ELBOW_BACK_X,
+  MAX_ELBOW_FRONT_X,
   MIN_ELBOW_LIFT,
   MAX_ELBOW_LIFT,
   MIN_WRIST_FORWARD_X,
@@ -13,6 +14,7 @@ import {
 const ERROR_IDS = {
   noFinal: 'backwards-elbow-final-missing',
   back: 'backwards-elbow-not-back-enough',
+  forward: 'backwards-elbow-forward-strike',
   lift: 'backwards-elbow-not-level',
   tooHigh: 'backwards-elbow-too-high',
   wrist: 'backwards-elbow-wrist-position',
@@ -23,6 +25,7 @@ export function getBackwardsElbowStrikeFeedback(userFrames: PoseFrame[]): PoseFe
   if (userFrames.length === 0) return [];
 
   let bestBackX = -Infinity;
+  let mostForwardX = Infinity;
   let bestLift = -Infinity;
   let highestLift = -Infinity;
   let bestWristForward = -Infinity;
@@ -36,6 +39,7 @@ export function getBackwardsElbowStrikeFeedback(userFrames: PoseFrame[]): PoseFe
     if (!s) continue;
     hadLandmarks = true;
     bestBackX = Math.max(bestBackX, s.elbowBackX);
+    mostForwardX = Math.min(mostForwardX, s.elbowBackX);
     bestLift = Math.max(bestLift, s.elbowLift);
     highestLift = Math.max(highestLift, s.elbowLift);
     bestWristForward = Math.max(bestWristForward, s.wristForwardX);
@@ -70,6 +74,16 @@ export function getBackwardsElbowStrikeFeedback(userFrames: PoseFrame[]): PoseFe
     feedback.push({
       id: ERROR_IDS.back,
       message: 'Drive the left elbow farther back behind the body.',
+      phase: 'impact',
+      severity: 'error',
+    });
+  }
+
+  if (mostForwardX <= MAX_ELBOW_FRONT_X) {
+    feedback.push({
+      id: ERROR_IDS.forward,
+      message:
+        'This move must strike backward. Avoid elbow strikes in front of the body (including uppercut-style elbow motion).',
       phase: 'impact',
       severity: 'error',
     });

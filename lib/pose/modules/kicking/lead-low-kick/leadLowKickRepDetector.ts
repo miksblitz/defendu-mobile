@@ -8,7 +8,12 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
-import { getIdx, inLeadLowKickStrikePose, leadLowKickResetPose } from './leadLowKickGeometry';
+import {
+  getIdx,
+  inLeadLowKickStrikePose,
+  inRearLowKickStrikePose,
+  leadLowKickResetPose,
+} from './leadLowKickGeometry';
 
 const COOLDOWN_MS = 700;
 const MIN_REP_FRAMES = 3;
@@ -49,7 +54,27 @@ export function createLeadLowKickRepDetector(): (frame: PoseFrame, now: number) 
     }
 
     const strike = inLeadLowKickStrikePose(frame, idx) && leadKickSameSide(frame, idx);
+    const oppositeLegStrike = inRearLowKickStrikePose(frame, idx);
     const reset = leadLowKickResetPose(frame, idx);
+
+    if (oppositeLegStrike && !strike) {
+      phase = 'cooldown';
+      segment = [];
+      cooldownUntil = now + COOLDOWN_MS;
+      prevStrike = false;
+      prevReset = reset;
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'lead-low-kick-opposite-leg',
+          message: 'Bad Repetition — use your lead leg for this low kick.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
 
     if (phase === 'idle') {
       if (strike && (!prevStrike || prevReset)) {

@@ -20,6 +20,10 @@ export const UNDER_HIP_LINE_SLACK = 0.03;
  * After a rep, knee should sit clearly below the hip line again (neutral / leg down).
  */
 export const RESET_BELOW_HIP_MIN = 0.018;
+/** Feet must be roughly level again before a new rep can start. */
+export const RESET_FEET_LEVEL_MAX_DY = 0.2;
+/** Both ankles must be back down near/below hip line (y-down coordinates). */
+export const RESET_ANKLE_DOWN_MIN_VS_HIP = -0.06;
 
 /** Hip–knee–ankle angle: must be bent enough to be a strike, not a straight leg. */
 export const ANGLE_MIN_DEG = 48;
@@ -89,6 +93,10 @@ export function inLowLeadStrikePose(frame: PoseFrame, idx: typeof MP | typeof MN
 export function lowLeadResetPose(frame: PoseFrame, idx: typeof MP | typeof MN17): boolean {
   const line = midHipY(frame, idx);
   const rk = frame[idx.rk];
-  if (line == null || !validPoint(rk)) return false;
-  return rk.y >= line + RESET_BELOW_HIP_MIN;
+  const ra = frame[idx.ra];
+  const la = frame[idx.la];
+  if (line == null || !validPoint(rk) || !validPoint(ra) || !validPoint(la)) return false;
+  if (rk.y < line + RESET_BELOW_HIP_MIN) return false;
+  if (Math.abs(ra.y - la.y) > RESET_FEET_LEVEL_MAX_DY) return false;
+  return ra.y >= line + RESET_ANKLE_DOWN_MIN_VS_HIP && la.y >= line + RESET_ANKLE_DOWN_MIN_VS_HIP;
 }

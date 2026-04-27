@@ -61,6 +61,8 @@ export function getBackwardsElbowStrikeSnapshot(frame: PoseFrame): BackwardsElbo
 
 /** Tuned from BackwardsElbowStrike CSVs, with horizontal (shoulder-level) emphasis. */
 export const MIN_ELBOW_BACK_X = 0.02;
+/** Negative means elbow moved in front of shoulder (forward strike pattern). */
+export const MAX_ELBOW_FRONT_X = -0.015;
 /**
  * elbowLift = shoulder.y - elbow.y (positive = elbow above shoulder).
  * Ahmad Revalde CSV good_rep range: 0.138 - 0.234.

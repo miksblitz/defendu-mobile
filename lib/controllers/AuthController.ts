@@ -39,6 +39,7 @@ export {
   getUserProgress,
   recordModuleCompletion,
   recordModuleTrainingFailure,
+  claimWeeklyGoalReward,
   resetUserProgress,
 } from './userProgress';
 
@@ -99,6 +100,7 @@ import {
   getUserProgress,
   recordModuleCompletion,
   recordModuleTrainingFailure,
+  claimWeeklyGoalReward,
   resetUserProgress,
 } from './userProgress';
 import { uploadFileToCloudinary } from './cloudinary';
@@ -163,6 +165,7 @@ export const AuthController = {
   getUserProgress,
   recordModuleCompletion,
   recordModuleTrainingFailure,
+  claimWeeklyGoalReward,
   getModulesByIds,
   getReferencePoseData,
   getModuleByIdForUser,

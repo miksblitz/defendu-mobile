@@ -4,7 +4,11 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
-import { getIdx, inRearLowKickStrikePose, leadLowKickResetPose } from '../lead-low-kick/leadLowKickGeometry';
+import {
+  getIdx,
+  inRearLowKickStrikePose,
+  leadLowKickResetPose,
+} from '../lead-low-kick/leadLowKickGeometry';
 
 const COOLDOWN_MS = 700;
 const MIN_REP_FRAMES = 3;

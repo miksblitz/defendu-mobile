@@ -124,22 +124,6 @@ type RealtimeElbowState = {
   left: { label: ElbowBendLabel; angleDeg: number | null };
   right: { label: ElbowBendLabel; angleDeg: number | null };
 };
-/** Loud local success sound when rep is correct. */
-async function playSuccessSound() {
-  try {
-    const { Audio } = await import('expo-av');
-    const { sound } = await Audio.Sound.createAsync(PERFECT_REP_TRACK, {
-      shouldPlay: false,
-      volume: 1.0,
-    });
-    await sound.setVolumeAsync(1.0);
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((s) => {
-      if (s.isLoaded && s.didJustFinishNotify) sound.unloadAsync().catch(() => {});
-    });
-  } catch (_) {}
-}
-
 function getArmIndicesForElbow(frame: PoseFrame): { ls: number; rs: number; le: number; re: number; lw: number; rw: number } | null {
   if (frame.length > 17) return { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
   if (frame.length >= 11) return { ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };
@@ -336,6 +320,9 @@ export default function PoseCameraView({
   const comboLeadSeenRef = useRef(false);
   const comboRightSeenRef = useRef(false);
   const comboWindowDeadlineRef = useRef<number | null>(null);
+  const successSoundRef = useRef<import('expo-av').Audio.Sound | null>(null);
+  const successSoundInitRef = useRef<Promise<void> | null>(null);
+  const successSoundPlayChainRef = useRef<Promise<void>>(Promise.resolve());
   const POSE_STATUS_THROTTLE_MS = 500;
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -467,6 +454,53 @@ export default function PoseCameraView({
     };
   }, [MediaPipeView, finishCountdown, permission?.granted, ready, runCountdown, showStartCountdown]);
 
+  const ensureSuccessSoundLoaded = useCallback(async () => {
+    if (successSoundRef.current) return;
+    if (!successSoundInitRef.current) {
+      successSoundInitRef.current = (async () => {
+        const { Audio } = await import('expo-av');
+        const { sound } = await Audio.Sound.createAsync(PERFECT_REP_TRACK, {
+          shouldPlay: false,
+          isLooping: false,
+          volume: 1.0,
+        });
+        successSoundRef.current = sound;
+      })().finally(() => {
+        successSoundInitRef.current = null;
+      });
+    }
+    await successSoundInitRef.current;
+  }, []);
+
+  const playSuccessSound = useCallback(() => {
+    successSoundPlayChainRef.current = successSoundPlayChainRef.current.then(async () => {
+      try {
+        await ensureSuccessSoundLoaded();
+        const snd = successSoundRef.current;
+        if (!snd) return;
+        try {
+          await snd.stopAsync();
+        } catch {}
+        try {
+          await snd.setPositionAsync(0);
+          await snd.playAsync();
+        } catch {
+          await snd.replayAsync();
+        }
+      } catch {}
+    });
+  }, [ensureSuccessSoundLoaded]);
+
+  useEffect(() => {
+    return () => {
+      const snd = successSoundRef.current;
+      successSoundRef.current = null;
+      if (!snd) return;
+      snd.stopAsync().catch(() => {});
+      snd.unloadAsync().catch(() => {});
+    };
+  }, []);
+
   const pushFrame = useCallback((frame: PoseFrame) => {
     if (frame.length === 0) return;
     if (!countdownDoneRef.current) return;
@@ -588,7 +622,7 @@ export default function PoseCameraView({
         useNativeDriver: true,
       }).start(() => setShowWrongOverlay(false));
     }
-  }, [successFadeAnim, wrongFadeAnim]);
+  }, [playSuccessSound, successFadeAnim, wrongFadeAnim]);
 
   const handleLandmark = useCallback(
     (data: unknown) => {

@@ -26,7 +26,6 @@ const CONTACT_EMAIL = 'support@defendu.com';
 
 const DAILY_TARGET_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const WEEKLY_TARGET_OPTIONS = [3, 5, 7, 10, 12, 14, 16, 18, 20];
-const TRAINING_FREQUENCIES = ['Never', '1-2 times per week', '3-4 times per week', 'Daily'] as const;
 const TRAINING_MUSIC_MUTED_KEY = 'trainingModeMusicMuted';
 
 export default function SettingsScreen() {
@@ -41,15 +40,12 @@ export default function SettingsScreen() {
 
   const [weeklyTarget, setWeeklyTarget] = useState<number | null>(null);
   const [dailyTarget, setDailyTarget] = useState<number | null>(null);
-  const [trainingFrequency, setTrainingFrequency] = useState<string | null>(null);
   const [savedWeekly, setSavedWeekly] = useState<number | null>(null);
   const [savedDaily, setSavedDaily] = useState<number | null>(null);
-  const [savedFrequency, setSavedFrequency] = useState<string | null>(null);
   const [savingGoals, setSavingGoals] = useState(false);
 
   const [showWeeklyPicker, setShowWeeklyPicker] = useState(false);
   const [showDailyPicker, setShowDailyPicker] = useState(false);
-  const [showFreqPicker, setShowFreqPicker] = useState(false);
   const [resettingProgress, setResettingProgress] = useState(false);
   const [activeSupportSection, setActiveSupportSection] = useState<'help' | 'privacy' | 'contact'>('help');
   const [supportName, setSupportName] = useState('');
@@ -76,20 +72,15 @@ export default function SettingsScreen() {
       if (full) {
         const wk = full.preferences.targetModulesPerWeek;
         const dy = full.preferences.targetModulesPerDay;
-        const fq = full.fitnessCapabilities.trainingFrequency;
         setWeeklyTarget(wk);
         setDailyTarget(dy);
-        setTrainingFrequency(fq);
         setSavedWeekly(wk);
         setSavedDaily(dy);
-        setSavedFrequency(fq);
       } else {
         setWeeklyTarget(null);
         setDailyTarget(null);
-        setTrainingFrequency(null);
         setSavedWeekly(null);
         setSavedDaily(null);
-        setSavedFrequency(null);
       }
     } catch (e) {
       console.error('SettingsScreen load:', e);
@@ -124,8 +115,7 @@ export default function SettingsScreen() {
   const hasBodyChanges = heightInput !== savedHeight || weightInput !== savedWeight;
   const hasGoalChanges =
     weeklyTarget !== savedWeekly ||
-    dailyTarget !== savedDaily ||
-    trainingFrequency !== savedFrequency;
+    dailyTarget !== savedDaily;
 
   const handleSaveBody = async () => {
     const h = heightInput.trim() ? Number(heightInput.trim()) : undefined;
@@ -155,22 +145,19 @@ export default function SettingsScreen() {
   };
 
   const handleSaveGoals = async () => {
-    if (weeklyTarget == null || dailyTarget == null || !trainingFrequency) {
-      Alert.alert('Incomplete', 'Choose weekly modules, daily modules, and how often you train.');
+    if (weeklyTarget == null || dailyTarget == null) {
+      Alert.alert('Incomplete', 'Choose weekly modules and daily modules.');
       return;
     }
     setSavingGoals(true);
     try {
       await AuthController.updateSkillProfilePartial({
         preferences: { targetModulesPerWeek: weeklyTarget, targetModulesPerDay: dailyTarget },
-        fitnessCapabilities: { trainingFrequency },
       });
       setSavedWeekly(weeklyTarget);
       setSavedDaily(dailyTarget);
-      setSavedFrequency(trainingFrequency);
       setShowWeeklyPicker(false);
       setShowDailyPicker(false);
-      setShowFreqPicker(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not save. Try again.';
       Alert.alert('Error', msg);
@@ -232,7 +219,7 @@ export default function SettingsScreen() {
           <View style={styles.heroTextCol}>
             <Text style={styles.heroTitle}>Training hub</Text>
             <Text style={styles.heroSubtitle}>
-              Tune your body metrics, module targets, and how often you train — same choices as your skill profile, editable anytime.
+              Tune your body metrics and module targets — same choices as your skill profile, editable anytime.
             </Text>
           </View>
         </View>
@@ -325,7 +312,7 @@ export default function SettingsScreen() {
           <Text style={styles.cardTag}>GOALS</Text>
           <Text style={styles.cardTitle}>Weekly rhythm</Text>
           <Text style={styles.cardHint}>
-            Module targets (dashboard goals) and how many days per week you typically train.
+            Module targets used for dashboard weekly-goal progress.
           </Text>
 
           <Text style={styles.pickerLabel}>Target modules per week</Text>
@@ -334,7 +321,6 @@ export default function SettingsScreen() {
             onPress={() => {
               setShowWeeklyPicker(!showWeeklyPicker);
               setShowDailyPicker(false);
-              setShowFreqPicker(false);
             }}
             activeOpacity={0.7}
           >
@@ -366,7 +352,6 @@ export default function SettingsScreen() {
             onPress={() => {
               setShowDailyPicker(!showDailyPicker);
               setShowWeeklyPicker(false);
-              setShowFreqPicker(false);
             }}
             activeOpacity={0.7}
           >
@@ -387,38 +372,6 @@ export default function SettingsScreen() {
                   }}
                 >
                   <Text style={styles.pickerItemText}>{value} modules / day</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
-          <Text style={styles.pickerLabel}>How often you train</Text>
-          <TouchableOpacity
-            style={styles.selectBtn}
-            onPress={() => {
-              setShowFreqPicker(!showFreqPicker);
-              setShowWeeklyPicker(false);
-              setShowDailyPicker(false);
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={trainingFrequency ? styles.selectText : styles.placeholderText}>
-              {trainingFrequency || 'Select…'}
-            </Text>
-            <Text style={styles.chevron}>{showFreqPicker ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          {showFreqPicker && (
-            <View style={styles.pickerList}>
-              {TRAINING_FREQUENCIES.map((key) => (
-                <TouchableOpacity
-                  key={key}
-                  style={styles.pickerItem}
-                  onPress={() => {
-                    setTrainingFrequency(key);
-                    setShowFreqPicker(false);
-                  }}
-                >
-                  <Text style={styles.pickerItemText}>{key}</Text>
                 </TouchableOpacity>
               ))}
             </View>

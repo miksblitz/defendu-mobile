@@ -3,7 +3,18 @@
  * Skill profile step 4: fitness level, frequency, injuries; submits full profile.
  */
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator, Image } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSkillProfile } from '../lib/contexts/SkillProfileContext';
 import { AuthController } from '../lib/controllers/AuthController';
@@ -93,8 +104,16 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack, onSessio
   };
 
   return (
-    <View style={styles.wrapper}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView
+      style={styles.wrapper}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backRow}>
             <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
@@ -151,7 +170,7 @@ export default function SkillProfileFitnessScreen({ onComplete, onBack, onSessio
         </TouchableOpacity>
       </ScrollView>
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -26,7 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthController, type ModuleItem } from '../lib/controllers/AuthController';
 import type { Module } from '../lib/models/Module';
 import type { SkillProfile } from '../lib/models/SkillProfile';
-import type { ModuleTrainingStat } from '../lib/controllers/userProgress';
+import type { ModuleTrainingStat, WeeklyReward } from '../lib/controllers/userProgress';
 import {
   buildPersonalizedModuleRecommendations,
   PERFORMANCE_PHASE_COMPLETION_THRESHOLD,
@@ -91,6 +91,11 @@ function getCurrentWeekRange(): { start: number; end: number } {
 
 function getCurrentWeekStartMs(): number {
   return getCurrentWeekRange().start;
+}
+
+function getCurrentWeekKey(): string {
+  const start = new Date(getCurrentWeekStartMs());
+  return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
 }
 
 /** Day index 0=Mon .. 6=Sun from a timestamp. */
@@ -541,6 +546,9 @@ export default function DashboardScreen({
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
   const [purchaseTargetModule, setPurchaseTargetModule] = useState<ModuleItem | null>(null);
   const [purchasing, setPurchasing] = useState(false);
+  const [weeklyReward, setWeeklyReward] = useState<WeeklyReward | null>(null);
+  const [weeklyRewardModalVisible, setWeeklyRewardModalVisible] = useState(false);
+  const [claimingWeeklyReward, setClaimingWeeklyReward] = useState(false);
   const [categoryReviewPrompt, setCategoryReviewPrompt] = useState<{ category: string; trainers: Array<{ uid: string; name: string }> } | null>(null);
   const [trainerRatings, setTrainerRatings] = useState<Record<string, number>>({});
   const [trainerPhotoByUid, setTrainerPhotoByUid] = useState<Record<string, string>>({});
@@ -663,6 +671,11 @@ export default function DashboardScreen({
       setCompletionTimestamps(progress?.completionTimestamps ?? {});
       setCompletedModuleIds(completedIds);
       setModuleTrainingStats(progress?.moduleTrainingStats ?? {});
+      const reward = (progress as { weeklyReward?: WeeklyReward | null } | null)?.weeklyReward ?? null;
+      setWeeklyReward(reward);
+      const currentWeekKey = getCurrentWeekKey();
+      const hasUnclaimedRewardThisWeek = reward?.weekKey === currentWeekKey && reward.claimedAt == null;
+      setWeeklyRewardModalVisible(hasUnclaimedRewardThisWeek);
       setSkillProfile(fullProfile);
       setPurchasedModuleIds(purchased);
       setUserCredits(liveCredits);
@@ -738,6 +751,26 @@ export default function DashboardScreen({
     setRefreshing(true);
     await loadDashboardData();
   }, [loadDashboardData]);
+
+  const handleClaimWeeklyReward = React.useCallback(async () => {
+    if (claimingWeeklyReward) return;
+    setClaimingWeeklyReward(true);
+    try {
+      const result = await AuthController.claimWeeklyGoalReward();
+      if (!result.claimed) {
+        setWeeklyRewardModalVisible(false);
+        return;
+      }
+      setUserCredits(result.newCredits);
+      setWeeklyReward(result.weeklyReward);
+      setWeeklyRewardModalVisible(false);
+      showToast(`Congrats! You claimed ${result.creditsAwarded} credits.`);
+    } catch (e) {
+      showToast((e as Error)?.message || 'Could not claim reward. Please try again.');
+    } finally {
+      setClaimingWeeklyReward(false);
+    }
+  }, [claimingWeeklyReward, showToast]);
 
   const handleWeekdayPress = React.useCallback((dayIndex: number) => {
     const now = Date.now();
@@ -1146,6 +1179,7 @@ export default function DashboardScreen({
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const onBack = (): boolean => {
+      if (weeklyRewardModalVisible) { return true; }
       if (purchaseModalVisible) { setPurchaseModalVisible(false); setPurchaseTargetModule(null); return true; }
       if (recModalVisible) { setRecModalVisible(false); return true; }
       if (dayHistoryModalVisible) { setDayHistoryModalVisible(false); return true; }
@@ -1154,7 +1188,7 @@ export default function DashboardScreen({
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
-  }, [purchaseModalVisible, recModalVisible, dayHistoryModalVisible, selectedCategory]);
+  }, [weeklyRewardModalVisible, purchaseModalVisible, recModalVisible, dayHistoryModalVisible, selectedCategory]);
 
   const renderModuleCard = (mod: ModuleItem | Module, onPress: () => void, locked = false): React.ReactNode => {
     const durationMin = mod.videoDuration ? `${Math.ceil(mod.videoDuration / 60)} min` : '';
@@ -1403,6 +1437,11 @@ export default function DashboardScreen({
           <Text style={styles.weekHistoryHint}>
             Double-tap a day for this week&apos;s completed training.
           </Text>
+          {weeklyProgress >= 1 ? (
+            <Text style={styles.weeklyGoalCongratsText}>
+              Congratulations on your weekly goal! Come back next week to earn credits!
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.section}>
@@ -1782,6 +1821,32 @@ export default function DashboardScreen({
           )}
         </View>
       ) : null}
+
+      <Modal
+        visible={weeklyRewardModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.recModalBackdrop}>
+          <View style={styles.recModalCard}>
+            <Text style={styles.recModalTitle}>Congratulations!</Text>
+            <Text style={styles.recModalSub}>
+              You completed your weekly goal. You earned{' '}
+              {weeklyReward?.credits ?? (targetModulesPerWeek + targetModulesPerDay)} credits.
+            </Text>
+            <Pressable
+              style={[styles.modalYesButton, claimingWeeklyReward ? styles.modalDisabled : null]}
+              onPress={handleClaimWeeklyReward}
+              disabled={claimingWeeklyReward}
+            >
+              <Text style={styles.modalYesText}>
+                {claimingWeeklyReward ? 'Claiming...' : 'Claim reward'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={recModalVisible}
@@ -2404,6 +2469,14 @@ const styles = StyleSheet.create({
     color: 'rgba(107, 134, 147, 0.9)',
     textAlign: 'center',
     lineHeight: 15,
+  },
+  weeklyGoalCongratsText: {
+    marginTop: 10,
+    color: '#4ade80',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   dayProgressTouch: {
     flex: 1,

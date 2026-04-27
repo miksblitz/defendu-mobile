@@ -98,6 +98,22 @@ export function createDoubleHighKneeStrikeRepDetector(): (frame: PoseFrame, now:
     }
 
     if (phase === 'idle') {
+      if (rearRise && !leadRise) {
+        resetToIdle();
+        phase = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'double-high-knee-wrong-order',
+            message: 'Bad Repetition — for double high knee strike, throw the lead knee first, then the rear knee.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       if (!leadRise) return { done: false };
       phase = 'waiting_rear';
       leadStartMs = now;

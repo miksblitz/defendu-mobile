@@ -54,6 +54,22 @@ export function createDoubleLowKneeStrikeRepDetector(): (frame: PoseFrame, now: 
     }
 
     if (phase === 'idle') {
+      if (rearEnter && !leadEnter) {
+        resetToIdle();
+        phase = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'double-low-knee-wrong-order',
+            message: 'Bad Repetition — for double low knee strike, throw the lead knee first, then the rear knee.',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       if (!leadEnter) return { done: false };
       phase = 'waiting_rear';
       leadStartMs = now;

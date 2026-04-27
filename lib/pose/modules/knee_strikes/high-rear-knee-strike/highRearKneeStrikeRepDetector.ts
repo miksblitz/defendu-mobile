@@ -53,6 +53,13 @@ function leftKneeAboveHipLine(frame: PoseFrame, idx: typeof MP | typeof MN17, ma
   return validPoint(lk) && lk.y < line - margin;
 }
 
+function rightKneeAboveHipLine(frame: PoseFrame, idx: typeof MP | typeof MN17, margin: number): boolean {
+  const line = midHipY(frame, idx);
+  if (line == null) return false;
+  const rk = frame[idx.rk];
+  return validPoint(rk) && rk.y < line - margin;
+}
+
 export function createHighRearKneeStrikeRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'raised' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
@@ -63,6 +70,7 @@ export function createHighRearKneeStrikeRepDetector(): (frame: PoseFrame, now: n
     if (!idx) return { done: false };
 
     const raised = leftKneeAboveHipLine(frame, idx, RAISE_ABOVE_HIP);
+    const oppositeRaised = rightKneeAboveHipLine(frame, idx, RAISE_ABOVE_HIP);
 
     if (phase === 'cooldown') {
       if (now < cooldownUntil) return { done: false };
@@ -70,6 +78,23 @@ export function createHighRearKneeStrikeRepDetector(): (frame: PoseFrame, now: n
       phase = 'idle';
       segment = [];
       return { done: false };
+    }
+
+    if (oppositeRaised && !raised) {
+      phase = 'cooldown';
+      segment = [];
+      cooldownUntil = now + COOLDOWN_MS;
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'high-rear-knee-opposite-leg',
+          message: 'Bad Repetition — use your rear leg for this high knee strike.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     if (phase === 'idle') {

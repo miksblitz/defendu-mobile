@@ -547,7 +547,11 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+      >
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={12}>
             <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
@@ -572,6 +576,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator
           >
           {step === 1 && (

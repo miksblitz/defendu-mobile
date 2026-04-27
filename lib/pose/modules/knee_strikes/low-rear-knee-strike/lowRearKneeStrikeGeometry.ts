@@ -10,6 +10,8 @@ export const MN17 = { lh: 11, rh: 12, lk: 13, rk: 14, la: 15, ra: 16 };
 
 export const UNDER_HIP_LINE_SLACK = 0.03;
 export const RESET_BELOW_HIP_MIN = 0.018;
+export const RESET_FEET_LEVEL_MAX_DY = 0.2;
+export const RESET_ANKLE_DOWN_MIN_VS_HIP = -0.06;
 export const ANGLE_MIN_DEG = 48;
 export const ANGLE_MAX_DEG = 135;
 export const ANGLE_WINDOW = 5;
@@ -73,6 +75,10 @@ export function inLowRearStrikePose(frame: PoseFrame, idx: typeof MP | typeof MN
 export function lowRearResetPose(frame: PoseFrame, idx: typeof MP | typeof MN17): boolean {
   const line = midHipY(frame, idx);
   const lk = frame[idx.lk];
-  if (line == null || !validPoint(lk)) return false;
-  return lk.y >= line + RESET_BELOW_HIP_MIN;
+  const la = frame[idx.la];
+  const ra = frame[idx.ra];
+  if (line == null || !validPoint(lk) || !validPoint(la) || !validPoint(ra)) return false;
+  if (lk.y < line + RESET_BELOW_HIP_MIN) return false;
+  if (Math.abs(la.y - ra.y) > RESET_FEET_LEVEL_MAX_DY) return false;
+  return la.y >= line + RESET_ANKLE_DOWN_MIN_VS_HIP && ra.y >= line + RESET_ANKLE_DOWN_MIN_VS_HIP;
 }

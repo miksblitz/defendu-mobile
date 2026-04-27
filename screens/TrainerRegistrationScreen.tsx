@@ -296,8 +296,8 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={12}>
@@ -312,6 +312,7 @@ export default function TrainerRegistrationScreen({ onBack, onSuccess }: Trainer
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <View style={styles.intro}>
             <Text style={styles.introTitle}>Apply to become a trainer</Text>

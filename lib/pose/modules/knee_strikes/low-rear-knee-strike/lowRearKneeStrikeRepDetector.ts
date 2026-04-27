@@ -11,6 +11,7 @@ import {
   inLowRearStrikePose,
   lowRearResetPose,
 } from './lowRearKneeStrikeGeometry';
+import { inLowLeadStrikePose } from '../low-lead-knee-strike/lowLeadKneeStrikeGeometry';
 
 const COOLDOWN_MS = 650;
 const MIN_REP_FRAMES = 3;
@@ -19,26 +20,46 @@ export function createLowRearKneeStrikeRepDetector(): (frame: PoseFrame, now: nu
   let phase: 'idle' | 'raised' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
+  let armed = false;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const idx = getIdx(frame);
     if (!idx) return { done: false };
 
+    const strike = inLowRearStrikePose(frame, idx);
+    const oppositeLegStrike = inLowLeadStrikePose(frame, idx);
+    const reset = lowRearResetPose(frame, idx);
+
     if (phase === 'cooldown') {
       if (now < cooldownUntil) return { done: false };
-      if (!lowRearResetPose(frame, idx)) return { done: false };
       phase = 'idle';
       segment = [];
-      return { done: false };
     }
 
-    const strike = inLowRearStrikePose(frame, idx);
+    if (oppositeLegStrike && !strike) {
+      phase = 'cooldown';
+      segment = [];
+      cooldownUntil = now + COOLDOWN_MS;
+      armed = false;
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'low-rear-knee-opposite-leg',
+          message: 'Bad Repetition — use your rear leg for this low knee strike.',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
 
     if (phase === 'idle') {
-      if (!lowRearResetPose(frame, idx)) return { done: false };
-      if (!strike) return { done: false };
+      if (!strike && reset) armed = true;
+      if (!armed || !strike) return { done: false };
       phase = 'raised';
       segment = [frame];
+      armed = false;
       return { done: false };
     }
 
@@ -54,6 +75,7 @@ export function createLowRearKneeStrikeRepDetector(): (frame: PoseFrame, now: nu
       segment = [];
       phase = 'cooldown';
       cooldownUntil = now + COOLDOWN_MS;
+      armed = false;
       return { done: true, segment: out };
     }
 

@@ -34,6 +34,47 @@ function effectiveIntensity(mod: ModuleItem): number {
   return 3;
 }
 
+type MissingLimbFlags = {
+  leftArmMissing: boolean;
+  rightArmMissing: boolean;
+  leftLegMissing: boolean;
+  rightLegMissing: boolean;
+};
+
+function parseMissingLimbFlags(text: string): MissingLimbFlags {
+  const t = text.toLowerCase();
+  const has = (patterns: string[]): boolean => patterns.some((p) => t.includes(p));
+  return {
+    leftArmMissing: has(['no left arm', 'without left arm', 'missing left arm', 'cannot use left arm', "can't use left arm", 'left arm amput']),
+    rightArmMissing: has(['no right arm', 'without right arm', 'missing right arm', 'cannot use right arm', "can't use right arm", 'right arm amput']),
+    leftLegMissing: has(['no left leg', 'without left leg', 'missing left leg', 'cannot use left leg', "can't use left leg", 'left leg amput']),
+    rightLegMissing: has(['no right leg', 'without right leg', 'missing right leg', 'cannot use right leg', "can't use right leg", 'right leg amput']),
+  };
+}
+
+function sideAffinityTokenSet(mod: ModuleItem): Set<string> {
+  const tokens = `${mod.moduleTitle ?? ''} ${mod.category ?? ''}`.toLowerCase();
+  const out = new Set<string>();
+  if (/\bleft\b/.test(tokens) || /\blead\b/.test(tokens) || /\bjab\b/.test(tokens)) out.add('left');
+  if (/\bright\b/.test(tokens) || /\brear\b/.test(tokens) || /\bstraight\b/.test(tokens) || /\bcross\b/.test(tokens)) out.add('right');
+  return out;
+}
+
+function limbPreferenceMultiplier(mod: ModuleItem, flags: MissingLimbFlags): number {
+  const sideTokens = sideAffinityTokenSet(mod);
+  let multiplier = 1;
+  // Per request: when a limb is missing, recommend modules associated with that side.
+  if (flags.leftArmMissing || flags.leftLegMissing) {
+    if (sideTokens.has('left')) multiplier *= 1.22;
+    else if (sideTokens.has('right')) multiplier *= 0.9;
+  }
+  if (flags.rightArmMissing || flags.rightLegMissing) {
+    if (sideTokens.has('right')) multiplier *= 1.22;
+    else if (sideTokens.has('left')) multiplier *= 0.9;
+  }
+  return multiplier;
+}
+
 /**
  * Mirrors `ml-recommendation/features/profile_module_fit.py` (outputs in [0, 1]).
  */
@@ -71,6 +112,7 @@ export function profileModuleFit(profile: SkillProfile, mod: ModuleItem): number
   const wantsScore = (techniqueScore + goalsScore) / 2;
 
   const limitationsText = `${profile.physicalAttributes.limitations ?? ''} ${profile.fitnessCapabilities.injuries ?? ''}`.toLowerCase();
+  const missingLimbFlags = parseMissingLimbFlags(limitationsText);
   const hasLimitations = Boolean(
     (profile.physicalAttributes.limitations ?? '').trim() || (profile.fitnessCapabilities.injuries ?? '').trim()
   );
@@ -97,7 +139,8 @@ export function profileModuleFit(profile: SkillProfile, mod: ModuleItem): number
   if (noLegs && LEG_CATEGORIES.has(category)) capabilityPenalty = Math.min(capabilityPenalty, 0.4);
 
   const combined = 0.6 * intensityScore + 0.4 * wantsScore;
-  return Math.max(0, Math.min(1, combined * capabilityPenalty));
+  const sidePreference = limbPreferenceMultiplier(mod, missingLimbFlags);
+  return Math.max(0, Math.min(1, combined * capabilityPenalty * sidePreference));
 }
 
 function mlBoost(moduleId: string, mlOrderedIds: string[]): number {

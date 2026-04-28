@@ -165,8 +165,8 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated, onPa
           </>
         ) : (
           <>
-            <Text style={styles.title}>Payment Method</Text>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.title, styles.paymentTitleCentered]}>Payment Method</Text>
+            <Text style={[styles.subtitle, styles.paymentSubtitleCentered]}>
               Selected pack: {selectedPack ? `${selectedPack.credits} Credits (${selectedPack.price})` : 'None'}
             </Text>
             {checkingServer ? (
@@ -178,11 +178,18 @@ export default function TopUpScreen({ step, onStepChange, onCreditsUpdated, onPa
             ) : null}
 
             <View style={styles.section}>
+              <View style={styles.paymentHero}>
+                <Text style={styles.paymentHeroTitle}>Quick and secure checkout</Text>
+                <Text style={styles.paymentHeroSub}>Scan the QR using your preferred wallet app.</Text>
+              </View>
               <TouchableOpacity style={styles.methodCard} activeOpacity={0.88} onPress={handlePayWithQr} disabled={payingMethod != null || !serverHealthy}>
                 {payingMethod === 'qr' ? (
                   <ActivityIndicator color="#07bbc0" />
                 ) : (
-                  <Text style={styles.generateQrText}>Generate Payment QR</Text>
+                  <>
+                    <Text style={styles.methodIcon}>📱</Text>
+                    <Text style={styles.generateQrText}>Pay via QR</Text>
+                  </>
                 )}
               </TouchableOpacity>
               {generatedQrDataUrl ? (
@@ -211,9 +218,23 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingVertical: 20, paddingBottom: 36 },
   title: { color: '#07bbc0', fontSize: 26, fontWeight: '800', marginBottom: 6 },
   subtitle: { color: '#6b8693', fontSize: 14, lineHeight: 20, marginBottom: 18 },
+  paymentTitleCentered: { textAlign: 'center' },
+  paymentSubtitleCentered: { textAlign: 'center' },
   healthCheckText: { color: '#6b8693', fontSize: 12, marginBottom: 10 },
   healthWarningText: { color: '#e57373', fontSize: 12, marginBottom: 10 },
   section: { marginBottom: 18 },
+  paymentHero: {
+    backgroundColor: '#011f36',
+    borderWidth: 1,
+    borderColor: '#0a3645',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  paymentHeroTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  paymentHeroSub: { color: '#8fa3b0', fontSize: 12, marginTop: 6, textAlign: 'center' },
   sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', marginBottom: 10 },
   packCard: {
     backgroundColor: '#011f36',
@@ -236,20 +257,26 @@ const styles = StyleSheet.create({
   packBonus: { color: '#07bbc0', fontSize: 12, fontWeight: '700', marginTop: 2 },
   packPrice: { color: '#07bbc0', fontSize: 15, fontWeight: '800' },
   methodCard: {
-    backgroundColor: '#011f36',
-    borderWidth: 1,
-    borderColor: '#062731',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    backgroundColor: '#07283f',
+    borderWidth: 1.5,
+    borderColor: '#07bbc0',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     marginBottom: 14,
-    minHeight: 150,
+    minHeight: 140,
     alignItems: 'center',
     justifyContent: 'center',
-    width: '78%',
+    width: '88%',
     alignSelf: 'center',
+    shadowColor: '#07bbc0',
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-  generateQrText: { color: '#07bbc0', fontSize: 18, fontWeight: '800' },
+  methodIcon: { fontSize: 28, marginBottom: 8 },
+  generateQrText: { color: '#E7FCFC', fontSize: 20, fontWeight: '900', textAlign: 'center' },
   generatedQrWrap: {
     marginTop: 10,
     alignItems: 'center',
@@ -260,7 +287,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 12,
   },
-  generatedQrImage: { width: 260, height: 260, borderRadius: 8, backgroundColor: '#fff' },
+  generatedQrImage: { width: 290, height: 290, borderRadius: 12, backgroundColor: '#fff' },
   generatedQrHint: { marginTop: 10, color: '#6b8693', fontSize: 12, textAlign: 'center' },
   autoCheckStatus: { marginTop: 8, color: '#07bbc0', fontSize: 12, textAlign: 'center' },
   autoCheckError: { marginTop: 6, color: '#e57373', fontSize: 11, textAlign: 'center' },

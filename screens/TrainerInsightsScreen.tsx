@@ -32,6 +32,18 @@ function formatShortDate(ms: number | null | undefined): string {
   }
 }
 
+function normalizeStatus(status: string | null | undefined): string {
+  return String(status ?? '').trim().toLowerCase();
+}
+
+function getStatusStyle(status: string | null | undefined): { label: string; bg: string; text: string; border: string } {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'approved') return { label: 'Approved', bg: 'rgba(34,197,94,0.18)', text: '#4ade80', border: 'rgba(34,197,94,0.45)' };
+  if (normalized === 'pending review') return { label: 'Pending review', bg: 'rgba(245,158,11,0.18)', text: '#fbbf24', border: 'rgba(245,158,11,0.45)' };
+  if (normalized === 'rejected') return { label: 'Rejected', bg: 'rgba(239,68,68,0.18)', text: '#f87171', border: 'rgba(239,68,68,0.45)' };
+  return { label: status ? String(status) : 'Unknown', bg: 'rgba(100,116,139,0.22)', text: '#cbd5e1', border: 'rgba(100,116,139,0.45)' };
+}
+
 export default function TrainerInsightsScreen({ onBack, onOpenModule }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,8 +130,8 @@ export default function TrainerInsightsScreen({ onBack, onOpenModule }: Props) {
           ) : null}
 
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Modules</Text>
-            <Text style={styles.sectionHint}>Tap a module to view overview.</Text>
+            <Text style={styles.sectionTitle}>Published Modules</Text>
+            <Text style={styles.sectionHint}>Tap card or Edit to update your module details.</Text>
           </View>
 
           {!data?.modules?.length ? (
@@ -130,11 +142,18 @@ export default function TrainerInsightsScreen({ onBack, onOpenModule }: Props) {
           ) : (
             data.modules.map((m) => (
               <TouchableOpacity key={m.moduleId} style={styles.moduleCard} onPress={() => onOpenModule(m)} activeOpacity={0.9}>
-                {m.thumbnailUrl ? (
-                  <Image source={{ uri: m.thumbnailUrl }} style={[styles.thumb, styles.thumbLower]} />
-                ) : (
-                  <View style={[styles.thumbPlaceholder, styles.thumbLower]}><Text style={styles.thumbIcon}>🥋</Text></View>
-                )}
+                <View style={styles.cardTopRow}>
+                  {m.thumbnailUrl ? (
+                    <Image source={{ uri: m.thumbnailUrl }} style={styles.thumb} />
+                  ) : (
+                    <View style={styles.thumbPlaceholder}><Text style={styles.thumbIcon}>🥋</Text></View>
+                  )}
+                  <View style={styles.statusWrap}>
+                    <View style={[styles.statusChip, { backgroundColor: getStatusStyle(m.status).bg, borderColor: getStatusStyle(m.status).border }]}>
+                      <Text style={[styles.statusText, { color: getStatusStyle(m.status).text }]}>{getStatusStyle(m.status).label}</Text>
+                    </View>
+                  </View>
+                </View>
                 <View style={styles.moduleBody}>
                   <Text style={styles.moduleTitle} numberOfLines={1}>{m.moduleTitle}</Text>
                   <Text style={styles.moduleMeta} numberOfLines={1}>
@@ -155,7 +174,11 @@ export default function TrainerInsightsScreen({ onBack, onOpenModule }: Props) {
                     </View>
                   </View>
                 </View>
-                <Text style={styles.chevron}>›</Text>
+                <View style={styles.cardActionRow}>
+                  <TouchableOpacity style={[styles.ctaBtn, styles.ctaEditBtn]} onPress={() => onOpenModule(m)} activeOpacity={0.9}>
+                    <Text style={styles.ctaEditText}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
               </TouchableOpacity>
             ))
           )}
@@ -206,11 +229,14 @@ const styles = StyleSheet.create({
   sectionHeader: { marginTop: 16, marginBottom: 8 },
   sectionTitle: { color: '#FFF', fontSize: 16, fontWeight: '900', textAlign: 'left' },
   sectionHint: { color: '#6b8693', fontSize: 12, marginTop: 4, textAlign: 'left' },
-  moduleCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: '#041527', borderWidth: 1, borderColor: '#062731', borderRadius: 18, padding: 12, marginBottom: 10 },
+  moduleCard: { backgroundColor: '#041527', borderWidth: 1, borderColor: '#062731', borderRadius: 18, padding: 12, marginBottom: 12 },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   thumb: { width: 58, height: 58, borderRadius: 14, backgroundColor: '#0a3645' },
   thumbPlaceholder: { width: 58, height: 58, borderRadius: 14, backgroundColor: '#0a3645', alignItems: 'center', justifyContent: 'center' },
   thumbIcon: { fontSize: 22 },
-  thumbLower: { marginTop: 48 },
+  statusWrap: { flex: 1, alignItems: 'flex-end', marginLeft: 10 },
+  statusChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  statusText: { fontSize: 11, fontWeight: '800' },
   moduleBody: { flex: 1, minWidth: 0 },
   moduleTitle: { color: '#FFF', fontSize: 14, fontWeight: '900', textAlign: 'left' },
   moduleMeta: { color: '#6b8693', fontSize: 12, marginTop: 4, textAlign: 'left' },
@@ -221,7 +247,10 @@ const styles = StyleSheet.create({
   kpiChipAvg: { flex: 0.85 },
   kpiLabel: { color: '#6b8693', fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'left' },
   kpiValue: { color: '#07bbc0', fontSize: 13, fontWeight: '900', marginTop: 4, textAlign: 'left' },
-  chevron: { color: '#6b8693', fontSize: 22, fontWeight: '900', marginLeft: 2 },
+  cardActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  ctaBtn: { flex: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+  ctaEditBtn: { backgroundColor: '#07bbc0' },
+  ctaEditText: { color: '#041527', fontSize: 13, fontWeight: '900' },
   emptyWrap: { marginTop: 10, backgroundColor: '#011f36', borderWidth: 1, borderColor: '#062731', borderRadius: 18, padding: 16, alignItems: 'center' },
   emptyTitle: { color: '#FFF', fontSize: 16, fontWeight: '900', textAlign: 'center' },
   emptySub: { color: '#6b8693', fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 18 },

@@ -121,6 +121,7 @@ export default function App() {
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
   const [trainerInsightsModule, setTrainerInsightsModule] = useState<TrainerModuleAnalyticsRow | null>(null);
+  const [publishEditModuleId, setPublishEditModuleId] = useState<string | null>(null);
   const [pendingRegistration, setPendingRegistration] = useState<RegisterData | null>(null);
 
   // Splash: brief branding then startup (shorter = faster to interactive)
@@ -283,7 +284,8 @@ export default function App() {
           setScreen('trainer-insights');
           return true;
         case 'publish-module':
-          setScreen('trainer');
+          setPublishEditModuleId(null);
+          setScreen('trainer-insights');
           return true;
         case 'category-practice-session': {
           // Mirror the onExit handler used by the session screen so back leaves
@@ -528,8 +530,8 @@ export default function App() {
               <TrainerInsightsScreen
                 onBack={() => setScreen('profile')}
                 onOpenModule={(row) => {
-                  setTrainerInsightsModule(row);
-                  setScreen('trainer-insights-module');
+                  setPublishEditModuleId(row.moduleId);
+                  setScreen('publish-module');
                 }}
               />
             </MainLayout>
@@ -613,10 +615,15 @@ export default function App() {
           )}
           {screen === 'publish-module' && (
             <PublishModuleScreen
-              onBack={() => setScreen('trainer')}
+              moduleId={publishEditModuleId ?? undefined}
+              onBack={() => {
+                setPublishEditModuleId(null);
+                setScreen('trainer-insights');
+              }}
               onSuccess={(toastMessage) => {
                 if (toastMessage) setDashboardToastMessage(toastMessage);
-                setScreen('dashboard');
+                setPublishEditModuleId(null);
+                setScreen('trainer-insights');
               }}
             />
           )}

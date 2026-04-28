@@ -23,7 +23,7 @@ const {
   Easing,
 } = RN;
 import * as ImagePicker from 'expo-image-picker';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 
 // --- Constants ---
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -80,13 +80,15 @@ const trainingDurationOptions: { label: string; value: number }[] = [
 interface PublishModuleScreenProps {
   onBack: () => void;
   onSuccess: (toastMessage?: string) => void;
+  moduleId?: string;
 }
 
 // --- Component ---
-export default function PublishModuleScreen({ onBack, onSuccess }: PublishModuleScreenProps) {
+export default function PublishModuleScreen({ onBack, onSuccess, moduleId }: PublishModuleScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [moduleTitle, setModuleTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -97,6 +99,9 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
   const [introductionVideoName, setIntroductionVideoName] = useState('');
   const [techniqueVideoFile, setTechniqueVideoFile] = useState<{ uri: string; name: string } | null>(null);
   const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
+  const [existingIntroductionVideoUrl, setExistingIntroductionVideoUrl] = useState<string | null>(null);
+  const [existingTechniqueVideoUrl, setExistingTechniqueVideoUrl] = useState<string | null>(null);
+  const [existingThumbnailUrl, setExistingThumbnailUrl] = useState<string | null>(null);
   const [intensityLevel, setIntensityLevel] = useState(2);
   const [spaceRequirements, setSpaceRequirements] = useState<string[]>([]);
   const [warmupExercises, setWarmupExercises] = useState<string[]>([]);
@@ -153,15 +158,41 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           onBack();
           return;
         }
+        if (moduleId) {
+          const module = await AuthController.getTrainerEditableModuleById(moduleId);
+          if (cancelled) return;
+          setIsEditMode(true);
+          setModuleTitle(module.moduleTitle ?? '');
+          setDescription(module.description ?? '');
+          setCategory(module.category ?? '');
+          setIntroductionType(module.introductionType ?? 'text');
+          setIntroduction(module.introduction ?? '');
+          setExistingIntroductionVideoUrl(module.introductionVideoUrl ?? null);
+          setExistingTechniqueVideoUrl(module.techniqueVideoUrl ?? null);
+          setExistingThumbnailUrl(module.thumbnailUrl ?? null);
+          setIntensityLevel(module.intensityLevel ?? 2);
+          setSpaceRequirements(module.spaceRequirements ?? []);
+          setWarmupExercises(module.warmupExercises ?? []);
+          setCooldownExercises(module.cooldownExercises ?? []);
+          setPhysicalTags(module.physicalDemandTags ?? []);
+          setRepRange(module.repRange ?? '');
+          setDifficultyLevel(module.difficultyLevel ?? '');
+          setTrainingDuration(module.trainingDurationSeconds ?? '');
+          setCertificationChecked(Boolean(module.certificationChecked));
+        } else {
+          setIsEditMode(false);
+        }
       } catch (e) {
-        if (!cancelled) showToast('Failed to verify trainer status');
-        onBack();
+        if (!cancelled) {
+          showToast((e as Error)?.message || 'Failed to open module editor');
+          onBack();
+        }
       } finally {
         if (!cancelled) setChecking(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [onBack, showToast]);
+  }, [moduleId, onBack, showToast]);
 
   const toggleSpace = (s: string) => {
     setSpaceRequirements((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -357,13 +388,15 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         ? 'Description must be 600 characters or less'
         : '';
     const catError = !category ? 'Please select a category' : '';
+    const hasIntroVideo = Boolean(introductionVideoUri || existingIntroductionVideoUrl);
+    const hasTechniqueVideo = Boolean(techniqueVideoFile || existingTechniqueVideoUrl);
     const introError =
       introductionType === 'text'
         ? !introduction.trim() ? 'Please fill this in or upload an introduction video' : ''
-        : !introductionVideoUri ? 'Please upload an introduction video or add text' : '';
-    const videoError = !techniqueVideoFile ? 'Please add technique video' : '';
-    const warmupError = warmupExercises.length !== 3 ? 'Please select exactly 3 warmup exercises' : '';
-    const cooldownError = cooldownExercises.length !== 3 ? 'Please select exactly 3 cooldown stretches' : '';
+        : !hasIntroVideo ? 'Please upload an introduction video or add text' : '';
+    const videoError = !hasTechniqueVideo ? 'Please add technique video' : '';
+    const warmupError = isEditMode ? '' : (warmupExercises.length !== 3 ? 'Please select exactly 3 warmup exercises' : '');
+    const cooldownError = isEditMode ? '' : (cooldownExercises.length !== 3 ? 'Please select exactly 3 cooldown stretches' : '');
     const certError = !certificationChecked ? 'Please check this box to certify' : '';
     setErrors({
       moduleTitle: titleError,
@@ -402,33 +435,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
         setLoading(false);
         return;
       }
-      // Save module to DB first (fast); then upload media and patch so UI feels responsive
-      const moduleDataWithoutMedia = {
-        trainerId: user.uid,
-        moduleTitle: moduleTitle.trim(),
-        description: description.trim(),
-        category,
-        introductionType,
-        introduction: introductionType === 'text' ? introduction.trim() : undefined,
-        introductionVideoUrl: undefined as string | undefined,
-        techniqueVideoUrl: undefined as string | undefined,
-        techniqueVideoUrl2: undefined as string | undefined,
-        techniqueVideoLink: undefined as string | undefined,
-        thumbnailUrl: undefined as string | undefined,
-        referencePoseVideoUrlSide1: undefined as string | undefined,
-        referencePoseVideoUrlSide2: undefined as string | undefined,
-        intensityLevel,
-        spaceRequirements: spaceRequirements.length ? spaceRequirements : [],
-        warmupExercises: warmupExercises.length ? warmupExercises : [],
-        cooldownExercises: cooldownExercises.length ? cooldownExercises : [],
-        physicalDemandTags: physicalTags.length ? physicalTags : [],
-        repRange: repRange || undefined,
-        difficultyLevel: difficultyLevel || undefined,
-        trainingDurationSeconds: trainingDuration === '' ? undefined : trainingDuration,
-        status: 'pending review' as const,
-        certificationChecked,
-      };
-      const moduleId = await AuthController.saveModule(moduleDataWithoutMedia, false);
+      const currentModuleId = moduleId;
+      let createdModuleId: string | null = null;
       let techniqueVideoUrl: string | undefined;
       let introductionVideoUrl: string | undefined;
       let thumbnailUploadUrl: string | undefined;
@@ -458,14 +466,66 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           else if (r.kind === 'intro') introductionVideoUrl = r.url;
           else if (r.kind === 'thumbnail') thumbnailUploadUrl = r.url;
         });
-        await AuthController.updateModuleMedia(moduleId, {
-          techniqueVideoUrl: techniqueVideoUrl ?? null,
-          thumbnailUrl: thumbnailUploadUrl ?? null,
-          referencePoseVideoUrlSide1: techniqueVideoUrl ?? null,
-          introductionVideoUrl: introductionType === 'video' ? (introductionVideoUrl ?? null) : null,
-        });
+        if (isEditMode && currentModuleId) {
+          await AuthController.updateTrainerOwnedModuleMetadata(currentModuleId, {
+            moduleTitle: moduleTitle.trim(),
+            description: description.trim(),
+            category,
+            introductionType,
+            introduction: introductionType === 'text' ? introduction.trim() : null,
+            introductionVideoUrl:
+              introductionType === 'video'
+                ? (introductionVideoUrl ?? existingIntroductionVideoUrl ?? null)
+                : null,
+            techniqueVideoUrl: techniqueVideoUrl ?? existingTechniqueVideoUrl ?? null,
+            thumbnailUrl: thumbnailUploadUrl ?? existingThumbnailUrl ?? null,
+            intensityLevel,
+            spaceRequirements: spaceRequirements.length ? spaceRequirements : [],
+            physicalDemandTags: physicalTags.length ? physicalTags : [],
+            repRange: repRange || null,
+            trainingDurationSeconds: trainingDuration === '' ? null : trainingDuration,
+            videoDuration: null,
+            difficultyLevel: difficultyLevel || null,
+            certificationChecked,
+          });
+        } else {
+          const moduleDataWithoutMedia = {
+            trainerId: user.uid,
+            moduleTitle: moduleTitle.trim(),
+            description: description.trim(),
+            category,
+            introductionType,
+            introduction: introductionType === 'text' ? introduction.trim() : undefined,
+            introductionVideoUrl: undefined as string | undefined,
+            techniqueVideoUrl: undefined as string | undefined,
+            techniqueVideoUrl2: undefined as string | undefined,
+            techniqueVideoLink: undefined as string | undefined,
+            thumbnailUrl: undefined as string | undefined,
+            referencePoseVideoUrlSide1: undefined as string | undefined,
+            referencePoseVideoUrlSide2: undefined as string | undefined,
+            intensityLevel,
+            spaceRequirements: spaceRequirements.length ? spaceRequirements : [],
+            warmupExercises: warmupExercises.length ? warmupExercises : [],
+            cooldownExercises: cooldownExercises.length ? cooldownExercises : [],
+            physicalDemandTags: physicalTags.length ? physicalTags : [],
+            repRange: repRange || undefined,
+            difficultyLevel: difficultyLevel || undefined,
+            trainingDurationSeconds: trainingDuration === '' ? undefined : trainingDuration,
+            status: 'pending review' as const,
+            certificationChecked,
+          };
+          createdModuleId = await AuthController.saveModule(moduleDataWithoutMedia, false);
+          await AuthController.updateModuleMedia(createdModuleId, {
+            techniqueVideoUrl: techniqueVideoUrl ?? null,
+            thumbnailUrl: thumbnailUploadUrl ?? null,
+            referencePoseVideoUrlSide1: techniqueVideoUrl ?? null,
+            introductionVideoUrl: introductionType === 'video' ? (introductionVideoUrl ?? null) : null,
+          });
+        }
       } catch (error: any) {
-        await AuthController.removeModule(moduleId).catch(() => {});
+        if (!isEditMode && createdModuleId) {
+          await AuthController.removeModule(createdModuleId).catch(() => {});
+        }
         const msg = error?.message || '';
         if (msg.toLowerCase().includes('video')) {
           showToast('Upload failed. Please try again.');
@@ -497,7 +557,12 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
       setTrainingDuration('');
       setCertificationChecked(false);
       setStep(1);
-      onSuccess('Module submitted for review');
+      if (isEditMode) {
+        showToast('Module updated successfully');
+        setTimeout(() => onSuccess('Module updated successfully'), 450);
+      } else {
+        onSuccess('Module submitted for review');
+      }
     } catch (error: any) {
       showToast(error?.message || 'Failed to publish module');
     } finally {
@@ -514,6 +579,9 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
     introductionVideoName,
     techniqueVideoFile,
     thumbnailUri,
+    existingIntroductionVideoUrl,
+    existingTechniqueVideoUrl,
+    existingThumbnailUrl,
     intensityLevel,
     spaceRequirements,
     warmupExercises,
@@ -523,6 +591,8 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
     difficultyLevel,
     trainingDuration,
     certificationChecked,
+    isEditMode,
+    moduleId,
     showToast,
     onSuccess,
   ]);
@@ -539,7 +609,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
     return (
       <View style={[styles.centered, styles.safe]}>
         <ActivityIndicator size="large" color="#07bbc0" />
-        <Text style={styles.submittingLabel}>Publishing module…</Text>
+        <Text style={styles.submittingLabel}>{isEditMode ? 'Saving changes…' : 'Publishing module…'}</Text>
         <Text style={styles.submittingHint}>Please wait</Text>
       </View>
     );
@@ -556,7 +626,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
           <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={12}>
             <Image source={require('../assets/images/icon-back.png')} style={styles.backIcon} resizeMode="contain" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Publish Module</Text>
+          <Text style={styles.headerTitle}>{isEditMode ? 'Edit your module' : 'Publish Module'}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -653,19 +723,23 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                   />
                   {errors.introduction ? <Text style={styles.errorText}>{errors.introduction}</Text> : null}
                 </>
-              ) : introductionVideoUri ? (
+              ) : (introductionVideoUri || existingIntroductionVideoUrl) ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
                     <Video
-                      source={{ uri: introductionVideoUri }}
+                      source={{ uri: introductionVideoUri || existingIntroductionVideoUrl || '' }}
                       style={styles.videoPreview}
-                      resizeMode="contain"
+                      resizeMode={ResizeMode.CONTAIN}
                       useNativeControls
                     />
                   </View>
                   <Text style={styles.previewHint}>{introductionVideoName || 'Introduction video preview'}</Text>
                   <TouchableOpacity
-                    onPress={() => { setIntroductionVideoUri(null); setIntroductionVideoName(''); }}
+                    onPress={() => {
+                      setIntroductionVideoUri(null);
+                      setIntroductionVideoName('');
+                      setExistingIntroductionVideoUrl(null);
+                    }}
                     style={styles.removeFile}
                   >
                     <Text style={styles.removeFileText}>Remove video</Text>
@@ -692,7 +766,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                     const titleError = !moduleTitle.trim() ? 'Please fill this in' : moduleTitle.length > 50 ? 'Module title must be 50 characters or less' : '';
                     const descError = !description.trim() ? 'Please fill this in' : description.length > 600 ? 'Description must be 600 characters or less' : '';
                     const catError = !category ? 'Please select a category' : '';
-                    const introError = introductionType === 'text' ? (!introduction.trim() ? 'Please fill this in or upload an introduction video' : '') : (!introductionVideoUri ? 'Please upload an introduction video or add text' : '');
+                    const introError = introductionType === 'text' ? (!introduction.trim() ? 'Please fill this in or upload an introduction video' : '') : (!(introductionVideoUri || existingIntroductionVideoUrl) ? 'Please upload an introduction video or add text' : '');
                     setErrors((e) => ({ ...e, moduleTitle: titleError, description: descError, category: catError, introduction: introError }));
                     if (titleError || descError || catError || introError) {
                       showToast(titleError || descError || catError || introError);
@@ -717,18 +791,18 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 <Text style={styles.rulesText}>• One clean rep. Good lighting and clear view of upper body.</Text>
               </View>
               <Text style={styles.label}>Technique video *</Text>
-              {techniqueVideoFile ? (
+              {(techniqueVideoFile || existingTechniqueVideoUrl) ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
                     <Video
-                      source={{ uri: techniqueVideoFile.uri }}
+                      source={{ uri: techniqueVideoFile?.uri || existingTechniqueVideoUrl || '' }}
                       style={styles.videoPreview}
-                      resizeMode="contain"
+                      resizeMode={ResizeMode.CONTAIN}
                       useNativeControls
                     />
                   </View>
-                  <Text style={styles.previewHint}>{techniqueVideoFile.name || 'Technique video preview'}</Text>
-                  <TouchableOpacity onPress={() => setTechniqueVideoFile(null)} style={styles.removeFile}>
+                  <Text style={styles.previewHint}>{techniqueVideoFile?.name || 'Technique video preview'}</Text>
+                  <TouchableOpacity onPress={() => { setTechniqueVideoFile(null); setExistingTechniqueVideoUrl(null); }} style={styles.removeFile}>
                     <Text style={styles.removeFileText}>Remove video</Text>
                   </TouchableOpacity>
                   {errors.video ? <Text style={styles.errorText}>{errors.video}</Text> : null}
@@ -753,13 +827,13 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
             <>
               <Text style={styles.intro}>Choose a thumbnail image for your module (optional).</Text>
               <Text style={styles.label}>Thumbnail (optional)</Text>
-              {thumbnailUri ? (
+              {(thumbnailUri || existingThumbnailUrl) ? (
                 <>
                   <View style={styles.mediaPreviewWrap}>
-                    <Image source={{ uri: thumbnailUri }} style={styles.imagePreview} resizeMode="contain" />
+                    <Image source={{ uri: thumbnailUri || existingThumbnailUrl || '' }} style={styles.imagePreview} resizeMode="contain" />
                   </View>
                   <Text style={styles.previewHint}>Preview your thumbnail above.</Text>
-                  <TouchableOpacity onPress={() => setThumbnailUri(null)} style={styles.removeFile}>
+                  <TouchableOpacity onPress={() => { setThumbnailUri(null); setExistingThumbnailUrl(null); }} style={styles.removeFile}>
                     <Text style={styles.removeFileText}>Remove image</Text>
                   </TouchableOpacity>
                   {errors.thumbnail ? <Text style={styles.errorText}>{errors.thumbnail}</Text> : null}
@@ -809,60 +883,64 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 ))}
               </View>
 
-              <Text style={styles.label}>Warmup * (pick 3)</Text>
-              <TouchableOpacity
-                style={[styles.selectBtn, errors.warmupExercises ? styles.inputError : null]}
-                onPress={() => setShowWarmupDropdown(!showWarmupDropdown)}
-              >
-                <Text style={styles.selectText}>
-                  {warmupExercises.length ? `${warmupExercises.length} selected` : 'Select warmup exercises'}
-                </Text>
-                <Text style={styles.chevron}>{showWarmupDropdown ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-              {errors.warmupExercises ? <Text style={styles.errorText}>{errors.warmupExercises}</Text> : null}
-              {showWarmupDropdown && (
-                <View style={styles.pickerList}>
-                  {warmupOptions.map((w) => (
-                    <TouchableOpacity
-                      key={w}
-                      style={styles.pickerItemCheck}
-                      onPress={() => toggleWarmup(w)}
-                    >
-                      <View style={[styles.checkbox, warmupExercises.includes(w) && styles.checkboxChecked]}>
-                        {warmupExercises.includes(w) ? <Text style={styles.check}>✓</Text> : null}
-                      </View>
-                      <Text style={styles.pickerItemText}>{w}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              {!isEditMode && (
+                <>
+                  <Text style={styles.label}>Warmup * (pick 3)</Text>
+                  <TouchableOpacity
+                    style={[styles.selectBtn, errors.warmupExercises ? styles.inputError : null]}
+                    onPress={() => setShowWarmupDropdown(!showWarmupDropdown)}
+                  >
+                    <Text style={styles.selectText}>
+                      {warmupExercises.length ? `${warmupExercises.length} selected` : 'Select warmup exercises'}
+                    </Text>
+                    <Text style={styles.chevron}>{showWarmupDropdown ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+                  {errors.warmupExercises ? <Text style={styles.errorText}>{errors.warmupExercises}</Text> : null}
+                  {showWarmupDropdown && (
+                    <View style={styles.pickerList}>
+                      {warmupOptions.map((w) => (
+                        <TouchableOpacity
+                          key={w}
+                          style={styles.pickerItemCheck}
+                          onPress={() => toggleWarmup(w)}
+                        >
+                          <View style={[styles.checkbox, warmupExercises.includes(w) && styles.checkboxChecked]}>
+                            {warmupExercises.includes(w) ? <Text style={styles.check}>✓</Text> : null}
+                          </View>
+                          <Text style={styles.pickerItemText}>{w}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
 
-              <Text style={styles.label}>Cooldown * (pick 3)</Text>
-              <TouchableOpacity
-                style={[styles.selectBtn, errors.cooldownExercises ? styles.inputError : null]}
-                onPress={() => setShowCooldownDropdown(!showCooldownDropdown)}
-              >
-                <Text style={styles.selectText}>
-                  {cooldownExercises.length ? `${cooldownExercises.length} selected` : 'Select cooldown stretches'}
-                </Text>
-                <Text style={styles.chevron}>{showCooldownDropdown ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-              {errors.cooldownExercises ? <Text style={styles.errorText}>{errors.cooldownExercises}</Text> : null}
-              {showCooldownDropdown && (
-                <View style={styles.pickerList}>
-                  {cooldownOptions.map((c) => (
-                    <TouchableOpacity
-                      key={c}
-                      style={styles.pickerItemCheck}
-                      onPress={() => toggleCooldown(c)}
-                    >
-                      <View style={[styles.checkbox, cooldownExercises.includes(c) && styles.checkboxChecked]}>
-                        {cooldownExercises.includes(c) ? <Text style={styles.check}>✓</Text> : null}
-                      </View>
-                      <Text style={styles.pickerItemText}>{c}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                  <Text style={styles.label}>Cooldown * (pick 3)</Text>
+                  <TouchableOpacity
+                    style={[styles.selectBtn, errors.cooldownExercises ? styles.inputError : null]}
+                    onPress={() => setShowCooldownDropdown(!showCooldownDropdown)}
+                  >
+                    <Text style={styles.selectText}>
+                      {cooldownExercises.length ? `${cooldownExercises.length} selected` : 'Select cooldown stretches'}
+                    </Text>
+                    <Text style={styles.chevron}>{showCooldownDropdown ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+                  {errors.cooldownExercises ? <Text style={styles.errorText}>{errors.cooldownExercises}</Text> : null}
+                  {showCooldownDropdown && (
+                    <View style={styles.pickerList}>
+                      {cooldownOptions.map((c) => (
+                        <TouchableOpacity
+                          key={c}
+                          style={styles.pickerItemCheck}
+                          onPress={() => toggleCooldown(c)}
+                        >
+                          <View style={[styles.checkbox, cooldownExercises.includes(c) && styles.checkboxChecked]}>
+                            {cooldownExercises.includes(c) ? <Text style={styles.check}>✓</Text> : null}
+                          </View>
+                          <Text style={styles.pickerItemText}>{c}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </>
               )}
 
               <Text style={styles.label}>Physical demand (optional)</Text>
@@ -966,7 +1044,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 style={styles.nextBtnBalanced}
                 onPress={() => {
                 if (step === 2) {
-                  if (!techniqueVideoFile) {
+                  if (!techniqueVideoFile && !existingTechniqueVideoUrl) {
                     setErrors((e) => ({ ...e, video: 'Take or choose a video' }));
                     showToast('Take a video or choose from gallery');
                     return;
@@ -984,7 +1062,7 @@ export default function PublishModuleScreen({ onBack, onSuccess }: PublishModule
                 onPress={handleSubmit}
                 disabled={loading}
               >
-                {loading ? <ActivityIndicator size="small" color="#041527" /> : <Text style={styles.submitBtnText}>Submit for review</Text>}
+                {loading ? <ActivityIndicator size="small" color="#041527" /> : <Text style={styles.submitBtnText}>{isEditMode ? 'Save changes' : 'Submit for review'}</Text>}
               </TouchableOpacity>
             )}
           </View>

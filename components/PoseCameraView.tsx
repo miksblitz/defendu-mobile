@@ -1157,6 +1157,14 @@ const styles = StyleSheet.create({
   trainingTimerLabel: { color: '#6b8693', fontSize: 14, marginTop: 4 },
   repBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   repText: { color: '#07bbc0', fontSize: 22, fontWeight: '700' },
+  repButton: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: '#07bbc0',
+  },
+  repButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   backButton: {
     position: 'absolute',
     top: POSE_BACK_BUTTON_TOP,

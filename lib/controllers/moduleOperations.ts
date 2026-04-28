@@ -56,26 +56,123 @@ export async function getModuleByIdForUser(moduleId: string): Promise<Module | n
     if (!snap.exists()) return null;
     const raw = snap.val() as Record<string, unknown>;
     if (raw.status !== 'approved') return null;
-    const module: Module = {
-      ...raw,
-      moduleId,
-      moduleTitle: String(raw.moduleTitle ?? ''),
-      description: String(raw.description ?? ''),
-      category: String(raw.category ?? ''),
-      status: (raw.status as Module['status']) || 'draft',
-      createdAt: raw.createdAt ? new Date(raw.createdAt as number) : new Date(),
-      updatedAt: raw.updatedAt ? new Date(raw.updatedAt as number) : new Date(),
-      submittedAt: raw.submittedAt ? new Date(raw.submittedAt as number) : undefined,
-      reviewedAt: raw.reviewedAt ? new Date(raw.reviewedAt as number) : undefined,
-      spaceRequirements: normalizeArray(raw.spaceRequirements) ?? [],
-      warmupExercises: normalizeWarmupExercises(raw.warmupExercises),
-      cooldownExercises: normalizeArray(raw.cooldownExercises) ?? [],
-      physicalDemandTags: normalizeArray(raw.physicalDemandTags) ?? [],
-    } as Module;
-    return module;
+    return mapModuleFromRaw(moduleId, raw);
   } catch (e) {
     console.error('getModuleByIdForUser:', e);
     return null;
+  }
+}
+
+function mapModuleFromRaw(moduleId: string, raw: Record<string, unknown>): Module {
+  return {
+    ...raw,
+    moduleId,
+    moduleTitle: String(raw.moduleTitle ?? ''),
+    description: String(raw.description ?? ''),
+    category: String(raw.category ?? ''),
+    status: (raw.status as Module['status']) || 'draft',
+    createdAt: raw.createdAt ? new Date(raw.createdAt as number) : new Date(),
+    updatedAt: raw.updatedAt ? new Date(raw.updatedAt as number) : new Date(),
+    submittedAt: raw.submittedAt ? new Date(raw.submittedAt as number) : undefined,
+    reviewedAt: raw.reviewedAt ? new Date(raw.reviewedAt as number) : undefined,
+    spaceRequirements: normalizeArray(raw.spaceRequirements) ?? [],
+    warmupExercises: normalizeWarmupExercises(raw.warmupExercises),
+    cooldownExercises: normalizeArray(raw.cooldownExercises) ?? [],
+    physicalDemandTags: normalizeArray(raw.physicalDemandTags) ?? [],
+  } as Module;
+}
+
+type TrainerOwnedModuleMetadataUpdates = {
+  title?: string;
+  moduleTitle?: string;
+  description?: string;
+  category?: string;
+  introductionType?: 'text' | 'video';
+  introduction?: string | null;
+  introductionVideoUrl?: string | null;
+  techniqueVideoUrl?: string | null;
+  techniqueVideoLink?: string | null;
+  thumbnailUrl?: string | null;
+  referenceGuideUrl?: string | null;
+  intensityLevel?: number | null;
+  spaceRequirements?: string[];
+  warmupExercises?: string[];
+  cooldownExercises?: string[];
+  physicalDemandTags?: string[];
+  repRange?: string | null;
+  trainingDurationSeconds?: number | null;
+  videoDuration?: number | null;
+  difficultyLevel?: 'basic' | 'intermediate' | 'advanced' | null;
+  certificationChecked?: boolean;
+};
+
+export async function getTrainerEditableModuleById(moduleId: string): Promise<Module> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  const moduleRef = ref(db, `modules/${moduleId}`);
+  const snapshot = await get(moduleRef);
+  if (!snapshot.exists()) throw new Error('Module not found');
+  const raw = snapshot.val() as Record<string, unknown>;
+  const isAdmin = currentUser.role === 'admin';
+  const isOwningApprovedTrainer =
+    currentUser.role === 'trainer' &&
+    currentUser.trainerApproved === true &&
+    String(raw.trainerId ?? '') === currentUser.uid;
+  if (!isAdmin && !isOwningApprovedTrainer) {
+    throw new Error('Permission denied: You can only edit your own modules.');
+  }
+  return mapModuleFromRaw(moduleId, raw);
+}
+
+export async function updateTrainerOwnedModuleMetadata(
+  moduleId: string,
+  updates: TrainerOwnedModuleMetadataUpdates
+): Promise<void> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  const moduleRef = ref(db, `modules/${moduleId}`);
+  const moduleSnap = await get(moduleRef);
+  if (!moduleSnap.exists()) throw new Error('Module not found');
+  const existingRaw = moduleSnap.val() as Record<string, unknown>;
+  const ownerTrainerId = String(existingRaw.trainerId ?? '');
+  const isAdmin = currentUser.role === 'admin';
+  const isOwningApprovedTrainer =
+    currentUser.role === 'trainer' &&
+    currentUser.trainerApproved === true &&
+    ownerTrainerId === currentUser.uid;
+  if (!isAdmin && !isOwningApprovedTrainer) {
+    throw new Error('Permission denied: You can only edit your own modules.');
+  }
+  const nextTitleRaw = updates.moduleTitle ?? updates.title;
+  const now = Date.now();
+  const patch: Record<string, unknown> = { updatedAt: now };
+  if (nextTitleRaw !== undefined) patch.moduleTitle = nextTitleRaw;
+  if (updates.description !== undefined) patch.description = updates.description;
+  if (updates.category !== undefined) patch.category = updates.category;
+  if (updates.introductionType !== undefined) patch.introductionType = updates.introductionType;
+  if (updates.introduction !== undefined) patch.introduction = updates.introduction;
+  if (updates.introductionVideoUrl !== undefined) patch.introductionVideoUrl = updates.introductionVideoUrl;
+  if (updates.techniqueVideoUrl !== undefined) patch.techniqueVideoUrl = updates.techniqueVideoUrl;
+  if (updates.techniqueVideoLink !== undefined) patch.techniqueVideoLink = updates.techniqueVideoLink;
+  if (updates.thumbnailUrl !== undefined) patch.thumbnailUrl = updates.thumbnailUrl;
+  if (updates.referenceGuideUrl !== undefined) patch.referenceGuideUrl = updates.referenceGuideUrl;
+  if (updates.intensityLevel !== undefined) patch.intensityLevel = updates.intensityLevel;
+  if (updates.spaceRequirements !== undefined) patch.spaceRequirements = updates.spaceRequirements;
+  if (updates.warmupExercises !== undefined) patch.warmupExercises = updates.warmupExercises;
+  if (updates.cooldownExercises !== undefined) patch.cooldownExercises = updates.cooldownExercises;
+  if (updates.physicalDemandTags !== undefined) patch.physicalDemandTags = updates.physicalDemandTags;
+  if (updates.repRange !== undefined) patch.repRange = updates.repRange;
+  if (updates.trainingDurationSeconds !== undefined) patch.trainingDurationSeconds = updates.trainingDurationSeconds;
+  if (updates.videoDuration !== undefined) patch.videoDuration = updates.videoDuration;
+  if (updates.difficultyLevel !== undefined) patch.difficultyLevel = updates.difficultyLevel;
+  if (updates.certificationChecked !== undefined) patch.certificationChecked = updates.certificationChecked;
+  await update(moduleRef, patch);
+  if (ownerTrainerId) {
+    await update(ref(db, `trainerModules/${ownerTrainerId}/${moduleId}`), {
+      moduleTitle:
+        nextTitleRaw !== undefined ? nextTitleRaw : String(existingRaw.moduleTitle ?? ''),
+      updatedAt: now,
+    });
   }
 }
 

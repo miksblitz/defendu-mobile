@@ -86,3 +86,6 @@ Do these in order:
 
 
 setx /M REACT_NATIVE_PACKAGER_HOSTNAME 192.168.254.100
+
+
+npx eas build -p android --profile preview

@@ -42,7 +42,7 @@ export function getErrorMessage(errorCode: string | undefined): string {
     case 'auth/invalid-credential':
     case 'auth/invalid-login-credentials':
       // Firebase often uses this for both missing user and bad password — cannot tell which.
-      return 'No account for this email, or the password is wrong. Please check both.';
+      return 'No account for this email, or the password is wrong.';
     case 'auth/user-disabled':
       return 'This account has been disabled. Please contact support.';
     case 'auth/too-many-requests':
@@ -68,7 +68,7 @@ export function getErrorMessage(errorCode: string | undefined): string {
     return 'That email address is not valid. Please check it and try again.';
   }
   if (lower.includes('invalid-credential') || lower.includes('invalid-login-credentials')) {
-    return 'No account for this email, or the password is wrong. Please check both.';
+    return 'No account for this email, or the password is wrong.';
   }
   if (lower.includes('user not found') || lower.includes('no user record')) {
     return 'No account uses this email. Check the address or create an account.';

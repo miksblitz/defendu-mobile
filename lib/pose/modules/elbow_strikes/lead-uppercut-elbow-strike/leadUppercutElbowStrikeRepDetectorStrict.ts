@@ -62,7 +62,17 @@ function bestLeftGuardMetrics(frame: PoseFrame) {
   return mp.wristAboveElbow >= mn.wristAboveElbow ? mp : mn;
 }
 
+function bestLeftStrikeMetrics(frame: PoseFrame) {
+  const mp = metricsFromIndices(frame, MP_LEFT.sh, MP_LEFT.el, MP_LEFT.wr);
+  const mn = metricsFromIndices(frame, MN17_LEFT.sh, MN17_LEFT.el, MN17_LEFT.wr);
+  if (!mp && !mn) return null;
+  if (!mp) return mn!;
+  if (!mn) return mp;
+  return mp.elbowLift >= mn.elbowLift ? mp : mn;
+}
+
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const MIN_REP_FRAMES = 1;
 const ATTEMPT_MIN_RIGHT_ELBOW_LIFT = 0.0;
 const ATTEMPT_MAX_RIGHT_ELBOW_FROM_SHOULDER = 0.45;
@@ -82,15 +92,43 @@ function isStrikeAttemptAndGuardOk(frame: PoseFrame): boolean {
   );
 }
 
+function isOppositeHandStrike(frame: PoseFrame): boolean {
+  const opposite = bestLeftStrikeMetrics(frame);
+  if (!opposite) return false;
+  return (
+    opposite.elbowLift >= ATTEMPT_MIN_RIGHT_ELBOW_LIFT &&
+    opposite.elbowFromShoulder <= ATTEMPT_MAX_RIGHT_ELBOW_FROM_SHOULDER &&
+    opposite.wristAboveElbow <= STRIKE_MAX_WRIST_ABOVE_ELBOW
+  );
+}
+
+function isFacingRightSide(frame: PoseFrame): boolean {
+  const pick = frame.length > 17
+    ? { nose: 0, ls: 11, rs: 12 }
+    : { nose: 0, ls: 5, rs: 6 };
+  if (frame.length <= Math.max(pick.nose, pick.ls, pick.rs)) return false;
+  const nose = frame[pick.nose];
+  const leftShoulder = frame[pick.ls];
+  const rightShoulder = frame[pick.rs];
+  if (!validPoint(nose) || !validPoint(leftShoulder) || !validPoint(rightShoulder)) return false;
+
+  const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
+  const RIGHT_FACING_NOSE_OFFSET = 0.015;
+  return nose.x > shoulderMidX + RIGHT_FACING_NOSE_OFFSET;
+}
+
 export function createLeadUppercutElbowStrikeRepDetectorStrict(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let state: 'idle' | 'holding' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
+  let rightFacingBadUntil = 0;
   const MIN_RETRACT_FRAMES = 2;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    const facingRight = isFacingRightSide(frame);
     const attemptOk = isStrikeAttemptAndGuardOk(frame);
+    const oppositeStrike = isOppositeHandStrike(frame);
 
     if (state === 'cooldown') {
       if (!attemptOk) retractFrames = Math.min(retractFrames + 1, MIN_RETRACT_FRAMES);
@@ -103,6 +141,41 @@ export function createLeadUppercutElbowStrikeRepDetectorStrict(): (frame: PoseFr
         }
       }
       return { done: false };
+    }
+
+    if (facingRight && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      state = 'idle';
+      segment = [];
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'lead-uppercut-elbow-facing-right-bad-rep',
+          message: 'FACE LEFT!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
+
+    if (oppositeStrike) {
+      state = 'cooldown';
+      segment = [];
+      cooldownUntil = now + COOLDOWN_MS;
+      retractFrames = 0;
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'lead-uppercut-elbow-opposite-hand-bad-rep',
+          message: 'WRONG ARM!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
     }
 
     if (state === 'idle') {

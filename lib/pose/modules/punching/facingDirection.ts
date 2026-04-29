@@ -1,0 +1,35 @@
+import type { PoseFrame } from '../../types';
+import type { RepDetectorResult } from '../types';
+
+function validPoint(p: { x: number; y: number } | undefined): boolean {
+  return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
+}
+
+export function isFacingRightSide(frame: PoseFrame): boolean {
+  const pick = frame.length > 17
+    ? { nose: 0, ls: 11, rs: 12 }
+    : { nose: 0, ls: 5, rs: 6 };
+  if (frame.length <= Math.max(pick.nose, pick.ls, pick.rs)) return false;
+  const nose = frame[pick.nose];
+  const leftShoulder = frame[pick.ls];
+  const rightShoulder = frame[pick.rs];
+  if (!validPoint(nose) || !validPoint(leftShoulder) || !validPoint(rightShoulder)) return false;
+
+  const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
+  const RIGHT_FACING_NOSE_OFFSET = 0.015;
+  return nose.x > shoulderMidX + RIGHT_FACING_NOSE_OFFSET;
+}
+
+export function buildFacingRightBadRep(frame: PoseFrame, id: string): RepDetectorResult {
+  return {
+    done: true,
+    segment: [frame],
+    forcedBadRep: true,
+    feedback: [{
+      id,
+      message: 'FACE LEFT!',
+      severity: 'error',
+      phase: 'impact',
+    }],
+  };
+}

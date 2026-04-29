@@ -6,8 +6,10 @@
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 
 const MP = { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
 const MN17 = { ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };
@@ -22,12 +24,14 @@ const CROSS_PUNCH_RETRACT_MAX = 0.18;
 const CROSS_GUARD_MAX = 0.22;          // guard arm (user's left = MediaPipe right)
 const CROSS_GUARD_WRIST_UP_TOL = 0.12;
 const CROSS_MIN_REP_FRAMES = 5;
-const CROSS_HORIZONTAL_Y_TOL = 0.18;
+const CROSS_MAX_BELOW_SHOULDER = 0.11;
+const CROSS_MAX_ABOVE_SHOULDER = 0.17;
 const CROSS_CENTERLINE_MIN = 0.02;
 const CROSS_TRAVEL_MIN = 0.08;
 const CROSS_LINE_BAD_MIN_STREAK = 3;
 const CROSS_WRONG_HAND_MIN_STREAK = 2;
 const CROSS_WRONG_HAND_EXTEND_MIN = 0.23;
+const CROSS_WRONG_DIRECTION_MIN_STREAK = 2;
 
 function leftExtension(frame: PoseFrame): number | null {
   const d = armExtensionDistances(frame);
@@ -74,7 +78,8 @@ function crossDirectionAndLineOk(frame: PoseFrame): boolean {
   const ls = frame[idx.ls];
   const lw = frame[idx.lw];
   if (!validArmLandmark(ls) || !validArmLandmark(lw)) return false;
-  const horizontal = Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
+  const delta = lw.y - ls.y;
+  const horizontal = delta <= CROSS_MAX_BELOW_SHOULDER && delta >= -CROSS_MAX_ABOVE_SHOULDER;
   return horizontal && crossDirectionOk(frame);
 }
 
@@ -84,7 +89,8 @@ function crossLineOk(frame: PoseFrame): boolean {
   const ls = frame[idx.ls];
   const lw = frame[idx.lw];
   if (!validArmLandmark(ls) || !validArmLandmark(lw)) return false;
-  return Math.abs(lw.y - ls.y) <= CROSS_HORIZONTAL_Y_TOL;
+  const delta = lw.y - ls.y;
+  return delta <= CROSS_MAX_BELOW_SHOULDER && delta >= -CROSS_MAX_ABOVE_SHOULDER;
 }
 
 /** Cross jab: rep = user's RIGHT extends = MediaPipe LEFT extends; user's LEFT in guard = MediaPipe RIGHT in guard. */
@@ -93,8 +99,17 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let hasRetractedSinceRep = false;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'idle';
+      segment = [];
+      hasRetractedSinceRep = false;
+      return buildFacingRightBadRep(frame, 'cross-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       const punch = leftExtension(frame); // user's right = MediaPipe left
       if (punch != null && punch < CROSS_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
@@ -149,7 +164,7 @@ export function createCrossJabRepDetector(): (frame: PoseFrame, now: number) => 
 function badLineFeedback() {
   return [{
     id: 'cross-line-bad-rep',
-    message: 'Bad Repetition — keep the straight punch more horizontal (not too high or too low).',
+    message: 'TOO HIGH/TOO LOW!',
     severity: 'error' as const,
     phase: 'impact' as const,
   }];
@@ -158,7 +173,16 @@ function badLineFeedback() {
 function wrongHandFeedback() {
   return [{
     id: 'cross-wrong-hand-bad-rep',
-    message: 'Bad Repetition — wrong hand. For straight, punch with your right hand.',
+    message: 'WRONG ARM!',
+    severity: 'error' as const,
+    phase: 'impact' as const,
+  }];
+}
+
+function wrongDirectionFeedback() {
+  return [{
+    id: 'cross-wrong-direction-bad-rep',
+    message: 'WRONG DIRECTION!',
     severity: 'error' as const,
     phase: 'impact' as const,
   }];
@@ -172,8 +196,21 @@ export function createCrossJabRepDetectorWithBadRep(): (frame: PoseFrame, now: n
   let hasRetractedSinceRep = false;
   let badLineStreak = 0;
   let wrongHandStreak = 0;
+  let wrongDirectionStreak = 0;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'idle';
+      segment = [];
+      hasRetractedSinceRep = false;
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
+      return buildFacingRightBadRep(frame, 'cross-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       const punch = leftExtension(frame); // user's right = MediaPipe left
       if (punch != null && punch < CROSS_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
@@ -197,6 +234,24 @@ export function createCrossJabRepDetectorWithBadRep(): (frame: PoseFrame, now: n
         cooldownUntil = now + COOLDOWN_MS;
         hasRetractedSinceRep = false;
         return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
+      }
+
+      const wrongDirection =
+        hasRetractedSinceRep &&
+        punch > CROSS_PUNCH_EXTEND_MIN &&
+        (guard == null || guard <= CROSS_GUARD_MAX) &&
+        rightHandInGuard(frame) &&
+        !crossDirectionOk(frame);
+      wrongDirectionStreak = wrongDirection ? wrongDirectionStreak + 1 : 0;
+      if (wrongDirectionStreak >= CROSS_WRONG_DIRECTION_MIN_STREAK) {
+        const out = [frame];
+        phase = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        hasRetractedSinceRep = false;
+        badLineStreak = 0;
+        wrongHandStreak = 0;
+        wrongDirectionStreak = 0;
+        return { done: true, segment: out, forcedBadRep: true, feedback: wrongDirectionFeedback() };
       }
 
       if (
@@ -236,6 +291,7 @@ export function createCrossJabRepDetectorWithBadRep(): (frame: PoseFrame, now: n
       hasRetractedSinceRep = false;
       badLineStreak = 0;
       wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
       return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
     }
 
@@ -249,6 +305,7 @@ export function createCrossJabRepDetectorWithBadRep(): (frame: PoseFrame, now: n
       segment = [];
       badLineStreak = 0;
       wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
       return { done: false };
     }
 
@@ -260,6 +317,7 @@ export function createCrossJabRepDetectorWithBadRep(): (frame: PoseFrame, now: n
       hasRetractedSinceRep = false;
       badLineStreak = 0;
       wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
       return { done: true, segment: out };
     }
     return { done: false };

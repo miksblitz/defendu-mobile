@@ -6,9 +6,13 @@
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const LEAD_JAB_MIN_FRAMES = 3;
+const PUNCH_MAX_BELOW_SHOULDER = 0.11;
+const PUNCH_MAX_ABOVE_SHOULDER = 0.17;
 
 // MediaPipe / MoveNet arm landmark indices
 const MP = { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
@@ -16,6 +20,11 @@ const MN17 = { ls: 5, rs: 6, le: 7, re: 8, lw: 9, rw: 10 };
 
 function validArmLandmark(p: { x: number; y: number } | undefined): boolean {
   return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
+}
+
+function horizontalLineOk(shoulderY: number, wristY: number): boolean {
+  const delta = wristY - shoulderY;
+  return delta <= PUNCH_MAX_BELOW_SHOULDER && delta >= -PUNCH_MAX_ABOVE_SHOULDER;
 }
 
 // --- Lead jab: left extended sideways, right contracted (wrist up). No reference. ---
@@ -37,7 +46,7 @@ function leadJabPoseOk(frame: PoseFrame): boolean {
   if (!validArmLandmark(ls) || !validArmLandmark(rs) || !validArmLandmark(le) || !validArmLandmark(re) || !validArmLandmark(lw) || !validArmLandmark(rw)) return false;
   const leftDist = Math.sqrt((lw.x - ls.x) ** 2 + (lw.y - ls.y) ** 2);
   const rightDist = Math.sqrt((rw.x - rs.x) ** 2 + (rw.y - rs.y) ** 2);
-  const leftHorizontal = Math.abs(lw.y - ls.y) <= LEAD_LEFT_HORIZONTAL_TOL;
+  const leftHorizontal = horizontalLineOk(ls.y, lw.y) && Math.abs(lw.y - ls.y) <= LEAD_LEFT_HORIZONTAL_TOL;
   const rightWristUp = rw.y <= re.y + LEAD_RIGHT_WRIST_UP_TOL;
   return (
     leftDist >= LEAD_LEFT_EXTEND_MIN &&
@@ -52,8 +61,16 @@ export function createLeadJabRepDetector(): (frame: PoseFrame, now: number) => R
   let phase: 'idle' | 'holding' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'idle';
+      segment = [];
+      return buildFacingRightBadRep(frame, 'lead-jab-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       if (now >= cooldownUntil) phase = 'idle';
       return { done: false };
@@ -123,8 +140,17 @@ export function createOrthodoxJabRepDetector(): (frame: PoseFrame, now: number) 
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let hasRetractedSinceRep = false;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'idle';
+      segment = [];
+      hasRetractedSinceRep = false;
+      return buildFacingRightBadRep(frame, 'orthodox-jab-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       const punch = rightExtension(frame); // user's left = MediaPipe right
       if (punch != null && punch < ORTHODOX_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
@@ -142,7 +168,8 @@ export function createOrthodoxJabRepDetector(): (frame: PoseFrame, now: number) 
         hasRetractedSinceRep &&
         punch > ORTHODOX_PUNCH_EXTEND_MIN &&
         (guard == null || guard <= ORTHODOX_GUARD_MAX) &&
-        leftHandInGuard(frame)
+        leftHandInGuard(frame) &&
+        punchingArmLineOk(frame)
       ) {
         phase = 'extended';
         segment = [frame];
@@ -154,7 +181,8 @@ export function createOrthodoxJabRepDetector(): (frame: PoseFrame, now: number) 
       if (
         punch < ORTHODOX_PUNCH_RETRACT_MAX ||
         (guard != null && guard > ORTHODOX_GUARD_MAX) ||
-        !leftHandInGuard(frame)
+        !leftHandInGuard(frame) ||
+        !punchingArmLineOk(frame)
       ) {
         phase = 'idle';
         segment = [];
@@ -172,4 +200,14 @@ export function createOrthodoxJabRepDetector(): (frame: PoseFrame, now: number) 
     }
     return { done: false };
   };
+}
+
+/** User's left punching arm (MediaPipe RIGHT) should stay roughly horizontal (lenient). */
+function punchingArmLineOk(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.rs, idx.rw)) return false;
+  const rs = frame[idx.rs];
+  const rw = frame[idx.rw];
+  if (!validArmLandmark(rs) || !validArmLandmark(rw)) return false;
+  return horizontalLineOk(rs.y, rw.y);
 }

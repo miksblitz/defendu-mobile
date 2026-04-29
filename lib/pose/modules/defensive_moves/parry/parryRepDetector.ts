@@ -108,7 +108,7 @@ export function createParryRepDetectorForSide(
           forcedBadRep: true,
           feedback: [{
             id: 'wrong-parry-arm',
-            message: expectedSide === 'left' ? 'Bad Repetition — use your left arm for this parry.' : 'Bad Repetition — use your right arm for this parry.',
+            message: 'WRONG ARM!',
             severity: 'error',
             phase: 'impact',
           }],
@@ -136,7 +136,7 @@ export function createParryRepDetectorForSide(
           forcedBadRep: true,
           feedback: [{
             id: 'wrong-parry-arm',
-            message: expectedSide === 'left' ? 'Bad Repetition — use your left arm for this parry.' : 'Bad Repetition — use your right arm for this parry.',
+            message: 'WRONG ARM!',
             severity: 'error',
             phase: 'impact',
           }],

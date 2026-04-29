@@ -11,6 +11,7 @@ import type { RepDetectorResult } from '../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
 
 const COOLDOWN_MS = 900;
+const GUARD_BAD_COOLDOWN_MS = 220;
 const MIN_REP_FRAMES = 3;
 const DUCK_DOWN_DELTA_Y = 0.04;
 const RESET_UP_DELTA_Y = 0.02;
@@ -61,6 +62,7 @@ export function createDuckingRepDetector(): (frame: PoseFrame, now: number) => R
   let cooldownUntil = 0;
   let hasResetSinceRep = true;
   let baselineShoulderY: number | null = null;
+  let guardBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const y = shoulderMidY(frame);
@@ -84,6 +86,20 @@ export function createDuckingRepDetector(): (frame: PoseFrame, now: number) => R
 
     if (phase === 'idle') {
       if (upEnough) hasResetSinceRep = true;
+      if (hasResetSinceRep && downEnough && !guard && now >= guardBadUntil) {
+        guardBadUntil = now + GUARD_BAD_COOLDOWN_MS;
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'ducking-guard-bad-rep',
+            message: 'KEEP HANDS UP',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       if (hasResetSinceRep && downEnough && guard) {
         phase = 'ducking';
         segment = [frame];
@@ -93,6 +109,23 @@ export function createDuckingRepDetector(): (frame: PoseFrame, now: number) => R
 
     // ducking phase
     if (!downEnough || !guard) {
+      if (!guard && now >= guardBadUntil) {
+        guardBadUntil = now + GUARD_BAD_COOLDOWN_MS;
+        const badSeg = segment.length > 0 ? [...segment, frame] : [frame];
+        phase = 'idle';
+        segment = [];
+        return {
+          done: true,
+          segment: badSeg,
+          forcedBadRep: true,
+          feedback: [{
+            id: 'ducking-guard-bad-rep',
+            message: 'KEEP HANDS UP',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       phase = 'idle';
       segment = [];
       return { done: false };

@@ -6,8 +6,10 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 
 // MediaPipe / MoveNet arm landmark indices
 const MP = { ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16 };
@@ -70,11 +72,14 @@ function leadHandLooksLikeJabOrStraight(frame: PoseFrame): boolean {
   const rw = frame[idx.rw];
   if (!validArmLandmark(rs) || !validArmLandmark(rw)) return false;
   const ext = armExtension(frame, 'right');
-  if (ext == null || ext < 0.2) return false;
+  if (ext == null || ext < 0.24) return false;
   const dx = Math.abs(rw.x - rs.x);
   const dy = Math.abs(rw.y - rs.y);
+  const upwardLift = rs.y - rw.y;
+  // If the hand is already driving clearly upward, do not treat it as jab/straight.
+  if (upwardLift > UPPERCUT_LIFT_EXTEND_MIN + 0.01) return false;
   // Straight/jab line tends to travel outward more than upward.
-  return dx >= dy * 1.0;
+  return dx >= dy * 1.25;
 }
 
 /** Wrong-hand uppercut attempt: user's RIGHT hand rising like an uppercut. */
@@ -99,6 +104,7 @@ const UPPERCUT_LIFT_RETRACT_MAX = 0.01; // setup "down" position: wrist near/bel
 const UPPERCUT_MIN_REP_FRAMES = 5;
 const UPPERCUT_SAME_SIDE_BUFFER = 0.01;
 const BAD_REP_MIN_STREAK = 2;
+const WRONG_DIRECTION_MIN_STREAK = 2;
 
 type UppercutState = 'idle' | 'rising' | 'cooldown';
 
@@ -127,14 +133,37 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
   let peakLift = -Infinity;
   let badJabStraightStreak = 0;
   let wrongHandStreak = 0;
+  let wrongDirectionStreak = 0;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      state = 'idle';
+      segment = [];
+      readyFromGuard = false;
+      peakLift = -Infinity;
+      hasDroppedSinceRep = false;
+      badJabStraightStreak = 0;
+      wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
+      return buildFacingRightBadRep(frame, 'lead-uppercut-facing-right-bad-rep');
+    }
+
     const { lift, elbowLift } = punchMetrics(frame);
 
-    const jabStraightLike = leadHandLooksLikeJabOrStraight(frame);
+    // Only judge jab/straight in setup phase. Once a valid rise starts, avoid false bad-rep.
+    const jabStraightLike = state === 'idle' && leadHandLooksLikeJabOrStraight(frame);
     const wrongHandLike = wrongHandUppercutAttempt(frame);
+    const wrongDirectionLike =
+      state === 'idle' &&
+      lift != null &&
+      lift > UPPERCUT_LIFT_EXTEND_MIN &&
+      leftHandInGuard(frame) &&
+      !leadUppercutSameSide(frame);
     badJabStraightStreak = jabStraightLike ? badJabStraightStreak + 1 : 0;
     wrongHandStreak = wrongHandLike ? wrongHandStreak + 1 : 0;
+    wrongDirectionStreak = wrongDirectionLike ? wrongDirectionStreak + 1 : 0;
 
     if (badJabStraightStreak >= BAD_REP_MIN_STREAK) {
       const out = segment.length > 0 ? [...segment, frame] : [frame];
@@ -146,6 +175,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
       hasDroppedSinceRep = false;
       badJabStraightStreak = 0;
       wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
       return {
         done: true,
         segment: out,
@@ -153,7 +183,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         feedback: [
           {
             id: 'lead-uppercut-jab-straight-bad-rep',
-            message: 'Bad Repetition — for lead uppercut, do not throw a jab/straight line (high or low). Drive upward.',
+            message: 'NO STRAIGHT!',
             severity: 'error',
             phase: 'impact',
           },
@@ -171,6 +201,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
       hasDroppedSinceRep = false;
       badJabStraightStreak = 0;
       wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
       return {
         done: true,
         segment: out,
@@ -178,7 +209,33 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         feedback: [
           {
             id: 'lead-uppercut-wrong-hand-bad-rep',
-            message: 'Bad Repetition — wrong hand. Lead uppercut must be with your left hand.',
+            message: 'WRONG ARM!',
+            severity: 'error',
+            phase: 'impact',
+          },
+        ],
+      };
+    }
+
+    if (wrongDirectionStreak >= WRONG_DIRECTION_MIN_STREAK) {
+      const out = segment.length > 0 ? [...segment, frame] : [frame];
+      state = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      segment = [];
+      readyFromGuard = false;
+      peakLift = -Infinity;
+      hasDroppedSinceRep = false;
+      badJabStraightStreak = 0;
+      wrongHandStreak = 0;
+      wrongDirectionStreak = 0;
+      return {
+        done: true,
+        segment: out,
+        forcedBadRep: true,
+        feedback: [
+          {
+            id: 'lead-uppercut-wrong-direction-bad-rep',
+            message: 'WRONG DIRECTION!',
             severity: 'error',
             phase: 'impact',
           },
@@ -232,6 +289,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         peakLift = -Infinity;
         badJabStraightStreak = 0;
         wrongHandStreak = 0;
+        wrongDirectionStreak = 0;
         return { done: false };
       }
       if (lift < UPPERCUT_LIFT_RETRACT_MAX) {
@@ -242,6 +300,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         peakLift = -Infinity;
         badJabStraightStreak = 0;
         wrongHandStreak = 0;
+        wrongDirectionStreak = 0;
         return { done: false };
       }
       if (segment.length >= UPPERCUT_MIN_REP_FRAMES && peakLift >= UPPERCUT_LIFT_HIGH_TARGET) {
@@ -254,6 +313,7 @@ export function createLeadUppercutRepDetector(): (frame: PoseFrame, now: number)
         peakLift = -Infinity;
         badJabStraightStreak = 0;
         wrongHandStreak = 0;
+        wrongDirectionStreak = 0;
         return { done: true, segment: out };
       }
       return { done: false };

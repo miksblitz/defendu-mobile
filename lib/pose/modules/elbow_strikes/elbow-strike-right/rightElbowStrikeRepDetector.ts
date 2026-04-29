@@ -39,7 +39,7 @@ export function createRightElbowStrikeRepDetector(): (frame: PoseFrame, now: num
         forcedBadRep: true,
         feedback: [{
           id: 'wrong-elbow-strike-arm',
-          message: 'Bad Repetition — use your right elbow for this strike.',
+          message: 'WRONG ARM!',
           severity: 'error',
           phase: 'impact',
         }],

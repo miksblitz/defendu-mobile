@@ -10,9 +10,11 @@ import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { getIdx, inLowLeadStrikePose, lowLeadResetPose } from '../low-lead-knee-strike/lowLeadKneeStrikeGeometry';
 import { inLowRearStrikePose, lowRearResetPose } from '../low-rear-knee-strike/lowRearKneeStrikeGeometry';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 650;
 const MAX_REAR_FOLLOWUP_MS = 5000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 
 function bothLegsReset(frame: PoseFrame, idx: NonNullable<ReturnType<typeof getIdx>>): boolean {
   return lowLeadResetPose(frame, idx) && lowRearResetPose(frame, idx);
@@ -25,6 +27,7 @@ export function createDoubleLowKneeStrikeRepDetector(): (frame: PoseFrame, now: 
   let cooldownUntil = 0;
   let prevLeadStrike = false;
   let prevRearStrike = false;
+  let rightFacingBadUntil = 0;
 
   const resetToIdle = () => {
     phase = 'idle';
@@ -33,6 +36,16 @@ export function createDoubleLowKneeStrikeRepDetector(): (frame: PoseFrame, now: 
   };
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      resetToIdle();
+      phase = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      prevLeadStrike = false;
+      prevRearStrike = false;
+      return buildFacingRightBadRep(frame, 'double-low-knee-facing-right-bad-rep');
+    }
+
     const idx = getIdx(frame);
     if (!idx) return { done: false };
 
@@ -64,7 +77,7 @@ export function createDoubleLowKneeStrikeRepDetector(): (frame: PoseFrame, now: 
           forcedBadRep: true,
           feedback: [{
             id: 'double-low-knee-wrong-order',
-            message: 'Bad Repetition — for double low knee strike, throw the lead knee first, then the rear knee.',
+            message: 'WRONG COMBO!',
             severity: 'error',
             phase: 'impact',
           }],
@@ -86,7 +99,7 @@ export function createDoubleLowKneeStrikeRepDetector(): (frame: PoseFrame, now: 
         forcedBadRep: true,
         feedback: [{
           id: 'combo-timeout-bad-rep-double-low-knee',
-          message: 'Bad Repetition — throw the second knee right after the first. Try again.',
+          message: 'FINISH COMBO!',
           severity: 'error',
           phase: 'impact',
         }],

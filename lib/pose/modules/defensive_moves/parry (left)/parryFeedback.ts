@@ -90,7 +90,7 @@ export function isParryFormAcceptable(
   if (best && expectedSide !== 'either' && best.side !== expectedSide) {
     feedback.push({
       id: 'wrong-parry-arm',
-      message: expectedSide === 'left' ? 'Use your left arm for this parry' : 'Use your right arm for this parry',
+      message: 'WRONG ARM!',
       phase: 'impact',
       severity: 'error',
     });

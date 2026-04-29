@@ -13,6 +13,7 @@ import {
 const MIN_HOLD_FRAMES = 1;
 const MIN_RETRACT_FRAMES = 2;
 const COOLDOWN_MS = 450;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 180;
 const FORWARD_BAD_MIN_LIFT = 0.08;
 const OPPOSITE_UPPERCUT_MIN_LIFT = 0.2;
 const OPPOSITE_UPPERCUT_MAX_WRIST_ABOVE_ELBOW = -0.12;
@@ -41,18 +42,52 @@ function oppositeUppercutElbowMotion(frame: PoseFrame): boolean {
   return elbowLift >= OPPOSITE_UPPERCUT_MIN_LIFT && wristAboveElbow <= OPPOSITE_UPPERCUT_MAX_WRIST_ABOVE_ELBOW;
 }
 
+function isFacingRightSide(frame: PoseFrame): boolean {
+  const pick = frame.length > 17
+    ? { nose: 0, ls: 11, rs: 12 }
+    : { nose: 0, ls: 5, rs: 6 };
+  if (frame.length <= Math.max(pick.nose, pick.ls, pick.rs)) return false;
+  const nose = frame[pick.nose];
+  const leftShoulder = frame[pick.ls];
+  const rightShoulder = frame[pick.rs];
+  if (!validPoint(nose) || !validPoint(leftShoulder) || !validPoint(rightShoulder)) return false;
+
+  const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
+  const RIGHT_FACING_NOSE_OFFSET = 0.015;
+  return nose.x > shoulderMidX + RIGHT_FACING_NOSE_OFFSET;
+}
+
 export function createBackwardsElbowStrikeRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let state: State = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    const facingRight = isFacingRightSide(frame);
     const snap = getBackwardsElbowStrikeSnapshot(frame);
     const finalPose = isBackwardsElbowStrikeFinalPose(snap);
     const forwardAttempt = isForwardElbowAttempt(frame);
     const oppositeElbowStrike = isRightElbowStrikeFinalPose(getRightElbowStrikeArmSnapshot(frame), false);
     const oppositeUppercut = oppositeUppercutElbowMotion(frame);
+
+    if (facingRight && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      state = 'idle';
+      segment = [];
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'backwards-elbow-facing-right',
+          message: 'FACE LEFT!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
 
     if (state === 'cooldown') {
       if (!finalPose) retractFrames = Math.min(retractFrames + 1, MIN_RETRACT_FRAMES);
@@ -76,8 +111,7 @@ export function createBackwardsElbowStrikeRepDetector(): (frame: PoseFrame, now:
         forcedBadRep: true,
         feedback: [{
           id: 'backwards-elbow-forward-strike',
-          message:
-            'Bad Repetition — this is a backward elbow strike. Do not throw your elbow forward (including lead uppercut-style elbow motion).',
+          message: 'WRONG DIRECTION!',
           severity: 'error',
           phase: 'impact',
         }],
@@ -95,8 +129,7 @@ export function createBackwardsElbowStrikeRepDetector(): (frame: PoseFrame, now:
         forcedBadRep: true,
         feedback: [{
           id: 'backwards-elbow-opposite-hand',
-          message:
-            'Bad Repetition — use the correct elbow for high backwards elbow strike. Opposite-hand elbow strike or uppercut-style elbow motion is not allowed.',
+          message: 'WRONG ARM!',
           severity: 'error',
           phase: 'impact',
         }],

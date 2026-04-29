@@ -52,15 +52,34 @@ function bestMetricsForSide(frame: PoseFrame, side: 'left' | 'right') {
 }
 
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const MIN_REP_FRAMES = 1;
 const GOOD_MIN_REAR_ELBOW_LIFT = 0.10;
 const GOOD_MAX_REAR_ELBOW_FROM_SHOULDER = 0.35;
 const GOOD_MAX_REAR_WRIST_ABOVE_ELBOW = 1.0;
-const OPPOSITE_ONLY_MIN_STREAK = 2;
+const REAR_UPPERCUT_CENTERLINE_MIN = 0.005;
 
 type State = 'idle' | 'holding' | 'cooldown';
 
-function classifyRearPoseAttempt(frame: PoseFrame): 'none' | 'valid' | 'opposite_only' {
+function rearUppercutAcrossBody(frame: PoseFrame): boolean {
+  const pick = frame.length > 17
+    ? { ls: MP.ls, rs: MP.rs, le: MP.le, lw: MP.lw }
+    : { ls: MN17.ls, rs: MN17.rs, le: MN17.le, lw: MN17.lw };
+  if (frame.length <= Math.max(pick.ls, pick.rs, pick.le, pick.lw)) return false;
+  const ls = frame[pick.ls];
+  const rs = frame[pick.rs];
+  const le = frame[pick.le];
+  const lw = frame[pick.lw];
+  if (!validPoint(ls) || !validPoint(rs) || !validPoint(le) || !validPoint(lw)) return false;
+
+  const shoulderMidX = (ls.x + rs.x) / 2;
+  const towardOppositeSign = Math.sign(rs.x - ls.x) || 1;
+  const elbowAcross = (le.x - shoulderMidX) * towardOppositeSign >= REAR_UPPERCUT_CENTERLINE_MIN;
+  const wristAcross = (lw.x - shoulderMidX) * towardOppositeSign >= REAR_UPPERCUT_CENTERLINE_MIN;
+  return elbowAcross || wristAcross;
+}
+
+function classifyRearPoseAttempt(frame: PoseFrame): 'none' | 'valid' | 'opposite_only' | 'rear-same-side' {
   const left = bestMetricsForSide(frame, 'left');
   const right = bestMetricsForSide(frame, 'right');
   if (!left && !right) return 'none';
@@ -75,12 +94,30 @@ function classifyRearPoseAttempt(frame: PoseFrame): 'none' | 'valid' | 'opposite
     right.elbowLift >= GOOD_MIN_REAR_ELBOW_LIFT &&
     right.elbowFromShoulder <= GOOD_MAX_REAR_ELBOW_FROM_SHOULDER &&
     right.wristAboveElbow <= GOOD_MAX_REAR_WRIST_ABOVE_ELBOW;
+  const rearAcross = rearUppercutAcrossBody(frame);
 
-  // Rear-side success: left side qualifies. If both qualify, still a valid perfect rep.
-  if (leftOk) return 'valid';
+  // Rear-side success requires across-body path.
+  if (leftOk && rearAcross) return 'valid';
+  // Rear arm moved but stayed same side: explicit bad rep.
+  if (leftOk && !rearAcross) return 'rear-same-side';
   // Opposite side only (without rear side) is a bad rep.
   if (rightOk) return 'opposite_only';
   return 'none';
+}
+
+function isFacingRightSide(frame: PoseFrame): boolean {
+  const pick = frame.length > 17
+    ? { nose: 0, ls: 11, rs: 12 }
+    : { nose: 0, ls: 5, rs: 6 };
+  if (frame.length <= Math.max(pick.nose, pick.ls, pick.rs)) return false;
+  const nose = frame[pick.nose];
+  const leftShoulder = frame[pick.ls];
+  const rightShoulder = frame[pick.rs];
+  if (!validPoint(nose) || !validPoint(leftShoulder) || !validPoint(rightShoulder)) return false;
+
+  const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
+  const RIGHT_FACING_NOSE_OFFSET = 0.015;
+  return nose.x > shoulderMidX + RIGHT_FACING_NOSE_OFFSET;
 }
 
 export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
@@ -88,17 +125,13 @@ export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, n
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
-  let oppositeOnlyStreak = 0;
+  let rightFacingBadUntil = 0;
   const MIN_RETRACT_FRAMES = 2;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    const facingRight = isFacingRightSide(frame);
     const attemptClass = classifyRearPoseAttempt(frame);
     const attempt = attemptClass === 'valid';
-    if (attemptClass === 'opposite_only') {
-      oppositeOnlyStreak = Math.min(oppositeOnlyStreak + 1, OPPOSITE_ONLY_MIN_STREAK);
-    } else {
-      oppositeOnlyStreak = 0;
-    }
 
     if (state === 'cooldown') {
       if (!attempt) retractFrames = Math.min(retractFrames + 1, MIN_RETRACT_FRAMES);
@@ -107,25 +140,59 @@ export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, n
         state = 'idle';
         segment = [];
         retractFrames = 0;
-        oppositeOnlyStreak = 0;
       }
       return { done: false };
     }
 
-    if (oppositeOnlyStreak >= OPPOSITE_ONLY_MIN_STREAK) {
+    if (facingRight && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      state = 'idle';
+      segment = [];
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'rear-uppercut-elbow-facing-right-bad-rep',
+          message: 'FACE LEFT!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
+
+    if (attemptClass === 'opposite_only') {
       const out = segment.length > 0 ? [...segment, frame] : [frame];
       state = 'cooldown';
       cooldownUntil = now + COOLDOWN_MS;
       segment = [];
       retractFrames = 0;
-      oppositeOnlyStreak = 0;
       return {
         done: true,
         segment: out,
         forcedBadRep: true,
         feedback: [{
           id: 'rear-uppercut-elbow-opposite-hand-bad-rep',
-          message: 'Bad Repetition — you used the opposite hand only. Use your rear hand (or both arms) for this module.',
+          message: 'WRONG ARM!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
+
+    if (attemptClass === 'rear-same-side') {
+      const out = segment.length > 0 ? [...segment, frame] : [frame];
+      state = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      segment = [];
+      retractFrames = 0;
+      return {
+        done: true,
+        segment: out,
+        forcedBadRep: true,
+        feedback: [{
+          id: 'rear-uppercut-elbow-same-side-bad-rep',
+          message: 'WRONG DIRECTION!',
           severity: 'error',
           phase: 'impact',
         }],

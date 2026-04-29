@@ -1,9 +1,11 @@
 /**
- * Rear uppercut comparison: distance-only match against the trained reference.
+ * Rear uppercut comparison: template distance + uppercut-specific impact form checks.
  */
 
 import type { PoseFrame, PoseSequence, PoseFeedbackItem, PoseFocus } from '../../../types';
 import { compareRepsWithFocus, PUNCHING_MATCH_THRESHOLD } from '../../../comparator';
+import { detectJabPhases } from '../../../phaseDetection';
+import { isImpactFormAcceptableRearUppercut } from './rearUppercutFeedback';
 
 export function compareRepWithFeedbackRearUppercut(
   userFrames: PoseFrame[],
@@ -11,11 +13,15 @@ export function compareRepWithFeedbackRearUppercut(
   threshold: number = PUNCHING_MATCH_THRESHOLD,
   focus?: PoseFocus
 ): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
-  if (userFrames.length === 0 || referenceFrames.length === 0) {
-    return { match: false, distance: Infinity, feedback: [] };
-  }
   const distance = compareRepsWithFocus(userFrames, referenceFrames, focus ?? 'punching');
-  return { match: distance < threshold, distance, feedback: [] };
+  if (focus !== 'punching' || userFrames.length === 0 || referenceFrames.length === 0) {
+    return { match: distance < threshold, distance, feedback: [] };
+  }
+  const refBounds = detectJabPhases(referenceFrames);
+  const impactCheck = isImpactFormAcceptableRearUppercut(userFrames, referenceFrames, refBounds);
+  const relaxedThreshold = threshold + 0.08;
+  const match = distance < relaxedThreshold && impactCheck.acceptable;
+  return { match, distance, feedback: impactCheck.feedback };
 }
 
 export function compareRepWithFeedbackAnyRearUppercut(
@@ -24,15 +30,26 @@ export function compareRepWithFeedbackAnyRearUppercut(
   threshold: number = PUNCHING_MATCH_THRESHOLD,
   focus?: PoseFocus
 ): { match: boolean; distance: number; feedback: PoseFeedbackItem[] } {
-  if (referenceSequences.length === 0 || userFrames.length === 0) {
+  if (referenceSequences.length === 0) {
     return { match: false, distance: Infinity, feedback: [] };
   }
   let bestDistance = Infinity;
+  let bestRef: PoseFrame[] = referenceSequences[0]!;
   for (const ref of referenceSequences) {
     if (ref.length === 0) continue;
     const d = compareRepsWithFocus(userFrames, ref, focus ?? 'punching');
-    if (d < threshold) return { match: true, distance: d, feedback: [] };
-    if (d < bestDistance) bestDistance = d;
+    const refBounds = detectJabPhases(ref);
+    const impactCheck = isImpactFormAcceptableRearUppercut(userFrames, ref, refBounds);
+    const relaxedThreshold = threshold + 0.08;
+    if (d < relaxedThreshold && impactCheck.acceptable) {
+      return { match: true, distance: d, feedback: [] };
+    }
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestRef = ref;
+    }
   }
-  return { match: false, distance: bestDistance, feedback: [] };
+  const refBounds = detectJabPhases(bestRef);
+  const impactCheck = isImpactFormAcceptableRearUppercut(userFrames, bestRef, refBounds);
+  return { match: false, distance: bestDistance, feedback: impactCheck.feedback };
 }

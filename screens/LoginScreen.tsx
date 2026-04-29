@@ -51,7 +51,7 @@ export default function LoginScreen({ onForgotPassword, onRegister, onLoginSucce
         showToast('Login successful');
       }
     } catch (error) {
-      const msg = (error as Error)?.message?.trim() || 'Could not sign you in. Please try again.';
+      const msg = (error as Error)?.message?.trim() || 'Could not sign you in.';
       showToast(msg);
     } finally {
       setLoading(false);

@@ -13,11 +13,13 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 650;
 const MAX_REAR_FOLLOWUP_MS = 5000;
 const RAISE_ABOVE_HIP = 0.02;
 const KNEES_DOWN_MARGIN = 0.006;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 
 const MP = { lh: 23, rh: 24, lk: 25, rk: 26 };
 const MN17 = { lh: 11, rh: 12, lk: 13, rk: 14 };
@@ -69,6 +71,7 @@ export function createDoubleHighKneeStrikeRepDetector(): (frame: PoseFrame, now:
   let cooldownUntil = 0;
   let prevLeadUp = false;
   let prevRearUp = false;
+  let rightFacingBadUntil = 0;
 
   const resetToIdle = () => {
     phase = 'idle';
@@ -77,6 +80,16 @@ export function createDoubleHighKneeStrikeRepDetector(): (frame: PoseFrame, now:
   };
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      resetToIdle();
+      phase = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      prevLeadUp = false;
+      prevRearUp = false;
+      return buildFacingRightBadRep(frame, 'double-high-knee-facing-right-bad-rep');
+    }
+
     const idx = getIdx(frame);
     if (!idx) return { done: false };
 
@@ -108,7 +121,7 @@ export function createDoubleHighKneeStrikeRepDetector(): (frame: PoseFrame, now:
           forcedBadRep: true,
           feedback: [{
             id: 'double-high-knee-wrong-order',
-            message: 'Bad Repetition — for double high knee strike, throw the lead knee first, then the rear knee.',
+            message: 'WRONG COMBO!',
             severity: 'error',
             phase: 'impact',
           }],
@@ -130,7 +143,7 @@ export function createDoubleHighKneeStrikeRepDetector(): (frame: PoseFrame, now:
         forcedBadRep: true,
         feedback: [{
           id: 'combo-timeout-bad-rep-double-high-knee',
-          message: 'Bad Repetition — throw the second knee right after the first. Try again.',
+          message: 'FINISH COMBO!',
           severity: 'error',
           phase: 'impact',
         }],

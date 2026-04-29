@@ -12,17 +12,29 @@ import {
   lowLeadResetPose,
 } from './lowLeadKneeStrikeGeometry';
 import { inLowRearStrikePose } from '../low-rear-knee-strike/lowRearKneeStrikeGeometry';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 650;
 const MIN_REP_FRAMES = 3;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 
 export function createLowLeadKneeStrikeRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'raised' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let armed = false;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'cooldown';
+      segment = [];
+      cooldownUntil = now + COOLDOWN_MS;
+      armed = false;
+      return buildFacingRightBadRep(frame, 'low-lead-knee-facing-right-bad-rep');
+    }
+
     const idx = getIdx(frame);
     if (!idx) return { done: false };
 
@@ -47,7 +59,7 @@ export function createLowLeadKneeStrikeRepDetector(): (frame: PoseFrame, now: nu
         forcedBadRep: true,
         feedback: [{
           id: 'low-lead-knee-opposite-leg',
-          message: 'Bad Repetition — use your lead leg for this low knee strike.',
+          message: 'WRONG KNEE!',
           severity: 'error',
           phase: 'impact',
         }],

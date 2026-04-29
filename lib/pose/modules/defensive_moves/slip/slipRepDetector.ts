@@ -7,12 +7,15 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
+import { armExtensionDistances } from '../../../phaseDetection';
 
 const COOLDOWN_MS = 450;
 const MIN_REP_FRAMES = 3;
 const NEUTRAL_OFFSET_MAX = 0.04;
 const SLIP_OFFSET_MIN = 0.06;
 const MAX_HIP_DRIFT = 0.04;
+const MAX_GUARD_EXTENSION = 0.36;
+const WRIST_UP_TOL = 0.1;
 
 export type SlipDirection = 'left' | 'right' | 'either';
 
@@ -48,6 +51,27 @@ function getSlipMetrics(frame: PoseFrame): SlipMetrics | null {
   const hipX = (lh.x + rh.x) / 2;
   const offset = torsoX - hipX;
   return { torsoX, hipX, offset, absOffset: Math.abs(offset) };
+}
+
+function handsInGuard(frame: PoseFrame): boolean {
+  const i = idx(frame);
+  const d = armExtensionDistances(frame);
+  if (!i || !d) return false;
+  const leftElbowIdx = i === MP ? 13 : 7;
+  const rightElbowIdx = i === MP ? 14 : 8;
+  const leftWristIdx = i === MP ? 15 : 9;
+  const rightWristIdx = i === MP ? 16 : 10;
+  if (frame.length <= Math.max(rightWristIdx, rightElbowIdx, leftWristIdx, leftElbowIdx)) return false;
+  const le = frame[leftElbowIdx];
+  const re = frame[rightElbowIdx];
+  const lw = frame[leftWristIdx];
+  const rw = frame[rightWristIdx];
+  if (!validPoint(le) || !validPoint(re) || !validPoint(lw) || !validPoint(rw)) return false;
+  const leftWristUp = lw.y <= le.y + WRIST_UP_TOL;
+  const rightWristUp = rw.y <= re.y + WRIST_UP_TOL;
+  const leftCompact = d.left <= MAX_GUARD_EXTENSION;
+  const rightCompact = d.right <= MAX_GUARD_EXTENSION;
+  return leftWristUp && rightWristUp && leftCompact && rightCompact;
 }
 
 function isNeutral(frame: PoseFrame): boolean {
@@ -88,6 +112,19 @@ export function createSlipRepDetectorForDirection(
     if (phase === 'idle') {
       if (isNeutral(frame)) hasNeutralSinceRep = true;
       if (hasNeutralSinceRep && m.absOffset >= SLIP_OFFSET_MIN && matchesExpectedDirection(m.offset, expectedDirection)) {
+        if (!handsInGuard(frame)) {
+          return {
+            done: true,
+            segment: [frame],
+            forcedBadRep: true,
+            feedback: [{
+              id: 'guard-not-up-while-slipping',
+              message: 'KEEP BOTH HANDS UP!',
+              severity: 'error',
+              phase: 'impact',
+            }],
+          };
+        }
         phase = 'slipping';
         segment = [frame];
         baseHipX = m.hipX;
@@ -101,21 +138,25 @@ export function createSlipRepDetectorForDirection(
     const sameDirection = direction != null && (direction === 1 ? m.offset > 0 : m.offset < 0);
     const hipStable = baseHipX != null ? Math.abs(m.hipX - baseHipX) <= MAX_HIP_DRIFT : false;
     const slippedEnough = m.absOffset >= SLIP_OFFSET_MIN;
+    const guard = handsInGuard(frame);
 
-    if (!sameDirection || !hipStable || !slippedEnough) {
+    if (!sameDirection || !hipStable || !slippedEnough || !guard) {
       const badSegment = [...segment];
       phase = 'idle';
       segment = [];
       baseHipX = null;
       direction = null;
       if (badSegment.length > 0) {
+        const isGuardIssue = !guard;
         return {
           done: true,
           segment: badSegment,
           forcedBadRep: true,
           feedback: [{
-            id: 'bad-rep-slip',
-            message: 'Bad Repetition — complete a clean slip to one side and keep hips stable. Try again.',
+            id: isGuardIssue ? 'guard-not-up-while-slipping' : 'bad-rep-slip',
+            message: isGuardIssue
+              ? 'KEEP BOTH HANDS UP!'
+              : 'Bad Repetition — complete a clean slip to one side and keep hips stable. Try again.',
             severity: 'error',
             phase: 'impact',
           }],

@@ -11,11 +11,14 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 import { createLeadLowKickRepDetector } from '../lead-low-kick/leadLowKickRepDetector';
 import { createRearLowKickRepDetector } from '../rear-low-kick/rearLowKickRepDetector';
 import {
   getIdx,
   inRearLowKickStrikePose,
+} from '../lead-low-kick/leadLowKickGeometry';
+import {
   getIdx as getLowLeadKneeIdx,
   inLowLeadStrikePose,
 } from '../../knee_strikes/low-lead-knee-strike/lowLeadKneeStrikeGeometry';
@@ -26,9 +29,9 @@ import {
 
 const COMBO_TIMEOUT_MS = 5000;
 const COMBO_COOLDOWN_MS = 800;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const REAR_FALLBACK_MIN_FRAMES = 3;
 const REAR_FIRST_BAD_MIN_FRAMES = 2;
-const KNEE_BAD_MIN_FRAMES = 2;
 const REAR_KICK_ACROSS_CENTERLINE_MIN = 0.01;
 
 type Phase = 'need_lead' | 'need_rear' | 'cooldown';
@@ -66,7 +69,7 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
   let rearFallbackSegment: PoseFrame[] = [];
   let rearFirstBadFrames = 0;
   let rearFirstBadSegment: PoseFrame[] = [];
-  let kneeBadFrames = 0;
+  let rightFacingBadUntil = 0;
 
   function resetToNeedLead() {
     phase = 'need_lead';
@@ -80,31 +83,24 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
     rearFallbackSegment = [];
     rearFirstBadFrames = 0;
     rearFirstBadSegment = [];
-    kneeBadFrames = 0;
   }
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      resetToNeedLead();
+      return buildFacingRightBadRep(frame, 'double-low-kick-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       if (now >= cooldownUntilMs) resetToNeedLead();
       return { done: false };
     }
 
     if (phase === 'need_lead') {
-      if (anyLowKneeStrikePose(frame)) kneeBadFrames += 1;
-      else kneeBadFrames = 0;
-      if (kneeBadFrames >= KNEE_BAD_MIN_FRAMES) {
-        resetToNeedLead();
-        return {
-          done: true,
-          segment: [frame],
-          forcedBadRep: true,
-          feedback: [{
-            id: 'double-low-kick-knee-motion',
-            message: 'Bad Repetition — this module is for low kicks only. Knee-strike motion is not allowed.',
-            severity: 'error',
-            phase: 'impact',
-          }],
-        };
+      // Ignore low-knee-strike motion in this module: neither bad rep nor perfect rep.
+      if (anyLowKneeStrikePose(frame)) {
+        return { done: false };
       }
 
       const idx = getIdx(frame);
@@ -125,7 +121,7 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
           forcedBadRep: true,
           feedback: [{
             id: 'double-low-kick-wrong-order',
-            message: 'Bad Repetition — do lead low kick first, then rear low kick.',
+            message: 'WRONG COMBO!',
             severity: 'error',
             phase: 'impact',
           }],
@@ -141,7 +137,7 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
           forcedBadRep: true,
           feedback: [{
             id: 'double-low-kick-wrong-order',
-            message: 'Bad Repetition — do lead low kick first, then rear low kick.',
+            message: 'WRONG COMBO!',
             severity: 'error',
             phase: 'impact',
           }],
@@ -160,7 +156,6 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
         rearDeadlineMs = now + COMBO_TIMEOUT_MS;
         rearFallbackFrames = 0;
         rearFallbackSegment = [];
-        kneeBadFrames = 0;
       }
       return { done: false };
     }
@@ -174,7 +169,7 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
         forcedBadRep: true,
         feedback: [{
           id: 'combo-timeout-bad-rep-double-low-kick',
-          message: 'Bad Repetition — throw the rear low kick right after the lead. Try again.',
+          message: 'FINISH COMBO!',
           severity: 'error',
           phase: 'impact',
         }],
@@ -186,21 +181,9 @@ export function createDoubleLowKickRepDetector(): (frame: PoseFrame, now: number
       return { done: false };
     }
 
-    if (anyLowKneeStrikePose(frame)) kneeBadFrames += 1;
-    else kneeBadFrames = 0;
-    if (kneeBadFrames >= KNEE_BAD_MIN_FRAMES) {
-      resetToNeedLead();
-      return {
-        done: true,
-        segment: [frame],
-        forcedBadRep: true,
-        feedback: [{
-          id: 'double-low-kick-knee-motion',
-          message: 'Bad Repetition — this module is for low kicks only. Knee-strike motion is not allowed.',
-          severity: 'error',
-          phase: 'impact',
-        }],
-      };
+    // Ignore low-knee-strike motion in this module: neither bad rep nor perfect rep.
+    if (anyLowKneeStrikePose(frame)) {
+      return { done: false };
     }
 
     const idx = getIdx(frame);

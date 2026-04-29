@@ -917,9 +917,46 @@ export default function PoseCameraView({
           {lastFeedback.length > 0 && (
             <View style={styles.feedbackList}>
               {lastFeedback.slice(0, 4).map((item) => (
-                <Text key={item.id} style={styles.feedbackItem}>
-                  • {item.message}
+                (() => {
+                  const urgentMessages = new Set([
+                    'FACE LEFT!',
+                    'KEEP BOTH HANDS UP!',
+                    'WRONG ARM!',
+                    'WRONG LEG!',
+                    'WRONG COMBO!',
+                    'FINISH COMBO!',
+                    'WRONG MOTION!',
+                    'WRONG DIRECTION!',
+                    'TOO HIGH/TOO LOW!',
+                    'NO STRAIGHT!',
+                    'KEEP FOOT FRONT!',
+                  ]);
+                  const isUrgentFeedback =
+                    urgentMessages.has(item.message) ||
+                    item.id.includes('bad-rep') ||
+                    item.id === 'guard-not-up-while-slipping' ||
+                    item.id === 'wrong-parry-arm' ||
+                    item.id.includes('facing-right-bad-rep') ||
+                    item.id === 'low-lead-knee-opposite-leg' ||
+                    item.id === 'low-rear-knee-opposite-leg' ||
+                    item.id === 'high-lead-knee-opposite-leg' ||
+                    item.id === 'high-rear-knee-opposite-leg' ||
+                    item.id === 'double-low-knee-wrong-order' ||
+                    item.id === 'double-high-knee-wrong-order' ||
+                    item.id === 'combo-timeout-bad-rep-double-low-knee' ||
+                    item.id === 'combo-timeout-bad-rep-double-high-knee';
+                  return (
+                <Text
+                  key={item.id}
+                  style={[
+                    styles.feedbackItem,
+                    isUrgentFeedback ? styles.feedbackItemUrgent : null,
+                  ]}
+                >
+                  {isUrgentFeedback ? item.message : `• ${item.message}`}
                 </Text>
+                  );
+                })()
               ))}
             </View>
           )}
@@ -1133,6 +1170,15 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.95)',
     marginBottom: 4,
     textAlign: 'left',
+  },
+  feedbackItemUrgent: {
+    fontSize: 44,
+    fontWeight: '900',
+    textAlign: 'center',
+    alignSelf: 'stretch',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+    marginBottom: 8,
   },
   armStateBox: {
     alignSelf: 'stretch',

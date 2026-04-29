@@ -2,9 +2,11 @@ import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { createOrthodoxJabRepDetectorWithBadRep } from '../orthodox-jab/orthodoxJabRepDetector';
 import { createCrossJabRepDetector } from '../cross';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COMBO_TIMEOUT_MS = 3000;
 const COMBO_COOLDOWN_MS = 900;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const COMBO_SIDEWAYS_TOL = 0.24;
 const CROSS_CENTERLINE_MIN = 0.0;
 const CROSS_TRAVEL_MIN = 0.04;
@@ -57,6 +59,26 @@ function isCrossAcrossBody(frame: PoseFrame): boolean {
   const crossedCenterline = (lw.x - shoulderMidX) * towardOppositeSign >= CROSS_CENTERLINE_MIN;
   const traveledAwayFromPunchShoulder = (lw.x - ls.x) * towardOppositeSign >= CROSS_TRAVEL_MIN;
   return crossedCenterline && traveledAwayFromPunchShoulder;
+}
+
+function crossHandLooksLikeUppercut(frame: PoseFrame): boolean {
+  // Cross hand in this module = user's RIGHT arm = normalized left side.
+  const isMP = frame.length > 17;
+  const idx = isMP
+    ? { s: 11, e: 13, w: 15 }
+    : frame.length >= 11
+      ? { s: 5, e: 7, w: 9 }
+      : null;
+  if (!idx || frame.length <= Math.max(idx.s, idx.e, idx.w)) return false;
+  const shoulder = frame[idx.s];
+  const elbow = frame[idx.e];
+  const wrist = frame[idx.w];
+  if (!shoulder || !elbow || !wrist) return false;
+  if (![shoulder.y, elbow.y, wrist.y].every(Number.isFinite)) return false;
+
+  const wristLift = shoulder.y - wrist.y;
+  const elbowLift = shoulder.y - elbow.y;
+  return wristLift >= 0.03 && elbowLift >= 0.0;
 }
 
 /**
@@ -177,6 +199,8 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
   let jabSegment: PoseFrame[] | null = null;
   let crossDeadlineMs = 0;
   let cooldownUntilMs = 0;
+  let rightFacingBadUntil = 0;
+  let uppercutInsteadStreak = 0;
 
   function resetToNeedJab() {
     phase = 'need_jab';
@@ -185,9 +209,16 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
     jabSegment = null;
     crossDeadlineMs = 0;
     cooldownUntilMs = 0;
+    uppercutInsteadStreak = 0;
   }
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      resetToNeedJab();
+      return buildFacingRightBadRep(frame, 'jab-cross-combo-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       if (now >= cooldownUntilMs) resetToNeedJab();
       return { done: false };
@@ -212,7 +243,7 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
             forcedBadRep: true,
             feedback: [{
               id: 'combo-jab-line-bad-rep',
-              message: 'Bad Repetition — jab must stay roughly horizontal (not too high or too low).',
+              message: 'TOO HIGH/TOO LOW!',
               severity: 'error',
               phase: 'impact',
             }],
@@ -223,6 +254,7 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
         // Use combo-friendly cross detector: doesn't require the jab arm to be back in guard.
         crossTick = createComboCrossRepDetector();
         crossDeadlineMs = now + COMBO_TIMEOUT_MS;
+        uppercutInsteadStreak = 0;
       }
       return { done: false };
     }
@@ -237,7 +269,25 @@ export function createJabCrossComboRepDetector(): (frame: PoseFrame, now: number
         forcedBadRep: true,
         feedback: [{
           id: 'combo-timeout-bad-rep',
-          message: 'Bad Repetition — throw the straight right after the jab. Try again.',
+          message: 'FINISH COMBO!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
+
+    const uppercutInstead = crossHandLooksLikeUppercut(frame);
+    uppercutInsteadStreak = uppercutInstead ? uppercutInsteadStreak + 1 : 0;
+    if (uppercutInsteadStreak >= 2) {
+      const jab = jabSegment;
+      resetToNeedJab();
+      return {
+        done: true,
+        segment: jab && jab.length > 0 ? [...jab, frame] : [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'combo-uppercut-instead-of-straight-bad-rep',
+          message: 'WRONG COMBO!',
           severity: 'error',
           phase: 'impact',
         }],

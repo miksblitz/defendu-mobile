@@ -49,6 +49,26 @@ export function createLeftRightElbowStrikeRepDetector(): (frame: PoseFrame, now:
     }
 
     if (phase === 'need_lead') {
+      // Starting with right elbow is an invalid sequence for this combo.
+      if (rightFinal && !leadFinal) {
+        phase = 'cooldown';
+        cooldownUntilMs = now + COOLDOWN_MS;
+        guardFrames = 0;
+        leadSegment = null;
+        rightDeadlineMs = 0;
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'combo-order-bad-rep-elbow',
+            message: 'WRONG COMBO!',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
+
       // Start combo only when lead pose is seen without right pose.
       if (leadFinal && !rightFinal) {
         leadSegment = [frame];
@@ -68,7 +88,7 @@ export function createLeftRightElbowStrikeRepDetector(): (frame: PoseFrame, now:
         forcedBadRep: true,
         feedback: [{
           id: 'combo-timeout-bad-rep-elbow',
-          message: 'Bad Repetition — throw the second elbow right after the first. Try again.',
+          message: 'FINISH COMBO!',
           severity: 'error',
           phase: 'impact',
         }],

@@ -6,8 +6,9 @@
  */
 
 import type { PoseFrame } from './types';
-import type { PoseFocus } from './types';
+import type { PoseFocus, PoseFeedbackItem } from './types';
 import { armExtensionDistances } from './phaseDetection';
+import { buildFacingRightBadRep, isFacingRightSide } from './modules/punching/facingDirection';
 
 const LEFT_HIP = 23;
 const RIGHT_HIP = 24;
@@ -22,6 +23,7 @@ const RIGHT_ANKLE = 28;
 
 const MIN_REP_FRAMES = 5;
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 
 // Full body: hip Y
 const HIP_Y_DOWN = 0.50;
@@ -39,7 +41,8 @@ export type RepDetectorState = 'idle' | 'extended' | 'retracted' | 'cooldown';
 
 export type RepDetectorResult =
   | { done: false }
-  | { done: true; segment: PoseFrame[] };
+  | { done: true; segment: PoseFrame[] }
+  | { done: true; segment: PoseFrame[]; forcedBadRep: true; feedback: PoseFeedbackItem[] };
 
 function midHipY(frame: PoseFrame): number | null {
   if (frame.length <= Math.max(LEFT_HIP, RIGHT_HIP)) return null;
@@ -76,7 +79,16 @@ export function createRepDetector(focus: PoseFocus = 'full') {
   if (focus === 'punching') {
     // Count 1 rep per extension only (retract doesn't count). Must retract before next extension counts.
     let hasRetractedSinceRep = true;
+    let rightFacingBadUntil = 0;
     return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+      if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+        rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+        phase = 'idle';
+        segment = [];
+        hasRetractedSinceRep = false;
+        return buildFacingRightBadRep(frame, 'punching-default-facing-right-bad-rep');
+      }
+
       if (phase === 'cooldown') {
         const ext = armExtension(frame);
         if (ext != null && ext < ARM_RETRACT_THRESHOLD) hasRetractedSinceRep = true;

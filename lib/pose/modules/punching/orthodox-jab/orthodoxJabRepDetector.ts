@@ -1,8 +1,10 @@
 import type { PoseFrame, PoseFeedbackItem } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 1000;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const ORTHODOX_PUNCH_EXTEND_MIN = 0.25;
 const ORTHODOX_PUNCH_RETRACT_MAX = 0.18;
 const ORTHODOX_GUARD_MAX = 0.22;
@@ -12,7 +14,8 @@ const WRONG_HAND_EXTEND_MIN = 0.23;
 const WRONG_HAND_MIN_STREAK = 2;
 
 // Lenient horizontal requirement for jab line.
-const ORTHODOX_JAB_LINE_TOL = 0.2;
+const ORTHODOX_JAB_MAX_BELOW_SHOULDER = 0.11;
+const ORTHODOX_JAB_MAX_ABOVE_SHOULDER = 0.17;
 const BAD_LINE_MIN_STREAK = 3;
 
 const MP = { ls: 11, le: 13, lw: 15, rs: 12, rw: 16 };
@@ -52,13 +55,14 @@ function punchingArmLineOk(frame: PoseFrame): boolean {
   const rs = frame[idx.rs];
   const rw = frame[idx.rw];
   if (!validArmLandmark(rs) || !validArmLandmark(rw)) return false;
-  return Math.abs(rw.y - rs.y) <= ORTHODOX_JAB_LINE_TOL;
+  const delta = rw.y - rs.y;
+  return delta <= ORTHODOX_JAB_MAX_BELOW_SHOULDER && delta >= -ORTHODOX_JAB_MAX_ABOVE_SHOULDER;
 }
 
 function badLineFeedback(): PoseFeedbackItem[] {
   return [{
     id: 'jab-line-bad-rep',
-    message: 'Bad Repetition — keep the punching arm more horizontal (not too high or too low).',
+    message: 'TOO HIGH/TOO LOW!',
     severity: 'error',
     phase: 'impact',
   }];
@@ -67,7 +71,7 @@ function badLineFeedback(): PoseFeedbackItem[] {
 function wrongHandFeedback(): PoseFeedbackItem[] {
   return [{
     id: 'jab-wrong-hand-bad-rep',
-    message: 'Bad Repetition — wrong hand. For orthodox jab, punch with your left hand.',
+    message: 'WRONG ARM!',
     severity: 'error',
     phase: 'impact',
   }];
@@ -80,8 +84,19 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
   let hasRetractedSinceRep = false;
   let badLineStreak = 0;
   let wrongHandStreak = 0;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'idle';
+      segment = [];
+      hasRetractedSinceRep = false;
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return buildFacingRightBadRep(frame, 'orthodox-jab-facing-right-bad-rep');
+    }
+
     if (phase === 'cooldown') {
       const punch = rightExtension(frame); // user's left = MediaPipe right
       if (punch != null && punch < ORTHODOX_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
@@ -105,6 +120,26 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
         hasRetractedSinceRep = false;
         return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
       }
+      if (
+        hasRetractedSinceRep &&
+        punch > ORTHODOX_PUNCH_EXTEND_MIN &&
+        (guard == null || guard <= ORTHODOX_GUARD_MAX) &&
+        leftHandInGuard(frame) &&
+        !punchingArmLineOk(frame)
+      ) {
+        badLineStreak += 1;
+        if (badLineStreak >= BAD_LINE_MIN_STREAK) {
+          const out = [frame];
+          phase = 'cooldown';
+          cooldownUntil = now + COOLDOWN_MS;
+          hasRetractedSinceRep = false;
+          badLineStreak = 0;
+          wrongHandStreak = 0;
+          return { done: true, segment: out, forcedBadRep: true, feedback: badLineFeedback() };
+        }
+        return { done: false };
+      }
+      badLineStreak = 0;
       if (
         hasRetractedSinceRep &&
         punch > ORTHODOX_PUNCH_EXTEND_MIN &&

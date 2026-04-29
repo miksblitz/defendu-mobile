@@ -8,16 +8,23 @@
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
+import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 import {
   getIdx,
   inLeadLowKickStrikePose,
   inRearLowKickStrikePose,
   leadLowKickResetPose,
+  midHipY,
+  rightKneeInteriorAngleDeg,
 } from './leadLowKickGeometry';
+import { inLowLeadStrikePose } from '../../knee_strikes/low-lead-knee-strike/lowLeadKneeStrikeGeometry';
 
 const COOLDOWN_MS = 700;
+const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const MIN_REP_FRAMES = 3;
 const LEAD_KICK_SAME_SIDE_CENTERLINE_MIN = 0.01;
+const HIGH_KNEE_ABOVE_HIP_MIN = 0.02;
+const LEAD_LOW_KICK_MIN_STRAIGHT_KNEE_DEG = 138;
 
 function leadKickSameSide(frame: PoseFrame, idx: ReturnType<typeof getIdx>): boolean {
   if (!idx) return false;
@@ -39,8 +46,18 @@ export function createLeadLowKickRepDetector(): (frame: PoseFrame, now: number) 
   let cooldownUntil = 0;
   let prevStrike = false;
   let prevReset = false;
+  let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
+      rightFacingBadUntil = now + RIGHT_FACING_BAD_COOLDOWN_MS;
+      phase = 'idle';
+      segment = [];
+      prevStrike = false;
+      prevReset = false;
+      return buildFacingRightBadRep(frame, 'lead-low-kick-facing-right-bad-rep');
+    }
+
     const idx = getIdx(frame);
     if (!idx) return { done: false };
 
@@ -53,9 +70,28 @@ export function createLeadLowKickRepDetector(): (frame: PoseFrame, now: number) 
       return { done: false };
     }
 
-    const strike = inLeadLowKickStrikePose(frame, idx) && leadKickSameSide(frame, idx);
+    const kickShape = inLeadLowKickStrikePose(frame, idx);
+    const sameSide = leadKickSameSide(frame, idx);
+    const kneeAngle = rightKneeInteriorAngleDeg(frame, idx);
+    const straightEnough = kneeAngle != null && kneeAngle >= LEAD_LOW_KICK_MIN_STRAIGHT_KNEE_DEG;
+    const strike = kickShape && sameSide && straightEnough;
     const oppositeLegStrike = inRearLowKickStrikePose(frame, idx);
+    const lowLeadKneeLike = inLowLeadStrikePose(frame, idx);
+    const line = midHipY(frame, idx);
+    const rk = frame[idx.rk];
+    const highLeadKneeLike = line != null && rk != null && Number.isFinite(rk.y) && rk.y < line - HIGH_KNEE_ABOVE_HIP_MIN;
+    const bentKickAttempt = kickShape && sameSide && !straightEnough;
     const reset = leadLowKickResetPose(frame, idx);
+
+    // Ignore striking-leg knee-like/bent-kick attempts in this module:
+    // do not score as bad rep and do not count as a kick rep.
+    if (lowLeadKneeLike || highLeadKneeLike || bentKickAttempt) {
+      phase = 'idle';
+      segment = [];
+      prevStrike = false;
+      prevReset = reset;
+      return { done: false };
+    }
 
     if (oppositeLegStrike && !strike) {
       phase = 'cooldown';
@@ -69,7 +105,7 @@ export function createLeadLowKickRepDetector(): (frame: PoseFrame, now: number) 
         forcedBadRep: true,
         feedback: [{
           id: 'lead-low-kick-opposite-leg',
-          message: 'Bad Repetition — use your lead leg for this low kick.',
+          message: 'WRONG LEG!',
           severity: 'error',
           phase: 'impact',
         }],

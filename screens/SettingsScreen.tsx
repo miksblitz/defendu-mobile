@@ -435,7 +435,10 @@ export default function SettingsScreen() {
               onPress={() => setActiveSupportSection('help')}
               activeOpacity={0.85}
             >
-              <Text style={[styles.supportTabText, activeSupportSection === 'help' && styles.supportTabTextActive]}>
+              <Text
+                numberOfLines={1}
+                style={[styles.supportTabText, activeSupportSection === 'help' && styles.supportTabTextActive]}
+              >
                 Help & Support
               </Text>
             </TouchableOpacity>
@@ -444,7 +447,10 @@ export default function SettingsScreen() {
               onPress={() => setActiveSupportSection('privacy')}
               activeOpacity={0.85}
             >
-              <Text style={[styles.supportTabText, activeSupportSection === 'privacy' && styles.supportTabTextActive]}>
+              <Text
+                numberOfLines={1}
+                style={[styles.supportTabText, activeSupportSection === 'privacy' && styles.supportTabTextActive]}
+              >
                 Privacy Policy
               </Text>
             </TouchableOpacity>
@@ -453,7 +459,10 @@ export default function SettingsScreen() {
               onPress={() => setActiveSupportSection('contact')}
               activeOpacity={0.85}
             >
-              <Text style={[styles.supportTabText, activeSupportSection === 'contact' && styles.supportTabTextActive]}>
+              <Text
+                numberOfLines={1}
+                style={[styles.supportTabText, activeSupportSection === 'contact' && styles.supportTabTextActive]}
+              >
                 Contact Us
               </Text>
             </TouchableOpacity>
@@ -483,14 +492,6 @@ export default function SettingsScreen() {
               <Text style={styles.supportLine}>- Personalize training suggestions and module experience.</Text>
               <Text style={styles.supportLine}>- Keep your account secure and improve app reliability.</Text>
               <Text style={styles.supportLine}>- Respond to help requests and technical concerns.</Text>
-              <View style={styles.supportActionRow}>
-                <TouchableOpacity style={styles.supportGhostBtn} onPress={() => openLink(PRIVACY_URL)}>
-                  <Text style={styles.supportGhostBtnText}>Full Privacy Policy</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.supportGhostBtn} onPress={() => openLink(TERMS_URL)}>
-                  <Text style={styles.supportGhostBtnText}>Terms of Service</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           ) : null}
 
@@ -534,6 +535,7 @@ export default function SettingsScreen() {
           ) : null}
         </View>
 
+        {/*
         <View style={[styles.card, styles.dangerCard]}>
           <Text style={[styles.cardTag, styles.dangerTag]}>DANGER ZONE</Text>
           <Text style={styles.cardTitle}>Reset all progress</Text>
@@ -548,6 +550,7 @@ export default function SettingsScreen() {
             <Text style={styles.dangerBtnText}>{resettingProgress ? 'Resetting…' : 'Reset all progress'}</Text>
           </TouchableOpacity>
         </View>
+        */}
 
         <Text style={styles.footerNote}>Changes sync to your account and skill profile.</Text>
       </ScrollView>
@@ -670,20 +673,22 @@ const styles = StyleSheet.create({
   linkChevron: { color: '#6b8693', fontSize: 20 },
   supportTitle: { color: '#FFF', fontSize: 28, fontWeight: '800', marginBottom: 6 },
   supportSubtitle: { color: 'rgba(255,255,255,0.76)', fontSize: 13, lineHeight: 20, marginBottom: 14 },
-  supportTabsRow: { flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
+  supportTabsRow: { flexDirection: 'row', gap: 6, marginBottom: 12 },
   supportTabBtn: {
+    flex: 1,
     borderWidth: 1,
     borderColor: '#07bbc0',
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     backgroundColor: 'rgba(7, 187, 192, 0.08)',
+    alignItems: 'center',
   },
   supportTabBtnActive: {
     backgroundColor: '#07bbc0',
     borderColor: '#07bbc0',
   },
-  supportTabText: { color: '#07bbc0', fontSize: 12, fontWeight: '700' },
+  supportTabText: { color: '#07bbc0', fontSize: 11, fontWeight: '800', textAlign: 'center' },
   supportTabTextActive: { color: '#041527' },
   supportPanel: {
     backgroundColor: '#011f36',

@@ -42,6 +42,8 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [editFirstError, setEditFirstError] = useState('');
@@ -154,6 +156,8 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
     setProfileError('');
     setEditFirstError('');
     setEditLastError('');
@@ -161,6 +165,19 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
     setNewPwError('');
     setConfirmPwError('');
     setEditModalVisible(true);
+  };
+
+  const validateNewPassword = (password: string): string | null => {
+    const pw = password ?? '';
+    if (pw.length < 8) return 'New password must be at least 8 characters.';
+    if (!/[A-Z]/.test(pw)) return 'New password must include at least 1 uppercase letter.';
+    if (!/[^A-Za-z0-9]/.test(pw)) return 'New password must include at least 1 special character.';
+    return null;
+  };
+
+  const isWrongCurrentPasswordError = (e: unknown): boolean => {
+    const code = (e as { code?: unknown } | null)?.code;
+    return code === 'auth/wrong-password' || code === 'auth/invalid-credential';
   };
 
   const openTrainerProfileModal = async () => {
@@ -292,8 +309,9 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
         setCurrentPwError('Enter your current password to change password.');
         hasErrors = true;
       }
-      if (newPassword.length < 6) {
-        setNewPwError('New password must be at least 6 characters.');
+      const newPwValidationError = validateNewPassword(newPassword);
+      if (newPwValidationError) {
+        setNewPwError(newPwValidationError);
         hasErrors = true;
       }
       if (newPassword !== confirmPassword) {
@@ -316,6 +334,10 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
       }
       setEditModalVisible(false);
     } catch (e: unknown) {
+      if (hasPasswordChange && isWrongCurrentPasswordError(e)) {
+        setCurrentPwError('Current password is incorrect.');
+        return;
+      }
       const msg = e instanceof Error ? e.message : 'Could not save. Please try again.';
       setProfileError(msg);
     } finally {
@@ -648,25 +670,49 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
             </View>
             <Text style={styles.passwordSectionLabel}>Change password (optional)</Text>
             <View style={styles.modalFieldWrap}>
-              <TextInput
-                style={[styles.input, styles.modalInput]}
-                value={currentPassword}
-                onChangeText={(t) => { setCurrentPassword(t); setCurrentPwError(''); }}
-                placeholder="Current password"
-                placeholderTextColor="#6b8693"
-                secureTextEntry
-              />
+              <View style={styles.passwordInputRow}>
+                <TextInput
+                  style={[styles.input, styles.modalInput, styles.passwordInput]}
+                  value={currentPassword}
+                  onChangeText={(t) => { setCurrentPassword(t); setCurrentPwError(''); }}
+                  placeholder="Current password"
+                  placeholderTextColor="#6b8693"
+                  secureTextEntry={!showCurrentPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggleBtn}
+                  onPress={() => setShowCurrentPassword((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+                >
+                  <Ionicons name={showCurrentPassword ? 'eye-off' : 'eye'} size={18} color="#6b8693" />
+                </TouchableOpacity>
+              </View>
               {currentPwError ? <Text style={styles.fieldErrorText}>{currentPwError}</Text> : null}
             </View>
             <View style={styles.modalFieldWrap}>
-              <TextInput
-                style={[styles.input, styles.modalInput]}
-                value={newPassword}
-                onChangeText={(t) => { setNewPassword(t); setNewPwError(''); setConfirmPwError(''); }}
-                placeholder="New password"
-                placeholderTextColor="#6b8693"
-                secureTextEntry
-              />
+              <View style={styles.passwordInputRow}>
+                <TextInput
+                  style={[styles.input, styles.modalInput, styles.passwordInput]}
+                  value={newPassword}
+                  onChangeText={(t) => { setNewPassword(t); setNewPwError(''); setConfirmPwError(''); }}
+                  placeholder="New password"
+                  placeholderTextColor="#6b8693"
+                  secureTextEntry={!showNewPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity
+                  style={styles.passwordToggleBtn}
+                  onPress={() => setShowNewPassword((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showNewPassword ? 'Hide new password' : 'Show new password'}
+                >
+                  <Ionicons name={showNewPassword ? 'eye-off' : 'eye'} size={18} color="#6b8693" />
+                </TouchableOpacity>
+              </View>
               {newPwError ? <Text style={styles.fieldErrorText}>{newPwError}</Text> : null}
             </View>
             <View style={styles.modalFieldWrap}>
@@ -1483,6 +1529,21 @@ const styles = StyleSheet.create({
   addAttachmentText: { color: '#07bbc0', fontSize: 14 },
   fieldErrorText: { color: '#e57373', fontSize: 12, marginTop: 6 },
   passwordSectionLabel: { fontSize: 14, color: '#6b8693', marginTop: 8, marginBottom: 4 },
+  passwordInputRow: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  passwordInput: {
+    paddingRight: 44,
+  },
+  passwordToggleBtn: {
+    position: 'absolute',
+    right: 10,
+    height: '100%',
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   errorText: { color: '#e57373', fontSize: 13, marginTop: 8 },
   modalButtons: { flexDirection: 'row', marginTop: 24, gap: 12 },
   modalCancelBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#6b8693' },

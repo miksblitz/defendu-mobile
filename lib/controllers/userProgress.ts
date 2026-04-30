@@ -81,17 +81,18 @@ export async function getUserProgress(): Promise<{
   completedModuleIds: string[];
   completedCount: number;
   completionTimestamps: Record<string, number>;
+  moduleCompletionCounts: Record<string, number>;
   moduleTrainingStats: Record<string, ModuleTrainingStat>;
   weeklyReward: WeeklyReward | null;
 }> {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
-      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleTrainingStats: {}, weeklyReward: null };
+      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleCompletionCounts: {}, moduleTrainingStats: {}, weeklyReward: null };
     }
     const snap = await get(ref(db, `userProgress/${currentUser.uid}`));
     if (!snap.exists()) {
-      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleTrainingStats: {}, weeklyReward: null };
+      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleCompletionCounts: {}, moduleTrainingStats: {}, weeklyReward: null };
     }
     const data = snap.val();
     const completedModuleIds = Array.isArray(data?.completedModuleIds) ? data.completedModuleIds : [];
@@ -103,6 +104,15 @@ export async function getUserProgress(): Promise<{
         if (!k) continue;
         const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
         if (Number.isFinite(n)) completionTimestamps[k] = n;
+      }
+    }
+    const rawCounts = data?.moduleCompletionCounts;
+    const moduleCompletionCounts: Record<string, number> = {};
+    if (rawCounts && typeof rawCounts === 'object' && !Array.isArray(rawCounts)) {
+      for (const [k, v] of Object.entries(rawCounts as Record<string, unknown>)) {
+        if (!k) continue;
+        const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+        if (Number.isFinite(n) && n > 0) moduleCompletionCounts[k] = Math.floor(n);
       }
     }
     const moduleTrainingStats = parseModuleTrainingStats(data?.moduleTrainingStats);
@@ -123,10 +133,10 @@ export async function getUserProgress(): Promise<{
                 : undefined,
           }
         : null;
-    return { completedModuleIds, completedCount, completionTimestamps, moduleTrainingStats, weeklyReward };
+    return { completedModuleIds, completedCount, completionTimestamps, moduleCompletionCounts, moduleTrainingStats, weeklyReward };
   } catch (e) {
     console.error('getUserProgress:', e);
-    return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleTrainingStats: {}, weeklyReward: null };
+    return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleCompletionCounts: {}, moduleTrainingStats: {}, weeklyReward: null };
   }
 }
 
@@ -142,6 +152,10 @@ export async function recordModuleCompletion(moduleId: string): Promise<number> 
   const completedCount = completedModuleIds.length;
   // Always bump timestamp so dashboard weekly/day views show this completion (repeat finishes count for "this week").
   const completionTimestamps = { ...existing.completionTimestamps, [id]: Date.now() };
+  const moduleCompletionCounts = {
+    ...existing.moduleCompletionCounts,
+    [id]: (existing.moduleCompletionCounts[id] ?? 0) + 1,
+  };
   const moduleTrainingStats = { ...existing.moduleTrainingStats };
   delete moduleTrainingStats[id];
   let weeklyReward: WeeklyReward | null = existing.weeklyReward ?? null;
@@ -169,6 +183,7 @@ export async function recordModuleCompletion(moduleId: string): Promise<number> 
     completedModuleIds,
     completedCount,
     completionTimestamps,
+    moduleCompletionCounts,
     moduleTrainingStats,
     weeklyReward,
     updatedAt: Date.now(),
@@ -191,6 +206,7 @@ export async function recordModuleTrainingFailure(moduleId: string): Promise<voi
     completedModuleIds: existing.completedModuleIds,
     completedCount: existing.completedCount,
     completionTimestamps: existing.completionTimestamps,
+    moduleCompletionCounts: existing.moduleCompletionCounts,
     moduleTrainingStats,
     weeklyReward: existing.weeklyReward ?? null,
     updatedAt: Date.now(),
@@ -240,6 +256,7 @@ async function readProgressForWrite(): Promise<{
   completedModuleIds: string[];
   completedCount: number;
   completionTimestamps: Record<string, number>;
+  moduleCompletionCounts: Record<string, number>;
   moduleTrainingStats: Record<string, ModuleTrainingStat>;
   weeklyReward: WeeklyReward | null;
 }> {
@@ -248,6 +265,7 @@ async function readProgressForWrite(): Promise<{
     completedModuleIds: p.completedModuleIds,
     completedCount: p.completedCount,
     completionTimestamps: p.completionTimestamps,
+    moduleCompletionCounts: p.moduleCompletionCounts,
     moduleTrainingStats: p.moduleTrainingStats,
     weeklyReward: p.weeklyReward,
   };
@@ -261,6 +279,7 @@ export async function resetUserProgress(): Promise<void> {
     completedModuleIds: [],
     completedCount: 0,
     completionTimestamps: {},
+    moduleCompletionCounts: {},
     moduleTrainingStats: {},
     weeklyReward: null,
     updatedAt: Date.now(),

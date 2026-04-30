@@ -28,6 +28,24 @@ const DAILY_TARGET_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const WEEKLY_TARGET_OPTIONS = [3, 5, 7, 10, 12, 14, 16, 18, 20];
 const TRAINING_MUSIC_MUTED_KEY = 'trainingModeMusicMuted';
 
+function getCurrentWeekRange(): { start: number; end: number } {
+  const now = new Date();
+  const day = now.getDay();
+  const mondayOffset = (day + 6) % 7;
+  const start = new Date(now);
+  start.setDate(now.getDate() - mondayOffset);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start: start.getTime(), end: end.getTime() };
+}
+
+function getCurrentWeekKey(): string {
+  const start = new Date(getCurrentWeekRange().start);
+  return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+}
+
 export default function SettingsScreen() {
   const { skeletonVisible, setSkeletonVisible } = usePoseSkeletonOverlay();
   const [trainingMusicMuted, setTrainingMusicMuted] = useState(false);
@@ -43,6 +61,7 @@ export default function SettingsScreen() {
   const [savedWeekly, setSavedWeekly] = useState<number | null>(null);
   const [savedDaily, setSavedDaily] = useState<number | null>(null);
   const [savingGoals, setSavingGoals] = useState(false);
+  const [weeklyRhythmLocked, setWeeklyRhythmLocked] = useState(false);
 
   const [showWeeklyPicker, setShowWeeklyPicker] = useState(false);
   const [showDailyPicker, setShowDailyPicker] = useState(false);
@@ -68,6 +87,11 @@ export default function SettingsScreen() {
         setWeightInput(ws);
         setSavedHeight(hs);
         setSavedWeight(ws);
+        const lastWeeklyRhythmWeekKey =
+          typeof (user as { weeklyRhythmUpdatedWeekKey?: unknown }).weeklyRhythmUpdatedWeekKey === 'string'
+            ? String((user as { weeklyRhythmUpdatedWeekKey?: string }).weeklyRhythmUpdatedWeekKey)
+            : '';
+        setWeeklyRhythmLocked(lastWeeklyRhythmWeekKey === getCurrentWeekKey());
       }
       if (full) {
         const wk = full.preferences.targetModulesPerWeek;
@@ -145,17 +169,20 @@ export default function SettingsScreen() {
   };
 
   const handleSaveGoals = async () => {
+    if (weeklyRhythmLocked) {
+      Alert.alert('Locked this week', 'You can change weekly rhythm once per week. It resets next week.');
+      return;
+    }
     if (weeklyTarget == null || dailyTarget == null) {
       Alert.alert('Incomplete', 'Choose weekly modules and daily modules.');
       return;
     }
     setSavingGoals(true);
     try {
-      await AuthController.updateSkillProfilePartial({
-        preferences: { targetModulesPerWeek: weeklyTarget, targetModulesPerDay: dailyTarget },
-      });
+      await AuthController.updateWeeklyRhythmTargetsOncePerWeek(weeklyTarget, dailyTarget);
       setSavedWeekly(weeklyTarget);
       setSavedDaily(dailyTarget);
+      setWeeklyRhythmLocked(true);
       setShowWeeklyPicker(false);
       setShowDailyPicker(false);
     } catch (e) {
@@ -314,11 +341,17 @@ export default function SettingsScreen() {
           <Text style={styles.cardHint}>
             Module targets used for dashboard weekly-goal progress.
           </Text>
+          {weeklyRhythmLocked ? (
+            <Text style={styles.lockHint}>
+              Weekly rhythm updated for this week. You can change it again next week.
+            </Text>
+          ) : null}
 
           <Text style={styles.pickerLabel}>Target modules per week</Text>
           <TouchableOpacity
             style={styles.selectBtn}
             onPress={() => {
+              if (weeklyRhythmLocked) return;
               setShowWeeklyPicker(!showWeeklyPicker);
               setShowDailyPicker(false);
             }}
@@ -350,6 +383,7 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={styles.selectBtn}
             onPress={() => {
+              if (weeklyRhythmLocked) return;
               setShowDailyPicker(!showDailyPicker);
               setShowWeeklyPicker(false);
             }}
@@ -378,9 +412,9 @@ export default function SettingsScreen() {
           )}
 
           <TouchableOpacity
-            style={[styles.primaryBtn, (savingGoals || !hasGoalChanges) && styles.btnDisabled]}
+            style={[styles.primaryBtn, (savingGoals || !hasGoalChanges || weeklyRhythmLocked) && styles.btnDisabled]}
             onPress={handleSaveGoals}
-            disabled={savingGoals || !hasGoalChanges}
+            disabled={savingGoals || !hasGoalChanges || weeklyRhythmLocked}
           >
             <Text style={styles.primaryBtnText}>{savingGoals ? 'Saving…' : 'Save training goals'}</Text>
           </TouchableOpacity>
@@ -560,6 +594,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { color: '#FFF', fontSize: 17, fontWeight: '700', marginBottom: 4 },
   cardHint: { color: '#6b8693', fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  lockHint: { color: '#fbbf24', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -3,10 +3,45 @@
     "users": {
       "$uid": {
         ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin') || (auth.uid !== null && data.child('role').val() === 'trainer' && data.child('trainerApproved').val() === true)",
-        ".write": "$uid === auth.uid || (!data.exists() && $uid === auth.uid) || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+        ".write": "$uid === auth.uid || (!data.exists() && $uid === auth.uid) || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "categoryReviews": {
+          "$categoryKey": {
+            ".read": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')",
+            ".write": "auth.uid !== null && auth.uid === $uid && newData.exists()",
+            ".validate": "newData.hasChildren(['category','createdAt','userName']) && newData.child('category').isString() && newData.child('createdAt').isNumber() && newData.child('userName').isString() && (!newData.hasChild('rating') || newData.child('rating').val() === null || (newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5)) && (!newData.hasChild('comment') || newData.child('comment').val() === null || newData.child('comment').isString()) && (!newData.hasChild('trainerRatings') || newData.child('trainerRatings').hasChildren()) && (!data.exists() || data.child('createdAt').val() === newData.child('createdAt').val())"
+          }
+        }
       },
       ".read": "auth.uid !== null",
       ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+    "categoryReviews": {
+      ".read": "auth.uid !== null",
+      "$categoryKey": {
+        "$userId": {
+          ".read": "auth.uid !== null",
+          ".write": "auth.uid !== null && auth.uid === $userId && newData.exists()",
+          ".validate": "newData.hasChildren(['category','createdAt','userName']) && newData.child('category').isString() && newData.child('createdAt').isNumber() && newData.child('userName').isString() && (!newData.hasChild('rating') || newData.child('rating').val() === null || (newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5)) && (!newData.hasChild('comment') || newData.child('comment').val() === null || newData.child('comment').isString()) && (!newData.hasChild('trainerRatings') || newData.child('trainerRatings').hasChildren()) && (!data.exists() || data.child('createdAt').val() === newData.child('createdAt').val())"
+        }
+      }
+    },
+    "trainerRatings": {
+      ".read": "auth.uid !== null",
+      "$trainerUid": {
+        ".read": "auth.uid !== null",
+        "reviews": {
+          "$reviewKey": {
+            ".read": "auth.uid !== null",
+            ".write": "auth.uid !== null && newData.exists() && $reviewKey.beginsWith(auth.uid + '_')",
+            ".validate": "newData.hasChildren(['trainerUid','userUid','category','categoryKey','rating','createdAt','updatedAt','userName']) && newData.child('trainerUid').val() === $trainerUid && newData.child('userUid').val() === auth.uid && newData.child('category').isString() && newData.child('categoryKey').isString() && newData.child('userName').isString() && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5 && newData.child('createdAt').isNumber() && newData.child('updatedAt').isNumber() && (!newData.hasChild('comment') || newData.child('comment').val() === null || newData.child('comment').isString())"
+          }
+        },
+        "stats": {
+          ".read": "auth.uid !== null",
+          ".write": "auth.uid !== null && newData.exists()",
+          ".validate": "newData.hasChildren(['sumRatings','totalReviews','averageRating','updatedAt']) && newData.child('sumRatings').isNumber() && newData.child('sumRatings').val() >= 0 && newData.child('totalReviews').isNumber() && newData.child('totalReviews').val() >= 0 && newData.child('averageRating').isNumber() && newData.child('averageRating').val() >= 0 && newData.child('averageRating').val() <= 5 && newData.child('updatedAt').isNumber() && (newData.child('totalReviews').val() === 0 ? newData.child('sumRatings').val() === 0 && newData.child('averageRating').val() === 0 : (newData.child('sumRatings').val() / newData.child('totalReviews').val()) === newData.child('averageRating').val())"
+        }
+      }
     },
     "skillProfiles": {
       "$uid": {
@@ -35,11 +70,18 @@
       ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
     },
     "modules": {
+      ".read": "(auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin') || (auth.uid !== null && root.child('users').child(auth.uid).exists() && query.orderByChild === 'status' && query.equalTo === 'approved')",
+      ".indexOn": ["status", "sortOrder", "trainerId"],
       "$moduleId": {
         ".read": "auth.uid !== null && (data.child('trainerId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || (data.child('status').val() === 'approved' && root.child('users').child(auth.uid).exists()))",
         ".write": "auth.uid !== null && (data.child('trainerId').val() === auth.uid || (!data.exists() && root.child('users').child(auth.uid).child('role').val() === 'trainer' && root.child('users').child(auth.uid).child('trainerApproved').val() === true) || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "categorySegmentProgram": {
+      "$categoryKey": {
+        ".read": "auth.uid !== null",
+        ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
       },
-      ".indexOn": ["status"],
       ".read": "auth.uid !== null",
       ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
     },
@@ -56,12 +98,6 @@
       "$chatId": {
         ".read": "auth.uid !== null && (!data.exists() || data.child('participants').child(auth.uid).exists())",
         ".write": "auth.uid !== null && (data.child('participants').child(auth.uid).exists() || (!data.exists() && newData.child('participants').child(auth.uid).exists()))"
-      }
-    },
-    "userBlockedUsers": {
-      "$uid": {
-        ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid"
       }
     },
     "trainerModules": {
@@ -84,6 +120,52 @@
         },
         ".read": "auth.uid !== null"
       }
+    },
+    "userSettings": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "userLocations": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "wallets": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "walletTransactions": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "moduleUsage": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "$trainerId": {
+          "$moduleId": {
+            ".read": "$uid === auth.uid",
+            ".write": "$uid === auth.uid"
+          }
+        }
+      }
+    },
+    "pendingPayments": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid || (auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "moduleCategories": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
     },
     "referencePoseData": {
       ".read": "auth !== null",

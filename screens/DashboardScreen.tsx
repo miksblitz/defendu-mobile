@@ -120,13 +120,14 @@ function getDayCountsThisWeek(completionTimestamps: Record<string, number>): num
  */
 function getCompletedModulesForWeekdayThisWeek(
   dayIndex: number,
-  completionTimestamps: Record<string, number>
-): { moduleId: string; completedAt: number }[] {
+  completionTimestamps: Record<string, number>,
+  moduleCompletionCounts: Record<string, number>
+): { moduleId: string; completedAt: number; completionCount: number }[] {
   const { start, end } = getCurrentWeekRange();
-  const out: { moduleId: string; completedAt: number }[] = [];
+  const out: { moduleId: string; completedAt: number; completionCount: number }[] = [];
   for (const [moduleId, ts] of Object.entries(completionTimestamps)) {
     if (ts >= start && ts <= end && getDayIndex(ts) === dayIndex) {
-      out.push({ moduleId, completedAt: ts });
+      out.push({ moduleId, completedAt: ts, completionCount: Math.max(1, moduleCompletionCounts[moduleId] ?? 1) });
     }
   }
   out.sort((a, b) => b.completedAt - a.completedAt);
@@ -507,6 +508,8 @@ interface DashboardScreenProps {
   onClearInitialToast?: () => void;
   onModulePurchaseComplete?: (payload: { invoice: ModulePurchaseInvoice; newCredits: number }) => void;
   onCreditsUpdated?: (newCredits: number) => void;
+  /** Called after a trainer rating is submitted so other screens can refresh. */
+  onTrainerRatingsSubmitted?: () => void;
 }
 
 // --- Component ---
@@ -524,6 +527,7 @@ export default function DashboardScreen({
   onClearInitialToast,
   onModulePurchaseComplete,
   onCreditsUpdated,
+  onTrainerRatingsSubmitted,
 }: DashboardScreenProps) {
   const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [modules, setModules] = useState<ModuleItem[]>([]);
@@ -541,6 +545,7 @@ export default function DashboardScreen({
   const [trainingStartCardIndex, setTrainingStartCardIndex] = useState<number>(-1);
   const [introductionStartCardIndex, setIntroductionStartCardIndex] = useState<number>(-1);
   const [completionTimestamps, setCompletionTimestamps] = useState<Record<string, number>>({});
+  const [moduleCompletionCounts, setModuleCompletionCounts] = useState<Record<string, number>>({});
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [moduleTrainingStats, setModuleTrainingStats] = useState<Record<string, ModuleTrainingStat>>({});
   const [skillProfile, setSkillProfile] = useState<SkillProfile | null>(null);
@@ -708,6 +713,7 @@ export default function DashboardScreen({
         setCategoryLoadError('Category metadata unavailable. Showing default category cards.');
       }
       setCompletionTimestamps(progress?.completionTimestamps ?? {});
+      setModuleCompletionCounts(progress?.moduleCompletionCounts ?? {});
       setCompletedModuleIds(completedIds);
       setModuleTrainingStats(progress?.moduleTrainingStats ?? {});
       const reward = (progress as { weeklyReward?: WeeklyReward | null } | null)?.weeklyReward ?? null;
@@ -923,8 +929,8 @@ export default function DashboardScreen({
   }, [recDetailModule, onStartCategorySession]);
 
   const dayHistoryEntries = React.useMemo(
-    () => getCompletedModulesForWeekdayThisWeek(dayHistoryDayIndex, completionTimestamps),
-    [dayHistoryDayIndex, completionTimestamps, weekBoundaryTick]
+    () => getCompletedModulesForWeekdayThisWeek(dayHistoryDayIndex, completionTimestamps, moduleCompletionCounts),
+    [dayHistoryDayIndex, completionTimestamps, moduleCompletionCounts, weekBoundaryTick]
   );
 
   const approvedModuleById = React.useMemo(() => {
@@ -2154,7 +2160,7 @@ export default function DashboardScreen({
                           {title}
                         </Text>
                         <Text style={styles.recModalModuleMeta} numberOfLines={2}>
-                          {category} · {formatCompletionTime(entry.completedAt)}
+                          {category} · {formatCompletionTime(entry.completedAt)} · {entry.completionCount}x
                         </Text>
                       </View>
                       {mod ? <Text style={styles.recModalChevron}>›</Text> : <View style={styles.recModalChevronSpacer} />}
@@ -2379,7 +2385,8 @@ export default function DashboardScreen({
                       nextRatings
                     );
                     setCategoryReviewPrompt(null);
-                    showToast('Review submitted. Thank you!');
+                    onTrainerRatingsSubmitted?.();
+                    showToast('Rating submitted. Thank you!');
                   } catch (e) {
                     showToast((e as Error)?.message || 'Could not submit review.');
                   } finally {

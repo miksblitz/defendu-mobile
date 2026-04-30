@@ -48,13 +48,12 @@ export default function MainLayout({
   hideCreditsBar = false,
 }: MainLayoutProps) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const { unreadCount, unreadDisplay, clearUnread } = useUnreadMessages();
+  const { unreadCount, unreadDisplay } = useUnreadMessages();
 
   const openPanel = useCallback(() => {
     if (hideNavButton) return;
-    clearUnread();
     setPanelOpen(true);
-  }, [clearUnread, hideNavButton]);
+  }, [hideNavButton]);
 
   const panResponder = useRef(
     PanResponder.create({

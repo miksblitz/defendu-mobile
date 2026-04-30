@@ -16,6 +16,7 @@ import {
   Image,
   Modal,
   Pressable,
+  Alert,
 } from 'react-native';
 import { AuthController } from '../lib/controllers/AuthController';
 import {
@@ -34,7 +35,7 @@ interface MessagesScreenProps {
 
 // --- Component ---
 export default function MessagesScreen({ openWithUserId, openWithUserName, openWithUserPhoto }: MessagesScreenProps) {
-  const { clearUnread } = useUnreadMessages();
+  const { unreadByChatId, clearChatUnread, setActiveChatId } = useUnreadMessages();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selectedChat, setSelectedChat] = useState<ConversationSummary | null>(null);
@@ -44,6 +45,10 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+  const [chatBlockState, setChatBlockState] = useState<{ blockedByMe: boolean; blockedByOther: boolean }>({
+    blockedByMe: false,
+    blockedByOther: false,
+  });
   const [showChatActionsModal, setShowChatActionsModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [conversationSearch, setConversationSearch] = useState('');
@@ -60,8 +65,10 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
   }, [conversations, conversationSearch]);
 
   useEffect(() => {
-    clearUnread();
-  }, [clearUnread]);
+    // Do NOT clear unread just by opening the Messages list.
+    // Unread only clears when user opens a specific chat.
+    return () => {};
+  }, []);
 
   const refreshConversations = async (uid: string) => {
     const [list, blocked] = await Promise.all([
@@ -70,7 +77,7 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
     ]);
     const blockedSet = new Set(blocked);
     setBlockedUserIds(blockedSet);
-    setConversations(list.filter((c) => !blockedSet.has(c.otherUserId)));
+    setConversations(list);
   };
 
   useEffect(() => {
@@ -91,8 +98,8 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
         if (cancelled) return;
         const blockedSet = new Set(blocked);
         setBlockedUserIds(blockedSet);
-        let filtered = list.filter((c) => !blockedSet.has(c.otherUserId));
-        if (openWithUserId && openWithUserName && !blockedSet.has(openWithUserId)) {
+        let filtered = list;
+        if (openWithUserId && openWithUserName) {
           const existing = list.find((c) => c.otherUserId === openWithUserId);
           if (!existing) {
             await MessageController.getOrCreateChat(
@@ -110,7 +117,7 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
             ]);
             const newBlockedSet = new Set(newBlocked);
             setBlockedUserIds(newBlockedSet);
-            filtered = newList.filter((c) => !newBlockedSet.has(c.otherUserId));
+            filtered = newList;
           }
           const toSelect = filtered.find((c) => c.otherUserId === openWithUserId) ?? filtered[0];
           setSelectedChat(toSelect ?? null);
@@ -133,10 +140,36 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
   }, [openWithUserId, openWithUserName, openWithUserPhoto]);
 
   useEffect(() => {
-    if (!selectedChat?.chatId || !currentUserId) {
-      setMessages([]);
+    if (!currentUserId || !selectedChat?.chatId || !selectedChat?.otherUserId) {
+      setChatBlockState({ blockedByMe: false, blockedByOther: false });
       return;
     }
+
+    // Live subscribe so the overlay doesn't disappear and we can see "blocked by other"
+    // without needing permission to read their user profile.
+    const unsub = MessageController.subscribeChatBlocked(selectedChat.chatId, (blockedByUserId) => {
+      setChatBlockState({
+        blockedByMe: Boolean(blockedByUserId?.[currentUserId]),
+        blockedByOther: Boolean(blockedByUserId?.[selectedChat.otherUserId]),
+      });
+    });
+
+    // Fallback: in case the chat node isn't readable in some rulesets.
+    MessageController.getBlockStatus(currentUserId, selectedChat.otherUserId)
+      .then((status) => setChatBlockState((prev) => (prev.blockedByMe || prev.blockedByOther ? prev : status)))
+      .catch(() => {});
+
+    return () => unsub();
+  }, [currentUserId, selectedChat?.chatId, selectedChat?.otherUserId]);
+
+  useEffect(() => {
+    if (!selectedChat?.chatId || !currentUserId) {
+      setMessages([]);
+      setActiveChatId(null);
+      return;
+    }
+    setActiveChatId(selectedChat.chatId);
+    clearChatUnread(selectedChat.chatId).catch(() => {});
     setMessages([]);
     setMessagesLoading(true);
     const unsub = MessageController.subscribeMessages(selectedChat.chatId, (list) => {
@@ -146,17 +179,23 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
     return () => {
       unsub();
       setMessagesLoading(false);
+      setActiveChatId(null);
     };
-  }, [selectedChat?.chatId, currentUserId]);
+  }, [selectedChat?.chatId, currentUserId, clearChatUnread, setActiveChatId]);
 
   const sendMessage = async () => {
     const text = inputText.trim();
     if (!text || !currentUserId || !selectedChat) return;
+    if (chatBlockState.blockedByMe || chatBlockState.blockedByOther) return;
     try {
       await MessageController.sendMessage(selectedChat.chatId, currentUserId, text);
       setInputText('');
     } catch (e) {
       console.error('sendMessage:', e);
+      const msg = (e as Error)?.message ?? '';
+      if (msg.toLowerCase().includes('blocked')) {
+        Alert.alert('Chat blocked', 'Messaging is disabled because one of you is blocked.');
+      }
     }
   };
 
@@ -219,6 +258,13 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
                   <Text style={styles.convName} numberOfLines={1}>{c.otherUserDisplayName}</Text>
                   <Text style={styles.convPreview} numberOfLines={1}>{c.lastMessage?.text || 'No messages'}</Text>
                 </View>
+                {Number(unreadByChatId[c.chatId] ?? 0) > 0 ? (
+                  <View style={styles.convBadge}>
+                    <Text style={styles.convBadgeText}>
+                      {Number(unreadByChatId[c.chatId] ?? 0) > 99 ? '99+' : String(unreadByChatId[c.chatId])}
+                    </Text>
+                  </View>
+                ) : null}
               </TouchableOpacity>
             ))
           )}
@@ -233,10 +279,27 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
     try {
       await MessageController.blockUser(currentUserId, selectedChat.otherUserId);
       await refreshConversations(currentUserId);
+      setChatBlockState({ blockedByMe: true, blockedByOther: false });
       setShowChatActionsModal(false);
-      setSelectedChat(null);
     } catch (e) {
       console.error('blockUser:', e);
+      Alert.alert('Block failed', 'Could not block this person right now. Please try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUnblockPerson = async () => {
+    if (!currentUserId || !selectedChat) return;
+    setActionLoading(true);
+    try {
+      await MessageController.unblockUser(currentUserId, selectedChat.otherUserId);
+      await refreshConversations(currentUserId);
+      setChatBlockState((prev) => ({ blockedByMe: false, blockedByOther: prev.blockedByOther }));
+      setShowChatActionsModal(false);
+    } catch (e) {
+      console.error('unblockUser:', e);
+      Alert.alert('Unblock failed', 'Could not unblock this person right now. Please try again.');
     } finally {
       setActionLoading(false);
     }
@@ -302,6 +365,17 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
           </View>
         ))}
       </ScrollView>
+      {(chatBlockState.blockedByMe || chatBlockState.blockedByOther) && (
+        <View style={styles.blockedOverlay}>
+          <Text style={styles.blockedOverlayText}>
+            {chatBlockState.blockedByMe && chatBlockState.blockedByOther
+              ? 'You both blocked each other. Messaging disabled.'
+              : chatBlockState.blockedByOther
+                ? 'You have been blocked by this user. Messaging disabled.'
+                : 'You blocked this user. Messaging disabled.'}
+          </Text>
+        </View>
+      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -310,14 +384,22 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
         <TextInput
           style={styles.input}
           placeholder="Type a message..."
-          placeholderTextColor="#6b8693"
+          placeholderTextColor="rgba(4,21,39,0.65)"
           value={inputText}
           onChangeText={setInputText}
           multiline
           maxLength={2000}
           onSubmitEditing={sendMessage}
+          editable={!chatBlockState.blockedByMe && !chatBlockState.blockedByOther}
         />
-        <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
+        <TouchableOpacity
+          style={[
+            styles.sendButton,
+            (chatBlockState.blockedByMe || chatBlockState.blockedByOther) && styles.sendButtonDisabled,
+          ]}
+          onPress={sendMessage}
+          disabled={chatBlockState.blockedByMe || chatBlockState.blockedByOther}
+        >
           <Text style={styles.sendButtonText}>Send</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
@@ -333,11 +415,13 @@ export default function MessagesScreen({ openWithUserId, openWithUserName, openW
             <Text style={styles.chatActionsTitle}>Conversation options</Text>
             <TouchableOpacity
               style={styles.chatActionsButton}
-              onPress={handleBlockPerson}
+              onPress={chatBlockState.blockedByMe ? handleUnblockPerson : handleBlockPerson}
               disabled={actionLoading}
               activeOpacity={0.7}
             >
-              <Text style={styles.chatActionsButtonTextDanger}>Block person</Text>
+              <Text style={styles.chatActionsButtonTextDanger}>
+                {chatBlockState.blockedByMe ? 'Unblock person' : 'Block person'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.chatActionsButton}
@@ -408,6 +492,17 @@ const styles = StyleSheet.create({
   convInfo: { flex: 1, minWidth: 0 },
   convName: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   convPreview: { color: '#6b8693', fontSize: 13, marginTop: 2 },
+  convBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: '#e57373',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
+  convBadgeText: { color: '#041527', fontSize: 12, fontWeight: '900' },
   backRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -467,6 +562,22 @@ const styles = StyleSheet.create({
   messagesContent: { padding: 16, paddingBottom: 24 },
   messagesLoadingWrap: { paddingVertical: 24, alignItems: 'center', justifyContent: 'center' },
   messagesLoadingText: { color: '#6b8693', fontSize: 14, marginTop: 8 },
+  blockedOverlay: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    backgroundColor: 'rgba(229,115,115,0.16)',
+    borderWidth: 1,
+    borderColor: '#e57373',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  blockedOverlayText: {
+    color: '#ffd0d0',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   messageBubble: { maxWidth: '80%', padding: 12, borderRadius: 16, marginBottom: 8 },
   messageBubbleMe: { alignSelf: 'flex-end', backgroundColor: '#07bbc0' },
   messageBubbleThem: { alignSelf: 'flex-start', backgroundColor: '#011f36', borderWidth: 1, borderColor: '#062731' },
@@ -484,15 +595,17 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#062731',
+    borderColor: '#07bbc0',
+    backgroundColor: '#07bbc0',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    color: '#FFF',
+    color: '#041527',
     fontSize: 14,
     maxHeight: 100,
     marginRight: 8,
   },
   sendButton: { backgroundColor: '#07bbc0', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12 },
+  sendButtonDisabled: { opacity: 0.45 },
   sendButtonText: { color: '#041527', fontSize: 14, fontWeight: '700' },
 });

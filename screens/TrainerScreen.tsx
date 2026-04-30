@@ -33,10 +33,11 @@ interface TrainerWithData extends User {
 
 interface TrainerScreenProps {
   onMessageTrainer?: (uid: string, name: string, photoUrl: string | null) => void;
+  refreshKey?: number;
 }
 
 // --- Component ---
-export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) {
+export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: TrainerScreenProps) {
   const [trainers, setTrainers] = useState<TrainerWithData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,6 +109,11 @@ export default function TrainerScreen({ onMessageTrainer }: TrainerScreenProps) 
     load();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (refreshKey <= 0) return;
+    loadTrainers().catch(() => {});
+  }, [refreshKey]);
 
   const openDetail = async (t: TrainerWithData) => {
     setSelectedTrainer(t);

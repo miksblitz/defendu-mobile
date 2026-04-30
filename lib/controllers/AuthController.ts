@@ -24,6 +24,7 @@ export {
   getSkillProfile,
   getFullSkillProfile,
   updateSkillProfilePartial,
+  updateWeeklyRhythmTargetsOncePerWeek,
 } from './skillProfile';
 
 export {
@@ -96,6 +97,7 @@ import {
   getSkillProfile,
   getFullSkillProfile,
   updateSkillProfilePartial,
+  updateWeeklyRhythmTargetsOncePerWeek,
 } from './skillProfile';
 import {
   forgotPassword,
@@ -159,6 +161,7 @@ export const AuthController = {
   getSkillProfile,
   getFullSkillProfile,
   updateSkillProfilePartial,
+  updateWeeklyRhythmTargetsOncePerWeek,
   updateUserProfile,
   updateProfilePicture,
   updateCoverPhoto,

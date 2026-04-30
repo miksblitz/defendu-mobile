@@ -181,6 +181,28 @@ export async function getTrainerRatingSummaries(
   const hasAnyReviews = (map: Record<string, TrainerRatingSummary>) =>
     Object.values(map).some((r) => (r.totalReviews ?? 0) > 0);
 
+  const mergeFallbackWhereMissing = async (
+    primary: Record<string, TrainerRatingSummary>
+  ): Promise<Record<string, TrainerRatingSummary>> => {
+    const missingIds = ids.filter((id) => (primary[id]?.totalReviews ?? 0) <= 0);
+    if (!missingIds.length) return primary;
+    const categoryRoot = await aggregateFromCategoryReviewsRoot();
+    const usersFallback = await aggregateFromUsersCategoryReviews();
+    const merged = { ...primary };
+    for (const id of missingIds) {
+      const fromCategoryRoot = categoryRoot[id];
+      if ((fromCategoryRoot?.totalReviews ?? 0) > 0) {
+        merged[id] = fromCategoryRoot;
+        continue;
+      }
+      const fromUsers = usersFallback[id];
+      if ((fromUsers?.totalReviews ?? 0) > 0) {
+        merged[id] = fromUsers;
+      }
+    }
+    return merged;
+  };
+
   try {
     const snap = await get(ref(db, 'trainerRatings'));
     if (!snap.exists()) {
@@ -211,7 +233,7 @@ export async function getTrainerRatingSummaries(
       }
       out[trainerId] = { totalReviews: count, averageRating: count > 0 ? sum / count : 0 };
     }
-    if (hasAnyReviews(out)) return out;
+    if (hasAnyReviews(out)) return mergeFallbackWhereMissing(out);
     const fromCategoryRoot = await aggregateFromCategoryReviewsRoot();
     if (hasAnyReviews(fromCategoryRoot)) return fromCategoryRoot;
     return aggregateFromUsersCategoryReviews();

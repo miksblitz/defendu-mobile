@@ -1,4 +1,4 @@
-import { ref, get, set, update, push, remove, onValue, off } from 'firebase/database';
+import { ref, get, set, update, push, remove, onValue, off, runTransaction } from 'firebase/database';
 import { db } from '../config/firebaseConfig';
 
 export interface MessageAttachment {
@@ -21,10 +21,48 @@ export interface ConversationSummary {
   otherUserDisplayName: string;
   otherUserPhotoURL: string | null;
   lastMessage: { text: string; senderId: string; createdAt: number; attachment?: MessageAttachment } | null;
+  unreadCount?: number;
 }
 
 function getChatId(uid1: string, uid2: string): string {
   return [uid1, uid2].sort().join('_');
+}
+
+async function getChatBlockedMap(chatId: string): Promise<Record<string, boolean>> {
+  try {
+    const snap = await get(ref(db, `chats/${chatId}/blocked`));
+    if (!snap.exists()) return {};
+    const raw = snap.val() as Record<string, unknown>;
+    const out: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(raw || {})) {
+      out[String(k)] = Boolean(v);
+    }
+    return out;
+  } catch (e) {
+    const msg = (e as Error)?.message ?? '';
+    if (msg.includes('Permission denied')) return {};
+    throw e;
+  }
+}
+
+async function getUserBlockedSet(uid: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const [primarySnap, legacySnap] = await Promise.all([
+      get(ref(db, `users/${uid}/blockedUsers`)),
+      get(ref(db, `userBlockedUsers/${uid}`)),
+    ]);
+    if (primarySnap.exists()) {
+      for (const k of Object.keys(primarySnap.val() || {})) out.add(k);
+    }
+    if (legacySnap.exists()) {
+      for (const k of Object.keys(legacySnap.val() || {})) out.add(k);
+    }
+  } catch (error) {
+    const msg = (error as Error)?.message ?? '';
+    if (!msg.includes('Permission denied')) throw error;
+  }
+  return out;
 }
 
 export const MessageController = {
@@ -49,12 +87,14 @@ export const MessageController = {
       otherUserDisplayName,
       otherUserPhotoURL: otherUserPhotoURL || '',
       lastMessage: null as { text: string; senderId: string; createdAt: number; attachment?: MessageAttachment } | null,
+      unreadCount: 0,
     };
     const summaryForOther = {
       otherUserId: currentUserId,
       otherUserDisplayName: currentUserDisplayName,
       otherUserPhotoURL: currentUserPhotoURL || '',
       lastMessage: null as { text: string; senderId: string; createdAt: number; attachment?: MessageAttachment } | null,
+      unreadCount: 0,
     };
 
     if (!snapshot.exists()) {
@@ -114,6 +154,7 @@ export const MessageController = {
         otherUserDisplayName: entry.otherUserDisplayName || 'Unknown',
         otherUserPhotoURL: entry.otherUserPhotoURL || null,
         lastMessage: entry.lastMessage ? { ...entry.lastMessage, attachment: entry.lastMessage.attachment } : null,
+        unreadCount: Number(entry.unreadCount ?? 0) || 0,
       });
     }
     list.sort((a, b) => {
@@ -146,7 +187,7 @@ export const MessageController = {
 
   subscribeUserChats(
     currentUserId: string,
-    callback: (userChats: Record<string, { lastMessage?: { senderId: string; createdAt: number } }>) => void
+    callback: (userChats: Record<string, { lastMessage?: { senderId: string; createdAt: number }; unreadCount?: number }>) => void
   ): () => void {
     const userChatsRef = ref(db, `userChats/${currentUserId}`);
     const unsub = onValue(userChatsRef, (snapshot) => {
@@ -184,12 +225,46 @@ export const MessageController = {
     return () => off(messagesRef);
   },
 
+  subscribeChatBlocked(
+    chatId: string,
+    callback: (blockedByUserId: Record<string, boolean>) => void
+  ): () => void {
+    const blockedRef = ref(db, `chats/${chatId}/blocked`);
+    const unsub = onValue(blockedRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        callback({});
+        return;
+      }
+      const raw = snapshot.val() as Record<string, unknown>;
+      const out: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(raw || {})) out[String(k)] = Boolean(v);
+      callback(out);
+    });
+    return () => off(blockedRef);
+  },
+
   async sendMessage(
     chatId: string,
     senderId: string,
     text: string,
     attachment?: MessageAttachment
   ): Promise<void> {
+    const [uid1, uid2] = chatId.split('_');
+    const otherUserId = uid1 === senderId ? uid2 : uid1;
+    if (!otherUserId) {
+      throw new Error('Invalid chat participants');
+    }
+    const blockedMap = await getChatBlockedMap(chatId);
+    if (Object.values(blockedMap).some(Boolean)) {
+      throw new Error('You cannot send messages in this chat because one of you is blocked.');
+    }
+
+    // Fallback safety if chat-level block node isn't readable/writable in a given ruleset.
+    const [senderBlockedSet, otherBlockedSet] = await Promise.all([getUserBlockedSet(senderId), getUserBlockedSet(otherUserId)]);
+    if (senderBlockedSet.has(otherUserId) || otherBlockedSet.has(senderId)) {
+      throw new Error('You cannot send messages in this chat because one of you is blocked.');
+    }
+
     const messagesRef = ref(db, `chats/${chatId}/messages`);
     const newRef = push(messagesRef);
     const messageId = newRef.key;
@@ -200,11 +275,59 @@ export const MessageController = {
     const lastMessage = attachment
       ? { senderId, text: text || (attachment.type === 'image' ? '[Image]' : '[Document]'), createdAt, attachment }
       : { senderId, text, createdAt };
+    // Always try to write the message itself first.
     await set(newRef, payload);
-    await update(ref(db, `chats/${chatId}`), { lastMessage });
-    const [uid1, uid2] = chatId.split('_');
-    await update(ref(db, `userChats/${uid1}/${chatId}`), { lastMessage });
-    await update(ref(db, `userChats/${uid2}/${chatId}`), { lastMessage });
+
+    // Best-effort: update chat lastMessage + conversation summaries.
+    // Some RTDB rulesets deny writes to shared chat nodes or to other users' `userChats`.
+    const ignorePermissionDenied = (e: unknown) => {
+      const msg = (e as Error)?.message ?? '';
+      return msg.includes('PERMISSION_DENIED') || msg.includes('Permission denied') || msg.includes('permission_denied');
+    };
+
+    try {
+      await update(ref(db, `chats/${chatId}`), { lastMessage });
+    } catch (e) {
+      if (!ignorePermissionDenied(e)) throw e;
+    }
+
+    // Update sender's own conversation summary (usually allowed).
+    try {
+      await update(ref(db, `userChats/${senderId}/${chatId}`), { lastMessage, unreadCount: 0 });
+    } catch (e) {
+      if (!ignorePermissionDenied(e)) throw e;
+    }
+
+    // Update receiver summary (often denied by strict rules; ignore if so).
+    try {
+      await update(ref(db, `userChats/${otherUserId}/${chatId}`), { lastMessage });
+    } catch (e) {
+      if (!ignorePermissionDenied(e)) throw e;
+    }
+  },
+
+  async markChatRead(currentUserId: string, chatId: string): Promise<void> {
+    await update(ref(db, `userChats/${currentUserId}/${chatId}`), { unreadCount: 0, lastReadAt: Date.now() });
+  },
+
+  async clearAllUnread(currentUserId: string): Promise<void> {
+    try {
+      const snap = await get(ref(db, `userChats/${currentUserId}`));
+      if (!snap.exists()) return;
+      const rows = snap.val() as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      for (const chatId of Object.keys(rows || {})) {
+        patch[`${chatId}/unreadCount`] = 0;
+        patch[`${chatId}/lastReadAt`] = Date.now();
+      }
+      if (Object.keys(patch).length) {
+        await update(ref(db, `userChats/${currentUserId}`), patch);
+      }
+    } catch (e) {
+      const msg = (e as Error)?.message ?? '';
+      if (msg.includes('Permission denied')) return;
+      throw e;
+    }
   },
 
   /** Remove this conversation from the current user's list. Messages remain for the other user. */
@@ -212,24 +335,72 @@ export const MessageController = {
     await remove(ref(db, `userChats/${currentUserId}/${chatId}`));
   },
 
-  /** Block a user (add to blocked list) and remove the conversation from our list. */
+  /** Block a user (add to blocked list). Conversation history remains visible. */
   async blockUser(currentUserId: string, otherUserId: string): Promise<void> {
     const chatId = getChatId(currentUserId, otherUserId);
-    await set(ref(db, `userBlockedUsers/${currentUserId}/${otherUserId}`), true);
-    await remove(ref(db, `userChats/${currentUserId}/${chatId}`));
+    // Store blocks under users/{uid}/blockedUsers where user-scoped write rules commonly exist.
+    await Promise.all([
+      set(ref(db, `users/${currentUserId}/blockedUsers/${otherUserId}`), true),
+      set(ref(db, `chats/${chatId}/blocked/${currentUserId}`), true),
+    ]);
+  },
+
+  /** Unblock a user (remove from blocked list). */
+  async unblockUser(currentUserId: string, otherUserId: string): Promise<void> {
+    const chatId = getChatId(currentUserId, otherUserId);
+
+    // The only required unblock is the user-scoped path (commonly permitted by RTDB rules).
+    // Other cleanup paths are best-effort because some rulesets deny deletes on legacy/shared nodes.
+    await remove(ref(db, `users/${currentUserId}/blockedUsers/${otherUserId}`));
+
+    // Legacy node cleanup (ignore permission denied).
+    remove(ref(db, `userBlockedUsers/${currentUserId}/${otherUserId}`)).catch(() => {});
+
+    // Shared chat-level flag cleanup: try delete; if denied, try setting false; else ignore.
+    remove(ref(db, `chats/${chatId}/blocked/${currentUserId}`))
+      .catch((e) => {
+        const msg = (e as Error)?.message ?? '';
+        if (msg.includes('Permission denied')) {
+          return set(ref(db, `chats/${chatId}/blocked/${currentUserId}`), false);
+        }
+        throw e;
+      })
+      .catch(() => {});
   },
 
   async getBlockedUserIds(currentUserId: string): Promise<string[]> {
-    try {
-      const refBlocked = ref(db, `userBlockedUsers/${currentUserId}`);
-      const snapshot = await get(refBlocked);
-      if (!snapshot.exists()) return [];
-      return Object.keys(snapshot.val());
-    } catch (error) {
-      const msg = (error as Error)?.message ?? '';
-      // Some DB rulesets may not allow this optional node yet; don't block chat loading.
-      if (msg.includes('Permission denied')) return [];
-      throw error;
+    return Array.from(await getUserBlockedSet(currentUserId));
+  },
+
+  async getBlockStatus(currentUserId: string, otherUserId: string): Promise<{
+    blockedByMe: boolean;
+    blockedByOther: boolean;
+  }> {
+    const chatId = getChatId(currentUserId, otherUserId);
+    const blockedMap = await getChatBlockedMap(chatId);
+    const blockedByMe = Boolean(blockedMap?.[currentUserId]);
+    const blockedByOther = Boolean(blockedMap?.[otherUserId]);
+    if (blockedByMe || blockedByOther) {
+      return { blockedByMe, blockedByOther };
     }
+
+    const [mine, theirs] = await Promise.all([
+      getUserBlockedSet(currentUserId),
+      getUserBlockedSet(otherUserId),
+    ]);
+    const derived = {
+      blockedByMe: mine.has(otherUserId),
+      blockedByOther: theirs.has(currentUserId),
+    };
+
+    // Best-effort backfill so chat-level blocking becomes authoritative going forward.
+    if (derived.blockedByMe) {
+      set(ref(db, `chats/${chatId}/blocked/${currentUserId}`), true).catch(() => {});
+    }
+    if (derived.blockedByOther) {
+      set(ref(db, `chats/${chatId}/blocked/${otherUserId}`), true).catch(() => {});
+    }
+
+    return derived;
   },
 };

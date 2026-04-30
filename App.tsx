@@ -123,6 +123,7 @@ export default function App() {
   const [trainerInsightsModule, setTrainerInsightsModule] = useState<TrainerModuleAnalyticsRow | null>(null);
   const [publishEditModuleId, setPublishEditModuleId] = useState<string | null>(null);
   const [pendingRegistration, setPendingRegistration] = useState<RegisterData | null>(null);
+  const [trainerRefreshKey, setTrainerRefreshKey] = useState(0);
 
   // Splash: brief branding then startup (shorter = faster to interactive)
   useEffect(() => {
@@ -274,7 +275,7 @@ export default function App() {
           setScreen('dashboard');
           return true;
         case 'trainer-registration':
-          setScreen('trainer');
+          setScreen('dashboard');
           return true;
         case 'trainer-insights':
           setScreen('profile');
@@ -285,7 +286,7 @@ export default function App() {
           return true;
         case 'publish-module':
           setPublishEditModuleId(null);
-          setScreen('trainer-insights');
+          setScreen(publishEditModuleId ? 'trainer-insights' : 'trainer');
           return true;
         case 'category-practice-session': {
           // Mirror the onExit handler used by the session screen so back leaves
@@ -336,7 +337,7 @@ export default function App() {
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
-  }, [screen, topUpStep, loggingOut, pendingRegistration, categoryPracticeSession, requestExit]);
+  }, [screen, topUpStep, loggingOut, pendingRegistration, categoryPracticeSession, requestExit, publishEditModuleId]);
 
   const openTopUp = useCallback(() => {
     setTopUpReceipt(null);
@@ -479,6 +480,7 @@ export default function App() {
                   });
                   setScreen('category-practice-session');
                 }}
+                onTrainerRatingsSubmitted={() => setTrainerRefreshKey((k) => k + 1)}
               />
             </MainLayout>
           )}
@@ -604,12 +606,15 @@ export default function App() {
                 ) : undefined
               }
             >
-              <TrainerScreen onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }} />
+              <TrainerScreen
+                refreshKey={trainerRefreshKey}
+                onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }}
+              />
             </MainLayout>
           )}
           {screen === 'trainer-registration' && (
             <TrainerRegistrationScreen
-              onBack={() => setScreen('trainer')}
+              onBack={() => setScreen('dashboard')}
               onSuccess={() => setScreen('dashboard')}
             />
           )}
@@ -617,13 +622,15 @@ export default function App() {
             <PublishModuleScreen
               moduleId={publishEditModuleId ?? undefined}
               onBack={() => {
+                const returnToInsights = Boolean(publishEditModuleId);
                 setPublishEditModuleId(null);
-                setScreen('trainer-insights');
+                setScreen(returnToInsights ? 'trainer-insights' : 'trainer');
               }}
               onSuccess={(toastMessage) => {
                 if (toastMessage) setDashboardToastMessage(toastMessage);
+                const returnToInsights = Boolean(publishEditModuleId);
                 setPublishEditModuleId(null);
-                setScreen('trainer-insights');
+                setScreen(returnToInsights ? 'trainer-insights' : 'trainer');
               }}
             />
           )}

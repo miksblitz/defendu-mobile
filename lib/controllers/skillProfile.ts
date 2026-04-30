@@ -5,6 +5,16 @@ import type { FitnessCapabilities, Preferences, SkillProfile } from '../models/S
 import type { User } from '../models/User';
 import { getCurrentUser } from './authSession';
 
+function getCurrentWeekKeyLocal(nowMs: number = Date.now()): string {
+  const now = new Date(nowMs);
+  const dayOfWeek = now.getDay();
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  const start = new Date(now);
+  start.setDate(now.getDate() - daysSinceMonday);
+  start.setHours(0, 0, 0, 0);
+  return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+}
+
 export async function saveSkillProfile(profile: SkillProfile): Promise<void> {
   const firebaseUser = auth.currentUser;
   if (!firebaseUser) {
@@ -86,6 +96,46 @@ export async function updateSkillProfilePartial(updates: {
     completedAt: full.completedAt,
   };
   await saveSkillProfile(merged);
+}
+
+/** Update weekly/daily rhythm from Settings, limited to once per local Mon–Sun week. */
+export async function updateWeeklyRhythmTargetsOncePerWeek(
+  targetModulesPerWeek: number,
+  targetModulesPerDay: number
+): Promise<void> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) throw new Error('User not authenticated');
+  const weekKey = getCurrentWeekKeyLocal();
+
+  const userSnap = await get(ref(db, `users/${currentUser.uid}`));
+  const userData = userSnap.exists() ? (userSnap.val() as Record<string, unknown>) : {};
+  const lastWeekKey = typeof userData.weeklyRhythmUpdatedWeekKey === 'string'
+    ? userData.weeklyRhythmUpdatedWeekKey
+    : null;
+  if (lastWeekKey === weekKey) {
+    throw new Error('You can change weekly rhythm once per week. Try again next week.');
+  }
+
+  await updateSkillProfilePartial({
+    preferences: {
+      targetModulesPerWeek,
+      targetModulesPerDay,
+    },
+  });
+
+  await update(ref(db, `users/${currentUser.uid}`), {
+    weeklyRhythmUpdatedWeekKey: weekKey,
+    weeklyRhythmUpdatedAt: Date.now(),
+  });
+
+  const refreshed = await getCurrentUser();
+  if (refreshed) {
+    await AsyncStorage.setItem('user', JSON.stringify({
+      ...refreshed,
+      weeklyRhythmUpdatedWeekKey: weekKey,
+      weeklyRhythmUpdatedAt: Date.now(),
+    }));
+  }
 }
 
 /** Fetch skill profile for current user (e.g. for height/weight fallback). */

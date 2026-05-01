@@ -147,20 +147,19 @@ export function createSlipRepDetectorForDirection(
       baseHipX = null;
       direction = null;
       if (badSegment.length > 0) {
-        const isGuardIssue = !guard;
-        return {
-          done: true,
-          segment: badSegment,
-          forcedBadRep: true,
-          feedback: [{
-            id: isGuardIssue ? 'guard-not-up-while-slipping' : 'bad-rep-slip',
-            message: isGuardIssue
-              ? 'KEEP BOTH HANDS UP!'
-              : 'Bad Repetition — complete a clean slip to one side and keep hips stable. Try again.',
-            severity: 'error',
-            phase: 'impact',
-          }],
-        };
+        if (!guard) {
+          return {
+            done: true,
+            segment: badSegment,
+            forcedBadRep: true,
+            feedback: [{
+              id: 'guard-not-up-while-slipping',
+              message: 'KEEP BOTH HANDS UP!',
+              severity: 'error',
+              phase: 'impact',
+            }],
+          };
+        }
       }
       return { done: false };
     }

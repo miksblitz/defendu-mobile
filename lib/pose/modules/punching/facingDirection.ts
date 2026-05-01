@@ -53,15 +53,9 @@ export function isFacingLeftSide(frame: PoseFrame): boolean {
 }
 
 export function buildFacingRightBadRep(frame: PoseFrame, id: string): RepDetectorResult {
-  return {
-    done: true,
-    segment: [frame],
-    forcedBadRep: true,
-    feedback: [{
-      id,
-      message: 'FACE LEFT!',
-      severity: 'error',
-      phase: 'impact',
-    }],
-  };
+  // Disabled: previously forced a bad rep when user faced right.
+  // Keep the helper for compatibility with modules that call it.
+  void frame;
+  void id;
+  return { done: false };
 }

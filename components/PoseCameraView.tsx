@@ -919,8 +919,6 @@ export default function PoseCameraView({
               {lastFeedback.slice(0, 4).map((item) => (
                 (() => {
                   const urgentMessages = new Set([
-                    'FACE LEFT!',
-                    'FACE FRONT!',
                     'KEEP BOTH HANDS UP!',
                     'WRONG ARM!',
                     'WRONG LEG!',

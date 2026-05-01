@@ -378,26 +378,26 @@ export default function PublishModuleScreen({ onBack, onSuccess, moduleId }: Pub
     if (loading) return;
     // Enhanced validation logic (mirroring web)
     const titleError = !moduleTitle.trim()
-      ? 'Please fill this in'
+      ? 'Add a title'
       : moduleTitle.length > 50
-        ? 'Module title must be 50 characters or less'
+        ? 'Title must be ≤ 50 chars'
         : '';
     const descError = !description.trim()
-      ? 'Please fill this in'
+      ? 'Add a description'
       : description.length > 600
-        ? 'Description must be 600 characters or less'
+        ? 'Description must be ≤ 600 chars'
         : '';
-    const catError = !category ? 'Please select a category' : '';
+    const catError = !category ? 'Pick a category' : '';
     const hasIntroVideo = Boolean(introductionVideoUri || existingIntroductionVideoUrl);
     const hasTechniqueVideo = Boolean(techniqueVideoFile || existingTechniqueVideoUrl);
     const introError =
       introductionType === 'text'
-        ? !introduction.trim() ? 'Please fill this in or upload an introduction video' : ''
-        : !hasIntroVideo ? 'Please upload an introduction video or add text' : '';
-    const videoError = !hasTechniqueVideo ? 'Please add technique video' : '';
-    const warmupError = isEditMode ? '' : (warmupExercises.length !== 3 ? 'Please select exactly 3 warmup exercises' : '');
-    const cooldownError = isEditMode ? '' : (cooldownExercises.length !== 3 ? 'Please select exactly 3 cooldown stretches' : '');
-    const certError = !certificationChecked ? 'Please check this box to certify' : '';
+        ? !introduction.trim() ? 'Add intro text or video' : ''
+        : !hasIntroVideo ? 'Add intro video or text' : '';
+    const videoError = !hasTechniqueVideo ? 'Add technique video' : '';
+    const warmupError = isEditMode ? '' : (warmupExercises.length !== 3 ? 'Pick 3 warmups' : '');
+    const cooldownError = isEditMode ? '' : (cooldownExercises.length !== 3 ? 'Pick 3 cooldowns' : '');
+    const certError = !certificationChecked ? 'Check certification box' : '';
     setErrors({
       moduleTitle: titleError,
       description: descError,
@@ -413,17 +413,17 @@ export default function PublishModuleScreen({ onBack, onSuccess, moduleId }: Pub
     if (hasFieldErrors || certError) {
       // Build a guiding toast listing what's missing
       const missing: string[] = [];
-      if (titleError) missing.push('Module title');
+      if (titleError) missing.push('Title');
       if (descError) missing.push('Description');
       if (catError) missing.push('Category');
-      if (introError) missing.push('Introduction');
+      if (introError) missing.push('Intro');
       if (videoError) missing.push('Technique video');
-      if (warmupError) missing.push('Warmup (pick 3)');
-      if (cooldownError) missing.push('Cooldown (pick 3)');
-      if (certError) missing.push('Certification box (check "I certify...")');
+      if (warmupError) missing.push('Warmups (3)');
+      if (cooldownError) missing.push('Cooldowns (3)');
+      if (certError) missing.push('Certification');
       const message = missing.length === 1
-        ? `Please fill in: ${missing[0]}`
-        : `Please complete: ${missing.join(', ')}`;
+        ? `Missing: ${missing[0]}`
+        : `Missing: ${missing.join(', ')}`;
       showToast(message);
       return;
     }
@@ -763,10 +763,12 @@ export default function PublishModuleScreen({ onBack, onSuccess, moduleId }: Pub
                 <TouchableOpacity
                   style={styles.nextBtnCentered}
                   onPress={() => {
-                    const titleError = !moduleTitle.trim() ? 'Please fill this in' : moduleTitle.length > 50 ? 'Module title must be 50 characters or less' : '';
-                    const descError = !description.trim() ? 'Please fill this in' : description.length > 600 ? 'Description must be 600 characters or less' : '';
-                    const catError = !category ? 'Please select a category' : '';
-                    const introError = introductionType === 'text' ? (!introduction.trim() ? 'Please fill this in or upload an introduction video' : '') : (!(introductionVideoUri || existingIntroductionVideoUrl) ? 'Please upload an introduction video or add text' : '');
+                    const titleError = !moduleTitle.trim() ? 'Add a title' : moduleTitle.length > 50 ? 'Title must be ≤ 50 chars' : '';
+                    const descError = !description.trim() ? 'Add a description' : description.length > 600 ? 'Description must be ≤ 600 chars' : '';
+                    const catError = !category ? 'Pick a category' : '';
+                    const introError = introductionType === 'text'
+                      ? (!introduction.trim() ? 'Add intro text or video' : '')
+                      : (!(introductionVideoUri || existingIntroductionVideoUrl) ? 'Add intro video or text' : '');
                     setErrors((e) => ({ ...e, moduleTitle: titleError, description: descError, category: catError, introduction: introError }));
                     if (titleError || descError || catError || introError) {
                       showToast(titleError || descError || catError || introError);

@@ -10,6 +10,8 @@ export interface User {
   role?: UserRole;
   hasCompletedSkillProfile?: boolean;
   trainerApproved?: boolean;
+  /** When true, trainer is hidden from the public Trainer page list. */
+  trainerProfileHidden?: boolean;
   blocked?: boolean;
   lastActive?: Date;
   preferredTechnique?: string[];

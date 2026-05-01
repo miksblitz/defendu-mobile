@@ -29,6 +29,9 @@ import { TrainingGuidePreloader, TrainingPoseGuideOverlay, type TrainingGuideMod
 import { getPurchasedModuleIds, getUserCreditsBalance, purchaseModulesWithCredits } from '../lib/controllers/modulePurchases';
 import { getCachedVideoUri, prefetchVideo } from '../utils/videoCache';
 
+/** After the final cooldown (and category success when shown), keep MODULE COMPLETED visible this long before the trainer rating modal. */
+const SESSION_DONE_HOLD_MS_BEFORE_TRAINER_PROMPT = 3000;
+
 type SessionStep =
   | 'warmup_countdown'
   | 'warmup_timer'
@@ -72,6 +75,7 @@ export interface CategoryPracticeSessionScreenProps {
    * Quit (top-left) stays available so users can leave the session.
    */
   sessionVariant?: 'default' | 'recommendedSingle';
+  onGoToTrainerPage?: () => void;
   onExit: () => void;
 }
 
@@ -204,6 +208,7 @@ export default function CategoryPracticeSessionScreen({
   initialCooldownIndex = 0,
   initialTrainingIndex = 0,
   sessionVariant = 'default',
+  onGoToTrainerPage,
   onExit,
 }: CategoryPracticeSessionScreenProps) {
   const hideSessionNav = sessionVariant === 'recommendedSingle';
@@ -1329,7 +1334,7 @@ export default function CategoryPracticeSessionScreen({
         const prompted = await promptForCategoryReviewIfNeeded();
         if (!prompted) await exitSession();
       })();
-    }, 5000);
+    }, SESSION_DONE_HOLD_MS_BEFORE_TRAINER_PROMPT);
     return () => clearSessionDoneTimeout();
   }, [step, exitSession, promptForCategoryReviewIfNeeded, playCategoryCompleteSound]);
 
@@ -1903,7 +1908,7 @@ export default function CategoryPracticeSessionScreen({
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>Rate This Category</Text>
           <Text style={styles.modalMessage}>
-            Rate each trainer in {categoryReviewPrompt?.category}. Tap stars to submit your feedback.
+            Rate these Trainers in {categoryReviewPrompt?.category}. Visit them in the Trainer Page and message them — get in touch with them!
           </Text>
           {categoryReviewPrompt?.trainers?.length ? (
             <View style={styles.reviewTrainerList}>
@@ -1974,6 +1979,15 @@ export default function CategoryPracticeSessionScreen({
               <Text style={styles.modalYesText}>{submittingCategoryReview ? 'Submitting...' : 'Submit'}</Text>
             </Pressable>
           </View>
+          <Pressable
+            style={styles.modalTrainerPageButton}
+            onPress={() => {
+              setCategoryReviewPrompt(null);
+              onGoToTrainerPage?.();
+            }}
+          >
+            <Text style={styles.modalTrainerPageButtonText}>Go to Trainer Page</Text>
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -2585,6 +2599,17 @@ const styles = StyleSheet.create({
   modalOutlineButton: { width: '100%', borderWidth: 1.5, borderColor: '#07bbc0', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   modalOutlineButtonText: { color: '#07bbc0', fontWeight: '700', fontSize: 15 },
   modalDisabled: { opacity: 0.5 },
+  modalTrainerPageButton: {
+    width: '100%',
+    marginTop: 10,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#0a3645',
+    backgroundColor: '#041527',
+  },
+  modalTrainerPageButtonText: { color: '#d6e6ee', fontWeight: '800', fontSize: 15 },
   reviewTrainerList: { width: '100%', marginBottom: 12 },
   reviewTrainerRow: {
     flexDirection: 'row',

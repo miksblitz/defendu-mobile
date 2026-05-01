@@ -478,6 +478,7 @@ function TrainingCategoryCard({
 interface DashboardScreenProps {
   onOpenModule: (moduleId: string, initialModule?: ModuleItem) => void;
   onOpenTopUp?: () => void;
+  onGoToTrainerPage?: () => void;
   onStartCategorySession: (payload: {
     category: string;
     warmups: string[];
@@ -516,6 +517,7 @@ interface DashboardScreenProps {
 export default function DashboardScreen({
   onOpenModule,
   onOpenTopUp,
+  onGoToTrainerPage,
   onStartCategorySession,
   onStartRecommendedSingleSession,
   recommendationsReopenToken = 0,
@@ -2317,7 +2319,7 @@ export default function DashboardScreen({
           <View style={styles.recModalCard}>
             <Text style={styles.recModalTitle}>Rate This Category</Text>
             <Text style={styles.recModalSub}>
-              Rate each trainer in {categoryReviewPrompt?.category}. Tap stars to leave your optional rating.
+              Rate these Trainers in {categoryReviewPrompt?.category}. Visit them in the Trainer Page and message them — get in touch with them!
             </Text>
             {categoryReviewPrompt?.trainers?.length ? (
               <ScrollView style={styles.reviewTrainerListScroll} showsVerticalScrollIndicator={false}>
@@ -2399,6 +2401,15 @@ export default function DashboardScreen({
                 </Text>
               </Pressable>
             </View>
+            <Pressable
+              style={styles.modalTrainerPageButton}
+              onPress={() => {
+                setCategoryReviewPrompt(null);
+                onGoToTrainerPage?.();
+              }}
+            >
+              <Text style={styles.modalTrainerPageButtonText}>Go to Trainer Page</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -2648,6 +2659,17 @@ const styles = StyleSheet.create({
   },
   modalYesText: { color: '#041527', fontSize: 14, fontWeight: '900' },
   modalDisabled: { opacity: 0.5 },
+  modalTrainerPageButton: {
+    width: '100%',
+    marginTop: 10,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#0a3645',
+    backgroundColor: '#041527',
+  },
+  modalTrainerPageButtonText: { color: '#d7e3e8', fontSize: 14, fontWeight: '900' },
   paywallBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.72)',

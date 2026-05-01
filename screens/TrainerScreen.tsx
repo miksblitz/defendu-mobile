@@ -16,11 +16,14 @@ import {
   Modal,
   Linking,
   TextInput,
+  Switch,
 } from 'react-native';
 import { AuthController } from '../lib/controllers/AuthController';
 import type { User } from '../lib/models/User';
 import type { TrainerApplication } from '../lib/models/TrainerApplication';
 import { MARTIAL_ARTS } from '../lib/constants/martialArts';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 
 const FACEBOOK_LOGO = require('../assets/images/facebooklogo.png');
 const INSTAGRAM_LOGO = require('../assets/images/instagramlogo.png');
@@ -34,10 +37,18 @@ interface TrainerWithData extends User {
 interface TrainerScreenProps {
   onMessageTrainer?: (uid: string, name: string, photoUrl: string | null) => void;
   refreshKey?: number;
+  initialToastMessage?: string | null;
+  onClearInitialToast?: () => void;
 }
 
 // --- Component ---
-export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: TrainerScreenProps) {
+export default function TrainerScreen({
+  onMessageTrainer,
+  refreshKey = 0,
+  initialToastMessage = null,
+  onClearInitialToast,
+}: TrainerScreenProps) {
+  const { toastVisible, toastMessage, showToast, hideToast } = useToast();
   const [trainers, setTrainers] = useState<TrainerWithData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -65,8 +76,18 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
   const [trainerInstagramLink, setTrainerInstagramLink] = useState('');
   const [trainerOtherLink, setTrainerOtherLink] = useState('');
   const [trainerAbout, setTrainerAbout] = useState('');
+  const [trainerProfileHidden, setTrainerProfileHidden] = useState(false);
   const [viewerImageUri, setViewerImageUri] = useState<string | null>(null);
   const [viewerKind, setViewerKind] = useState<'avatar' | 'cover' | null>(null);
+
+  const shownInitialToastRef = React.useRef(false);
+  useEffect(() => {
+    if (shownInitialToastRef.current) return;
+    if (!initialToastMessage) return;
+    shownInitialToastRef.current = true;
+    showToast(initialToastMessage);
+    onClearInitialToast?.();
+  }, [initialToastMessage, onClearInitialToast, showToast]);
 
   const loadTrainers = async () => {
     const [user, list] = await Promise.all([
@@ -185,6 +206,7 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
     setTrainerInstagramLink(app?.instagramLink || '');
     setTrainerOtherLink(app?.otherLink || '');
     setTrainerAbout(app?.aboutMe || '');
+    setTrainerProfileHidden(Boolean((selectedTrainer as User).trainerProfileHidden));
     setShowDefenseStylesPicker(false);
     setShowYearsExpPicker(false);
     setShowYearsTeachPicker(false);
@@ -208,6 +230,7 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
         instagramLink: trainerInstagramLink,
         otherLink: trainerOtherLink,
         aboutMe: trainerAbout,
+        trainerProfileHidden,
       });
       await loadTrainers();
       setShowTrainerEditModal(false);
@@ -424,6 +447,7 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
             {filteredTrainers.map((t) => {
               const coverUri = getCoverPhotoUri(t);
               const trainerStyles = getTrainerStyles(t).slice(0, 3);
+              const showHiddenOverlay = t.uid === currentUserUid && Boolean(t.trainerProfileHidden);
               return (
                 <TouchableOpacity
                   key={t.uid}
@@ -474,6 +498,15 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
                       </View>
                     ) : null}
                   </View>
+                  {showHiddenOverlay ? (
+                    <View style={styles.cardHiddenOverlayFull} pointerEvents="none">
+                      <View style={styles.cardHiddenCenter}>
+                        <Ionicons name="eye-off" size={24} color="#d6e6ee" />
+                        <Text style={styles.cardHiddenCenterText}>HIDDEN</Text>
+                        <Text style={styles.cardHiddenCenterSubText}>Your profile is hidden from other learners</Text>
+                      </View>
+                    </View>
+                  ) : null}
                 </TouchableOpacity>
               );
             })}
@@ -770,6 +803,21 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
               <TextInput style={styles.editInput} value={trainerOtherLink} onChangeText={setTrainerOtherLink} placeholder="Website or other URL" placeholderTextColor="#6b8693" autoCapitalize="none" />
               <Text style={styles.editLabel}>About</Text>
               <TextInput style={[styles.editInput, styles.editInputMultiline]} value={trainerAbout} onChangeText={setTrainerAbout} placeholder="Short bio" placeholderTextColor="#6b8693" multiline />
+
+              <View style={styles.hideProfileRow}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={styles.editLabel}>Hide trainer profile</Text>
+                  <Text style={styles.hideProfileHint}>
+                    When enabled, learners won’t see you on the Trainer page.
+                  </Text>
+                </View>
+                <Switch
+                  value={trainerProfileHidden}
+                  onValueChange={setTrainerProfileHidden}
+                  trackColor={{ false: '#0a3645', true: 'rgba(7,187,192,0.55)' }}
+                  thumbColor={trainerProfileHidden ? '#07bbc0' : '#6b8693'}
+                />
+              </View>
             </ScrollView>
             <View style={styles.editActions}>
               <TouchableOpacity style={styles.editCancelButton} onPress={() => setShowTrainerEditModal(false)}>
@@ -818,6 +866,7 @@ export default function TrainerScreen({ onMessageTrainer, refreshKey = 0 }: Trai
           </View>
         </View>
       </Modal>
+      <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} duration={3000} />
     </View>
   );
 }
@@ -882,6 +931,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#0b3247',
     overflow: 'hidden',
+    position: 'relative',
     shadowColor: '#000',
     shadowOpacity: 0.35,
     shadowRadius: 10,
@@ -923,6 +973,24 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginLeft: 3,
   },
+  cardHiddenOverlayFull: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4, 21, 39, 0.72)', // blue-black transparent
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  cardHiddenCenter: {
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(7, 187, 192, 0.35)',
+    backgroundColor: 'rgba(1, 31, 54, 0.55)',
+  },
+  cardHiddenCenterText: { color: '#d6e6ee', fontSize: 18, fontWeight: '900', letterSpacing: 1.4, marginTop: 8 },
+  cardHiddenCenterSubText: { color: 'rgba(214,230,238,0.85)', fontSize: 12, marginTop: 6, textAlign: 'center' },
   cardInner: {
     padding: 14,
     paddingTop: 0,
@@ -1189,6 +1257,18 @@ const styles = StyleSheet.create({
   },
   editPickerItemText: { color: '#FFF', fontSize: 14, flex: 1 },
   editPickerCheck: { color: '#07bbc0', fontWeight: '700', fontSize: 15 },
+  hideProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#0a3645',
+    backgroundColor: '#062731',
+  },
+  hideProfileHint: { color: '#6b8693', fontSize: 12, marginTop: 6, lineHeight: 16 },
   editActions: {
     flexDirection: 'row',
     borderTopWidth: 1,

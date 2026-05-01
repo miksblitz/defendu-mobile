@@ -15,6 +15,7 @@ import {
   Modal,
   Alert,
   Platform,
+  Switch,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,6 +65,7 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
   const [trainerFacebookLink, setTrainerFacebookLink] = useState('');
   const [trainerInstagramLink, setTrainerInstagramLink] = useState('');
   const [trainerOtherLink, setTrainerOtherLink] = useState('');
+  const [trainerProfileHidden, setTrainerProfileHidden] = useState(false);
   const [uploadingAboutMeAttachment, setUploadingAboutMeAttachment] = useState(false);
   const [showDefenseStylesPicker, setShowDefenseStylesPicker] = useState(false);
   const [showBeltPicker, setShowBeltPicker] = useState(false);
@@ -195,6 +197,7 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
         setTrainerFacebookLink(app.facebookLink || '');
         setTrainerInstagramLink(app.instagramLink || '');
         setTrainerOtherLink(app.otherLink || '');
+        setTrainerProfileHidden(Boolean((user as unknown as { trainerProfileHidden?: boolean }).trainerProfileHidden));
       } else {
         setSelectedDefenseStyles([]);
         setTrainerCurrentRank('');
@@ -204,6 +207,7 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
         setTrainerFacebookLink('');
         setTrainerInstagramLink('');
         setTrainerOtherLink('');
+        setTrainerProfileHidden(Boolean((user as unknown as { trainerProfileHidden?: boolean }).trainerProfileHidden));
       }
       setTrainerProfileModalVisible(true);
     } catch (e) {
@@ -273,6 +277,7 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
         facebookLink: trainerFacebookLink.trim(),
         instagramLink: trainerInstagramLink.trim(),
         otherLink: trainerOtherLink.trim(),
+        trainerProfileHidden,
       });
       setTrainerProfileModalVisible(false);
     } catch (e) {
@@ -895,6 +900,18 @@ export default function ProfileScreen({ onOpenTrainerInsights }: ProfileScreenPr
                   </Text>
                 </TouchableOpacity>
               )}
+            </View>
+            <View style={styles.hideProfileRow}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.label}>Hide trainer profile</Text>
+                <Text style={styles.labelSecondary}>When enabled, learners won’t see you on the Trainer page.</Text>
+              </View>
+              <Switch
+                value={trainerProfileHidden}
+                onValueChange={setTrainerProfileHidden}
+                trackColor={{ false: '#0a3645', true: 'rgba(7,187,192,0.55)' }}
+                thumbColor={trainerProfileHidden ? '#07bbc0' : '#6b8693'}
+              />
             </View>
             {trainerProfileError ? <Text style={styles.errorText}>{trainerProfileError}</Text> : null}
             <View style={styles.modalButtons}>
@@ -1527,6 +1544,17 @@ const styles = StyleSheet.create({
   removeAttachmentText: { color: '#e57373', fontSize: 14 },
   addAttachmentBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#062731', borderStyle: 'dashed' },
   addAttachmentText: { color: '#07bbc0', fontSize: 14 },
+  hideProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#062731',
+    backgroundColor: '#062731',
+  },
   fieldErrorText: { color: '#e57373', fontSize: 12, marginTop: 6 },
   passwordSectionLabel: { fontSize: 14, color: '#6b8693', marginTop: 8, marginBottom: 4 },
   passwordInputRow: {

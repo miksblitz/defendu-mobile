@@ -23,6 +23,8 @@ export async function getApprovedTrainers(): Promise<User[]> {
       const userDataRaw = usersData[uid];
       if (!userDataRaw || typeof userDataRaw !== 'object') continue;
       if (userDataRaw.role !== 'trainer' || userDataRaw.trainerApproved !== true) continue;
+      const isHidden = Boolean((userDataRaw as { trainerProfileHidden?: unknown }).trainerProfileHidden);
+      if (isHidden && uid !== currentUser.uid) continue;
       approvedTrainers.push({
         ...userDataRaw,
         uid,
@@ -35,6 +37,7 @@ export async function getApprovedTrainers(): Promise<User[]> {
         role: 'trainer',
         hasCompletedSkillProfile: Boolean(userDataRaw.hasCompletedSkillProfile ?? false),
         trainerApproved: true,
+        trainerProfileHidden: isHidden,
         blocked: Boolean(userDataRaw.blocked ?? false),
         preferredTechnique: normalizeArray(userDataRaw.preferredTechnique),
         trainingGoal: normalizeArray(userDataRaw.trainingGoal),
@@ -261,6 +264,7 @@ export async function updateTrainerProfile(
     facebookLink?: string;
     instagramLink?: string;
     otherLink?: string;
+    trainerProfileHidden?: boolean;
   }
 ): Promise<void> {
   const currentUser = await getCurrentUser();
@@ -283,8 +287,13 @@ export async function updateTrainerProfile(
   if (updates.facebookLink !== undefined) patch.facebookLink = updates.facebookLink.trim();
   if (updates.instagramLink !== undefined) patch.instagramLink = updates.instagramLink.trim();
   if (updates.otherLink !== undefined) patch.otherLink = updates.otherLink.trim();
-  if (Object.keys(patch).length === 0) return;
-  await update(applicationRef, patch);
+  const userPatch: Record<string, unknown> = {};
+  if (updates.trainerProfileHidden !== undefined) userPatch.trainerProfileHidden = Boolean(updates.trainerProfileHidden);
+  if (Object.keys(patch).length === 0 && Object.keys(userPatch).length === 0) return;
+  await Promise.all([
+    Object.keys(patch).length ? update(applicationRef, patch) : Promise.resolve(),
+    Object.keys(userPatch).length ? update(ref(db, `users/${uid}`), userPatch) : Promise.resolve(),
+  ]);
 }
 
 /** Submit or resubmit trainer application; updates user role to trainer and sets trainerApproved to false. */

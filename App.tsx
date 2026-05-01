@@ -118,6 +118,7 @@ export default function App() {
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [dashboardReturnToCategory, setDashboardReturnToCategory] = useState<string | null>(null);
   const [dashboardToastMessage, setDashboardToastMessage] = useState<string | null>(null);
+  const [trainerToastMessage, setTrainerToastMessage] = useState<string | null>(null);
   const [messagesOpenWith, setMessagesOpenWith] = useState<{ uid: string; name: string; photo: string | null } | null>(null);
   const [isApprovedTrainer, setIsApprovedTrainer] = useState(false);
   const [trainerInsightsModule, setTrainerInsightsModule] = useState<TrainerModuleAnalyticsRow | null>(null);
@@ -379,7 +380,16 @@ export default function App() {
             <View style={startupOverlayStyle} pointerEvents="box-none">
               <StartupScreen
                 onFinish={() => {
-                  if (initialUrlChecked) setScreen('login');
+                  if (!initialUrlChecked) return;
+                  void (async () => {
+                    // If a user session is already cached, skip the login screen.
+                    const user = await AuthController.getCurrentUser().catch(() => null);
+                    if (user) {
+                      handleLoginSuccess(user);
+                    } else {
+                      setScreen('login');
+                    }
+                  })();
                 }}
               />
             </View>
@@ -458,6 +468,7 @@ export default function App() {
                 initialToastMessage={dashboardToastMessage}
                 onClearInitialToast={() => setDashboardToastMessage(null)}
                 onOpenTopUp={openTopUp}
+                onGoToTrainerPage={() => setScreen('trainer')}
                 onCreditsUpdated={setCreditsBalance}
                 onModulePurchaseComplete={(payload) => {
                   setCreditsBalance(payload.newCredits);
@@ -609,6 +620,8 @@ export default function App() {
               <TrainerScreen
                 refreshKey={trainerRefreshKey}
                 onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }}
+                initialToastMessage={trainerToastMessage}
+                onClearInitialToast={() => setTrainerToastMessage(null)}
               />
             </MainLayout>
           )}
@@ -627,7 +640,7 @@ export default function App() {
                 setScreen(returnToInsights ? 'trainer-insights' : 'trainer');
               }}
               onSuccess={(toastMessage) => {
-                if (toastMessage) setDashboardToastMessage(toastMessage);
+                if (toastMessage) setTrainerToastMessage(toastMessage);
                 const returnToInsights = Boolean(publishEditModuleId);
                 setPublishEditModuleId(null);
                 setScreen(returnToInsights ? 'trainer-insights' : 'trainer');
@@ -657,6 +670,10 @@ export default function App() {
                 initialTrainingIndex={categoryPracticeSession.initialTrainingIndex ?? 0}
                 sessionVariant={categoryPracticeSession.sessionVariant ?? 'default'}
                 {...({ introductionVideoUrl: categoryPracticeSession.introductionVideoUrl ?? null } as any)}
+                onGoToTrainerPage={() => {
+                  setCategoryPracticeSession(null);
+                  setScreen('trainer');
+                }}
                 onExit={() => {
                   const variant = categoryPracticeSession.sessionVariant;
                   if (variant === 'recommendedSingle') {

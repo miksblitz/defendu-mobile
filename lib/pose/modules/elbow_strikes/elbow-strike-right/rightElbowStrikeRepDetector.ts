@@ -3,11 +3,13 @@ import type { RepDetectorResult } from '../../types';
 import { getRightElbowStrikeArmSnapshot, isRightElbowStrikeFinalPose } from './rightElbowStrikeFormRules';
 import { getLeadArmSnapshot, isLeadElbowFinalPose } from '../lead-elbow-strike/leadElbowStrikeFormRules';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { isFacingLeftSide } from '../../punching/facingDirection';
 
 const MIN_HOLD_FRAMES = 1;
 const MIN_RETRACT_FRAMES = 2;
 const COOLDOWN_MS = 2000;
 const GUARD_MAX_EXTENSION = 0.24;
+const LEFT_FACING_BAD_COOLDOWN_MS = 250;
 
 type State = 'idle' | 'holding' | 'cooldown';
 
@@ -22,8 +24,27 @@ export function createRightElbowStrikeRepDetector(): (frame: PoseFrame, now: num
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
+  let leftFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
+    if (isFacingLeftSide(frame) && now >= leftFacingBadUntil) {
+      leftFacingBadUntil = now + LEFT_FACING_BAD_COOLDOWN_MS;
+      state = 'idle';
+      segment = [];
+      retractFrames = 0;
+      return {
+        done: true,
+        segment: [frame],
+        forcedBadRep: true,
+        feedback: [{
+          id: 'right-elbow-strike-facing-left-bad-rep',
+          message: 'FACE FRONT!',
+          severity: 'error',
+          phase: 'impact',
+        }],
+      };
+    }
+
     const snap = getRightElbowStrikeArmSnapshot(frame);
     const finalPose = isRightElbowStrikeFinalPose(snap, false);
     const oppositeSnap = getLeadArmSnapshot(frame);

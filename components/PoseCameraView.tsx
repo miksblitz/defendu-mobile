@@ -920,6 +920,7 @@ export default function PoseCameraView({
                 (() => {
                   const urgentMessages = new Set([
                     'FACE LEFT!',
+                    'FACE FRONT!',
                     'KEEP BOTH HANDS UP!',
                     'WRONG ARM!',
                     'WRONG LEG!',

@@ -162,22 +162,12 @@ export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, n
     }
 
     if (attemptClass === 'opposite_only') {
-      const out = segment.length > 0 ? [...segment, frame] : [frame];
-      state = 'cooldown';
-      cooldownUntil = now + COOLDOWN_MS;
+      // If user performs the opposite (lead) uppercut elbow motion, ignore it for this module
+      // rather than forcing a bad rep.
+      state = 'idle';
       segment = [];
       retractFrames = 0;
-      return {
-        done: true,
-        segment: out,
-        forcedBadRep: true,
-        feedback: [{
-          id: 'rear-uppercut-elbow-opposite-hand-bad-rep',
-          message: 'WRONG ARM!',
-          severity: 'error',
-          phase: 'impact',
-        }],
-      };
+      return { done: false };
     }
 
     if (attemptClass === 'rear-same-side') {

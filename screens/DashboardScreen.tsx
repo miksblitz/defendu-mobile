@@ -664,10 +664,12 @@ export default function DashboardScreen({
 
   const loadDashboardData = React.useCallback(async () => {
     const LOAD_TIMEOUT_MS = 10000;
-    let done = false;
+    let timedOut = false;
     const timeoutId = setTimeout(() => {
-      if (done) return;
-      done = true;
+      // Only release the UI spinner; still allow late network results to apply.
+      // On cold start + slow networks, first load can exceed 10s.
+      if (timedOut) return;
+      timedOut = true;
       setLoading(false);
       setRefreshing(false);
     }, LOAD_TIMEOUT_MS);
@@ -699,7 +701,6 @@ export default function DashboardScreen({
         AuthController.getCategorySegmentProgram(),
         AuthController.getModuleCategoriesWithMeta(),
       ]);
-      if (done) return;
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
       setModules(list ?? []);
       const fallbackCategories = MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
@@ -737,7 +738,6 @@ export default function DashboardScreen({
       setTargetModulesPerWeek(weeklyTarget);
       setLoading(false);
       setRefreshing(false);
-      done = true;
       clearTimeout(timeoutId);
 
       if (list?.length) {
@@ -764,7 +764,7 @@ export default function DashboardScreen({
           setRecommendedModules([]);
         });
     } catch (e) {
-      if (!done) setModules([]);
+      setModules([]);
       setModuleCategories(
         MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
           key: toCategoryProgramKey(name),
@@ -773,7 +773,6 @@ export default function DashboardScreen({
         }))
       );
       setCategoryLoadError('Unable to refresh categories right now.');
-      done = true;
       clearTimeout(timeoutId);
       setLoading(false);
       setRefreshing(false);

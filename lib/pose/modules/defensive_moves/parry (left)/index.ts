@@ -1,11 +1,13 @@
 /**
  * Parry-LEFT pipeline (defensive moves):
- * Only the LEFT arm counts as a perfect rep. A parry performed with the
- * right arm is forced into a "WRONG ARM!" bad rep.
+ * Only the user's LEFT arm counts as a perfect rep. A parry performed with
+ * the right arm is forced into a "WRONG ARM!" bad rep.
  *
- * NOTE: the legacy export names below still say "Right" — they are the names
- * the registry imports, and renaming them is a wider refactor. The actual
- * Firebase module they are wired to is the parry-LEFT drill.
+ * NOTE: `expectedSide='right'` here intentionally points at the model's
+ * RIGHT-side landmarks (16/14/12, etc.) because the camera feed is mirrored
+ * (selfie view), so the model's right corresponds to the user's left arm.
+ * The legacy export names still say "Right" — they're the names the registry
+ * imports, and renaming them is a wider refactor.
  */
 
 import type { ModulePosePipeline } from '../../types';
@@ -18,12 +20,12 @@ const PARRY_MATCH_THRESHOLD = 0.24;
 
 export const PARRY_RIGHT_MODULE_ID = 'module_0vFVfQfnHdeH57m9Fki70C0aZFv2_1775654919396';
 export const PARRY_RIGHT_MODULE_REGISTRY_KEY = `defensive_moves/${PARRY_RIGHT_MODULE_ID}`;
-const leftComparators = createSideSpecificParryComparators('left');
+const rightComparators = createSideSpecificParryComparators('right');
 
 export const defensiveParryRightPipeline: ModulePosePipeline = {
-  createRepDetector: () => createParryRepDetectorForSide('left'),
-  compareRepWithFeedback: leftComparators.compareRepWithFeedback,
-  compareRepWithFeedbackAny: leftComparators.compareRepWithFeedbackAny,
+  createRepDetector: () => createParryRepDetectorForSide('right'),
+  compareRepWithFeedback: rightComparators.compareRepWithFeedback,
+  compareRepWithFeedbackAny: rightComparators.compareRepWithFeedbackAny,
   defaultMatchThreshold: PARRY_MATCH_THRESHOLD,
   poseFocus,
   minFramesForRep: 4,

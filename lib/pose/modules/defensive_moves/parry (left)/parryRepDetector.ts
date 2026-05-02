@@ -101,15 +101,17 @@ function detectParrySide(frame: PoseFrame): 'left' | 'right' | null {
   const left = isParryArm(frame, 'left');
   const right = isParryArm(frame, 'right');
 
-  // Tiebreaker prefers LEFT (this module is parry-LEFT). When both arms
-  // qualify (e.g. a high two-handed guard), the user's intent on this drill
-  // is the LEFT parry, so left wins. If only the right arm qualifies, side
-  // becomes 'right' so the wrong-arm path can fire.
+  // Tiebreaker prefers the model's RIGHT side. The camera is mirrored, so
+  // the model's RIGHT side corresponds to the user's LEFT arm — which is the
+  // intended parry arm for this parry-LEFT drill. When both arms qualify
+  // (e.g. a high two-handed guard), the user's left arm wins; if only the
+  // model's left side (= user's right arm) qualifies, the wrong-arm path
+  // fires.
   const leftForehead = left && isWristOrForearmAtForehead(frame, 'left');
   const rightForehead = right && isWristOrForearmAtForehead(frame, 'right');
   if (left && right) {
-    if (rightForehead && !leftForehead) return 'right';
-    return 'left';
+    if (leftForehead && !rightForehead) return 'left';
+    return 'right';
   }
   if (left) return 'left';
   if (right) return 'right';

@@ -9,9 +9,38 @@ import { armExtensionDistances } from '../../../phaseDetection';
 const MP = { nose: 0, le: 13, re: 14, lw: 15, rw: 16 };
 const GUARD_MAX_EXTENSION = 0.24;
 const WRIST_UP_TOL = 0.12;
-const FACE_GUARD_MAX_DIST = 0.34;
+/** Mirrors blockRepDetector's tightened fist-at-face thresholds. */
+const FACE_FIST_MAX_DIST = 0.18;
+const FACE_FIST_MAX_ABOVE_NOSE = 0.05;
+const FACE_FIST_MAX_BELOW_NOSE = 0.18;
 const FOREARM_MIN_VERTICAL_DY = 0.05;
 const FOREARM_MAX_SIDEWAYS_RATIO = 0.5;
+/** Looser ratio cap for the inward-angled "/.\" exception (mirrors blockRepDetector). */
+const FOREARM_INWARD_MAX_SIDEWAYS_RATIO = 1.5;
+
+function isForearmInwardAngled(
+  elbow: { x: number; y: number },
+  wrist: { x: number; y: number },
+  nose: { x: number; y: number }
+): boolean {
+  const dy = Math.abs(wrist.y - elbow.y);
+  const dx = Math.abs(wrist.x - elbow.x);
+  if (dy < FOREARM_MIN_VERTICAL_DY) return false;
+  if (dx > dy * FOREARM_INWARD_MAX_SIDEWAYS_RATIO) return false;
+  return Math.abs(wrist.x - nose.x) < Math.abs(elbow.x - nose.x);
+}
+
+function isFistAtFace(
+  wrist: { x: number; y: number },
+  nose: { x: number; y: number }
+): boolean {
+  if (dist(wrist, nose) > FACE_FIST_MAX_DIST) return false;
+  const wristAboveNose = nose.y - wrist.y;
+  if (wristAboveNose > FACE_FIST_MAX_ABOVE_NOSE) return false;
+  const wristBelowNose = wrist.y - nose.y;
+  if (wristBelowNose > FACE_FIST_MAX_BELOW_NOSE) return false;
+  return true;
+}
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
@@ -62,16 +91,20 @@ function computeBlockMetrics(frame: PoseFrame): BlockMetrics {
   const rightForearmVertical =
     rightForearmDy >= FOREARM_MIN_VERTICAL_DY &&
     rightForearmDx <= rightForearmDy * FOREARM_MAX_SIDEWAYS_RATIO;
+  // Inward-angled "/.\" exception — accept reps where the forearms angle
+  // inward toward the centerline instead of being strictly vertical.
+  const leftForearmShapeOk = leftForearmVertical || isForearmInwardAngled(le, lw, nose);
+  const rightForearmShapeOk = rightForearmVertical || isForearmInwardAngled(re, rw, nose);
 
   return {
     leftGuardOk: d.left <= GUARD_MAX_EXTENSION,
     rightGuardOk: d.right <= GUARD_MAX_EXTENSION,
     leftWristUp: lw.y <= le.y + WRIST_UP_TOL,
     rightWristUp: rw.y <= re.y + WRIST_UP_TOL,
-    leftForearmVertical,
-    rightForearmVertical,
-    leftNearFace: dist(lw, nose) <= FACE_GUARD_MAX_DIST,
-    rightNearFace: dist(rw, nose) <= FACE_GUARD_MAX_DIST,
+    leftForearmVertical: leftForearmShapeOk,
+    rightForearmVertical: rightForearmShapeOk,
+    leftNearFace: isFistAtFace(lw, nose),
+    rightNearFace: isFistAtFace(rw, nose),
   };
 }
 
@@ -132,7 +165,7 @@ export function getBlockFeedback(userFrames: PoseFrame[], _referenceFrames: Pose
   if (!m.leftNearFace || !m.rightNearFace) {
     feedback.push({
       id: 'guard-too-far-from-face',
-      message: 'Bring both hands closer to your face for proper cover',
+      message: 'Bring both fists up to touch your lips/chin to cover your face',
       phase: 'impact',
       severity: 'error',
     });

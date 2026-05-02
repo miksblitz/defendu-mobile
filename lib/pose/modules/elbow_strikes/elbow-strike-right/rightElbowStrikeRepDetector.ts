@@ -3,6 +3,7 @@ import type { RepDetectorResult } from '../../types';
 import { getRightElbowStrikeArmSnapshot, isRightElbowStrikeFinalPose } from './rightElbowStrikeFormRules';
 import { getLeadArmSnapshot, isLeadElbowFinalPose } from '../lead-elbow-strike/leadElbowStrikeFormRules';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { isGuardArmModelRightUp } from '../elbowStrikeGuard';
 
 const MIN_HOLD_FRAMES = 1;
 const MIN_RETRACT_FRAMES = 2;
@@ -10,8 +11,8 @@ const MIN_RETRACT_FRAMES = 2;
 // 1s after a perfect rep before the next one can be counted.
 const COOLDOWN_MS = 1000;
 const GUARD_MAX_EXTENSION = 0.24;
-// Debounce so the wrong-arm bad rep doesn't fire every frame while the user
-// is held in the offending pose.
+// Debounce so wrong-arm / guard-down bad reps don't fire every frame while
+// the user is held in the offending pose.
 const BAD_REP_COOLDOWN_MS = 600;
 
 type State = 'idle' | 'holding' | 'cooldown';
@@ -73,6 +74,23 @@ export function createRightElbowStrikeRepDetector(): (frame: PoseFrame, now: num
     }
 
     if (state === 'idle') {
+      if (!isGuardArmModelRightUp(frame)) {
+        if (now < badRepCooldownUntil) return { done: false };
+        badRepCooldownUntil = now + BAD_REP_COOLDOWN_MS;
+        segment = [];
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'guard-down-elbow-strike',
+            message: 'GUARD UP!',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
+
       state = 'holding';
       segment = [frame];
       if (segment.length >= MIN_HOLD_FRAMES) {

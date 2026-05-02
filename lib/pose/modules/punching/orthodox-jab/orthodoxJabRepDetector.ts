@@ -4,6 +4,7 @@ import { armExtensionDistances } from '../../../phaseDetection';
 import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
 
 const COOLDOWN_MS = 1000;
+const BAD_REP_COOLDOWN_MS = 600;
 const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const ORTHODOX_PUNCH_EXTEND_MIN = 0.25;
 const ORTHODOX_PUNCH_RETRACT_MAX = 0.18;
@@ -59,6 +60,17 @@ function punchingArmLineOk(frame: PoseFrame): boolean {
   return delta <= ORTHODOX_JAB_MAX_BELOW_SHOULDER && delta >= -ORTHODOX_JAB_MAX_ABOVE_SHOULDER;
 }
 
+/** User's guard-side arm (MediaPipe LEFT) in a horizontal-or-up jab line — WRONG ARM only when this matches; a low/dangling hand does not count. */
+function guardSideJabLineOk(frame: PoseFrame): boolean {
+  const idx = frame.length > 17 ? MP : frame.length >= 11 ? MN17 : null;
+  if (!idx || frame.length <= Math.max(idx.ls, idx.lw)) return false;
+  const ls = frame[idx.ls];
+  const lw = frame[idx.lw];
+  if (!validArmLandmark(ls) || !validArmLandmark(lw)) return false;
+  const delta = lw.y - ls.y;
+  return delta <= ORTHODOX_JAB_MAX_BELOW_SHOULDER && delta >= -ORTHODOX_JAB_MAX_ABOVE_SHOULDER;
+}
+
 function badLineFeedback(): PoseFeedbackItem[] {
   return [{
     id: 'jab-line-bad-rep',
@@ -77,6 +89,15 @@ function wrongHandFeedback(): PoseFeedbackItem[] {
   }];
 }
 
+function guardUpFeedback(): PoseFeedbackItem[] {
+  return [{
+    id: 'guard-down-elbow-strike',
+    message: 'GUARD UP!',
+    severity: 'error',
+    phase: 'impact',
+  }];
+}
+
 export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'extended' | 'cooldown' = 'idle';
   let segment: PoseFrame[] = [];
@@ -85,6 +106,7 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
   let badLineStreak = 0;
   let wrongHandStreak = 0;
   let rightFacingBadUntil = 0;
+  let guardUpBadCooldownUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     if (isFacingRightSide(frame) && now >= rightFacingBadUntil) {
@@ -111,7 +133,8 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
     if (phase === 'idle') {
       if (punch < ORTHODOX_PUNCH_RETRACT_MAX) hasRetractedSinceRep = true;
       const wrongPunching = guard != null && guard > WRONG_HAND_EXTEND_MIN && punch < ORTHODOX_PUNCH_EXTEND_MIN;
-      wrongHandStreak = wrongPunching ? wrongHandStreak + 1 : 0;
+      const wrongArmIsJabLine = wrongPunching && guardSideJabLineOk(frame);
+      wrongHandStreak = wrongArmIsJabLine ? wrongHandStreak + 1 : 0;
       if (hasRetractedSinceRep && wrongHandStreak >= WRONG_HAND_MIN_STREAK) {
         const out = [frame];
         wrongHandStreak = 0;
@@ -119,6 +142,22 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
         cooldownUntil = now + COOLDOWN_MS;
         hasRetractedSinceRep = false;
         return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
+      }
+      if (
+        hasRetractedSinceRep &&
+        punch > ORTHODOX_PUNCH_EXTEND_MIN &&
+        punchingArmLineOk(frame) &&
+        !leftHandInGuard(frame) &&
+        now >= guardUpBadCooldownUntil &&
+        !wrongArmIsJabLine
+      ) {
+        guardUpBadCooldownUntil = now + BAD_REP_COOLDOWN_MS;
+        phase = 'cooldown';
+        cooldownUntil = now + COOLDOWN_MS;
+        hasRetractedSinceRep = false;
+        badLineStreak = 0;
+        wrongHandStreak = 0;
+        return { done: true, segment: [frame], forcedBadRep: true, feedback: guardUpFeedback() };
       }
       if (
         hasRetractedSinceRep &&
@@ -169,7 +208,8 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
     }
 
     const wrongPunching = guard != null && guard > WRONG_HAND_EXTEND_MIN && punch < ORTHODOX_PUNCH_EXTEND_MIN;
-    wrongHandStreak = wrongPunching ? wrongHandStreak + 1 : 0;
+    const wrongArmIsJabLine = wrongPunching && guardSideJabLineOk(frame);
+    wrongHandStreak = wrongArmIsJabLine ? wrongHandStreak + 1 : 0;
     if (wrongHandStreak >= WRONG_HAND_MIN_STREAK) {
       const out = [...segment];
       segment = [];
@@ -181,11 +221,36 @@ export function createOrthodoxJabRepDetectorWithBadRep(): (frame: PoseFrame, now
       return { done: true, segment: out, forcedBadRep: true, feedback: wrongHandFeedback() };
     }
 
+    if (punch < ORTHODOX_PUNCH_RETRACT_MAX) {
+      phase = 'idle';
+      segment = [];
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: false };
+    }
     if (
-      punch < ORTHODOX_PUNCH_RETRACT_MAX ||
-      (guard != null && guard > ORTHODOX_GUARD_MAX) ||
-      !leftHandInGuard(frame)
+      punch >= ORTHODOX_PUNCH_EXTEND_MIN &&
+      !leftHandInGuard(frame) &&
+      now >= guardUpBadCooldownUntil
     ) {
+      guardUpBadCooldownUntil = now + BAD_REP_COOLDOWN_MS;
+      const out = [...segment];
+      segment = [];
+      phase = 'cooldown';
+      cooldownUntil = now + COOLDOWN_MS;
+      hasRetractedSinceRep = false;
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: true, segment: out, forcedBadRep: true, feedback: guardUpFeedback() };
+    }
+    if (guard != null && guard > ORTHODOX_GUARD_MAX) {
+      phase = 'idle';
+      segment = [];
+      badLineStreak = 0;
+      wrongHandStreak = 0;
+      return { done: false };
+    }
+    if (!leftHandInGuard(frame)) {
       phase = 'idle';
       segment = [];
       badLineStreak = 0;

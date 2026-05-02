@@ -8,6 +8,7 @@
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { isGuardArmModelLeftUp, isGuardArmModelRightUp } from '../../elbow_strikes/elbowStrikeGuard';
 
 // Same concept and structure as the RIGHT-parry pipeline (the "perfect"
 // reference): straightforward extension + lateral + wrist-above-shoulder
@@ -163,6 +164,11 @@ function oppositeSide(side: 'left' | 'right'): 'left' | 'right' {
   return side === 'left' ? 'right' : 'left';
 }
 
+/** Non-parrying hand must be up (chin guard). Mirrored selfie: parry on model LEFT → guard model RIGHT; parry model RIGHT → guard model LEFT. */
+function isOppositeGuardUpForParry(frame: PoseFrame, parrySide: 'left' | 'right'): boolean {
+  return parrySide === 'left' ? isGuardArmModelRightUp(frame) : isGuardArmModelLeftUp(frame);
+}
+
 export function createParryRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   return createParryRepDetectorForSide('either');
 }
@@ -244,6 +250,26 @@ export function createParryRepDetectorForSide(
     segment.push(frame);
     if (segment.length >= MIN_REP_FRAMES) {
       const out = [...segment];
+      if (activeSide != null && !isOppositeGuardUpForParry(frame, activeSide)) {
+        segment = [];
+        activeSide = null;
+        // Guard-down bad rep: go straight back to idle so the user can repeat
+        // the move immediately — do NOT enter parry cooldown (that required a
+        // full neutral reset and blocked every subsequent GUARD UP!).
+        phase = 'idle';
+        hasNeutralSinceRep = true;
+        return {
+          done: true,
+          segment: out,
+          forcedBadRep: true,
+          feedback: [{
+            id: 'guard-down-elbow-strike',
+            message: 'GUARD UP!',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
       segment = [];
       activeSide = null;
       phase = 'cooldown';

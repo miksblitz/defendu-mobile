@@ -300,6 +300,12 @@ export default function PoseCameraView({
   const poseStatusTimeRef = useRef<number>(0);
   const successFadeAnim = useRef(new Animated.Value(0)).current;
   const wrongFadeAnim = useRef(new Animated.Value(0)).current;
+  /**
+   * No longer used (2s post–bad-rep block was removed). Name kept as a no-op
+   * `useRef(0)` so a stale JS bundle / Fast Refresh closure that still
+   * references this binding cannot throw ReferenceError.
+   */
+  const perfectRepBlockedUntilRef = useRef(0);
   const lastSuccessCountRef = useRef(0);
   const lastExtRef = useRef<{ left: number; right: number }>({ left: 0, right: 0 });
   const lastArmStateTimeRef = useRef<number>(0);
@@ -920,6 +926,7 @@ export default function PoseCameraView({
                 (() => {
                   const urgentMessages = new Set([
                     'KEEP BOTH HANDS UP!',
+                    'GUARD UP!',
                     'WRONG ARM!',
                     'WRONG LEG!',
                     'WRONG COMBO!',
@@ -934,6 +941,7 @@ export default function PoseCameraView({
                     urgentMessages.has(item.message) ||
                     item.id.includes('bad-rep') ||
                     item.id === 'guard-not-up-while-slipping' ||
+                    item.id === 'guard-down-elbow-strike' ||
                     item.id === 'wrong-parry-arm' ||
                     item.id.includes('facing-right-bad-rep') ||
                     item.id === 'low-lead-knee-opposite-leg' ||

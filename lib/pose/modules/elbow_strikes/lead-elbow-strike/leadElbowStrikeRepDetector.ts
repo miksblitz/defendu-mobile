@@ -6,6 +6,7 @@ import {
   getOppositeArmSnapshot,
 } from './leadElbowStrikeFormRules';
 import { armExtensionDistances } from '../../../phaseDetection';
+import { isGuardArmModelLeftUp } from '../elbowStrikeGuard';
 
 const MIN_HOLD_FRAMES = 1;
 const MIN_RETRACT_FRAMES = 2;
@@ -75,7 +76,28 @@ export function createLeadElbowStrikeRepDetector(): (frame: PoseFrame, now: numb
       return { done: false };
     }
 
+    // Rep moment: idle → first frame of the strike pose. Guard-down bad reps
+    // are debounced so we don't spam every pose frame, but the user can get
+    // GUARD UP! again on every distinct execution (and repeatedly while
+    // holding the strike without a guard after each debounce window).
     if (state === 'idle') {
+      if (!isGuardArmModelLeftUp(frame)) {
+        if (now < badRepCooldownUntil) return { done: false };
+        badRepCooldownUntil = now + BAD_REP_COOLDOWN_MS;
+        segment = [];
+        return {
+          done: true,
+          segment: [frame],
+          forcedBadRep: true,
+          feedback: [{
+            id: 'guard-down-elbow-strike',
+            message: 'GUARD UP!',
+            severity: 'error',
+            phase: 'impact',
+          }],
+        };
+      }
+
       state = 'holding';
       segment = [frame];
       if (segment.length >= MIN_HOLD_FRAMES) {

@@ -6,8 +6,13 @@ import { armExtensionDistances } from '../../../phaseDetection';
 
 const MIN_HOLD_FRAMES = 1;
 const MIN_RETRACT_FRAMES = 2;
-const COOLDOWN_MS = 2000;
+// Mirrors the jab module's cooldown (see jabRepDetector.ts COOLDOWN_MS = 1000):
+// 1s after a perfect rep before the next one can be counted.
+const COOLDOWN_MS = 1000;
 const GUARD_MAX_EXTENSION = 0.24;
+// Debounce so the wrong-arm bad rep doesn't fire every frame while the user
+// is held in the offending pose.
+const BAD_REP_COOLDOWN_MS = 600;
 
 type State = 'idle' | 'holding' | 'cooldown';
 
@@ -22,14 +27,18 @@ export function createRightElbowStrikeRepDetector(): (frame: PoseFrame, now: num
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
+  let badRepCooldownUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const snap = getRightElbowStrikeArmSnapshot(frame);
     const finalPose = isRightElbowStrikeFinalPose(snap, false);
+    // Wrong-arm detection uses the SAME relaxed angle/lateral/far-distance
+    // rules as the perfect rep, applied to the opposite (lead) arm landmarks.
     const oppositeSnap = getLeadArmSnapshot(frame);
     const oppositeFinalPose = isLeadElbowFinalPose(oppositeSnap, false);
 
-    if (oppositeFinalPose && !finalPose) {
+    if (oppositeFinalPose && !finalPose && now >= badRepCooldownUntil) {
+      badRepCooldownUntil = now + BAD_REP_COOLDOWN_MS;
       state = 'idle';
       segment = [];
       retractFrames = 0;

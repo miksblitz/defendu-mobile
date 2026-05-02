@@ -76,7 +76,20 @@ export const MAX_WRIST_BELOW_ELBOW_Y = 0.24;
 export const MIN_ELBOW_ANGLE_DEG = 8;
 export const MAX_ELBOW_ANGLE_DEG = 60;
 
-export function isBackwardsElbowStrikeFinalPose(s: BackwardsElbowStrikeSnapshot | null): boolean {
+/**
+ * Lenient floor on elbow lift, used by the lower-elbow exception below.
+ * Original rule required at least MIN_ELBOW_LIFT (0.10 = ~shoulder-height with
+ * a small upward tilt). Users testing reported the strict floor was hard to
+ * meet, so we additionally accept reps where the elbow finishes a little lower
+ * (down to ~4% above shoulder) as long as every other rule still passes.
+ */
+export const MIN_ELBOW_LIFT_LENIENT = 0.04;
+
+/**
+ * ORIGINAL strict check — unchanged. Requires the elbow at or slightly above
+ * shoulder height (with a small upward tilt) plus all other geometry rules.
+ */
+export function isBackwardsElbowStrikeFinalPoseStrict(s: BackwardsElbowStrikeSnapshot | null): boolean {
   if (!s) return false;
   if (s.elbowBackX < MIN_ELBOW_BACK_X) return false;
   if (s.elbowLift < MIN_ELBOW_LIFT) return false;
@@ -87,4 +100,32 @@ export function isBackwardsElbowStrikeFinalPose(s: BackwardsElbowStrikeSnapshot 
   if (s.elbowAngleDeg < MIN_ELBOW_ANGLE_DEG) return false;
   if (s.elbowAngleDeg > MAX_ELBOW_ANGLE_DEG) return false;
   return true;
+}
+
+/**
+ * LOWER-ELBOW EXCEPTION — same shape rules as the strict check, but only the
+ * elbow-lift floor is loosened (MIN_ELBOW_LIFT → MIN_ELBOW_LIFT_LENIENT). All
+ * other geometry (back direction, wrist forward, wrist below elbow band, bent
+ * elbow angle) must still pass — so this only catches reps that look correct
+ * but finish with the elbow slightly lower than the textbook tilt.
+ */
+export function isBackwardsElbowStrikeFinalPoseLowElbow(s: BackwardsElbowStrikeSnapshot | null): boolean {
+  if (!s) return false;
+  if (s.elbowBackX < MIN_ELBOW_BACK_X) return false;
+  if (s.elbowLift < MIN_ELBOW_LIFT_LENIENT) return false;
+  if (s.elbowLift > MAX_ELBOW_LIFT) return false;
+  if (s.wristForwardX < MIN_WRIST_FORWARD_X) return false;
+  if (s.wristBelowElbowY < MIN_WRIST_BELOW_ELBOW_Y) return false;
+  if (s.wristBelowElbowY > MAX_WRIST_BELOW_ELBOW_Y) return false;
+  if (s.elbowAngleDeg < MIN_ELBOW_ANGLE_DEG) return false;
+  if (s.elbowAngleDeg > MAX_ELBOW_ANGLE_DEG) return false;
+  return true;
+}
+
+export function isBackwardsElbowStrikeFinalPose(s: BackwardsElbowStrikeSnapshot | null): boolean {
+  if (!s) return false;
+  return (
+    isBackwardsElbowStrikeFinalPoseStrict(s) ||
+    isBackwardsElbowStrikeFinalPoseLowElbow(s)
+  );
 }

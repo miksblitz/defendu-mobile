@@ -53,7 +53,11 @@ function bestMetricsForSide(frame: PoseFrame, side: 'left' | 'right') {
 
 const COOLDOWN_MS = 1000;
 const MIN_REP_FRAMES = 1;
-const GOOD_MIN_REAR_ELBOW_LIFT = 0.10;
+// Lowered from 0.10 → 0.05 after user testing reported the rear uppercut wasn't
+// counting when the elbow didn't finish high enough. Now even a moderately-low
+// rear uppercut (elbow only ~5% of frame height above shoulder) counts as a
+// perfect rep, as long as the across-body path is met.
+const GOOD_MIN_REAR_ELBOW_LIFT = 0.05;
 const GOOD_MAX_REAR_ELBOW_FROM_SHOULDER = 0.35;
 const GOOD_MAX_REAR_WRIST_ABOVE_ELBOW = 1.0;
 const REAR_UPPERCUT_CENTERLINE_MIN = 0.005;
@@ -126,32 +130,16 @@ export function createRearUppercutElbowStrikeRepDetector(): (frame: PoseFrame, n
       return { done: false };
     }
 
-    if (attemptClass === 'opposite_only') {
-      // If user performs the opposite (lead) uppercut elbow motion, ignore it for this module
-      // rather than forcing a bad rep.
+    if (attemptClass === 'opposite_only' || attemptClass === 'rear-same-side') {
+      // 'opposite_only': user performed the opposite (lead) uppercut elbow motion.
+      // 'rear-same-side': rear arm moved but stayed on the same side instead of
+      //   crossing the body.
+      // Both cases are silently ignored — no perfect rep, no bad rep — instead
+      // of forcing a "WRONG DIRECTION!" bad rep.
       state = 'idle';
       segment = [];
       retractFrames = 0;
       return { done: false };
-    }
-
-    if (attemptClass === 'rear-same-side') {
-      const out = segment.length > 0 ? [...segment, frame] : [frame];
-      state = 'cooldown';
-      cooldownUntil = now + COOLDOWN_MS;
-      segment = [];
-      retractFrames = 0;
-      return {
-        done: true,
-        segment: out,
-        forcedBadRep: true,
-        feedback: [{
-          id: 'rear-uppercut-elbow-same-side-bad-rep',
-          message: 'WRONG DIRECTION!',
-          severity: 'error',
-          phase: 'impact',
-        }],
-      };
     }
 
     if (state === 'idle') {

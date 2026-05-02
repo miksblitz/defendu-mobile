@@ -1,13 +1,21 @@
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
-import { getLeadArmSnapshot, isLeadElbowFinalPose } from './leadElbowStrikeFormRules';
-import { getRightElbowStrikeArmSnapshot, isRightElbowStrikeFinalPose } from '../elbow-strike-right/rightElbowStrikeFormRules';
+import {
+  getLeadArmSnapshot,
+  isLeadElbowFinalPose,
+  getOppositeArmSnapshot,
+} from './leadElbowStrikeFormRules';
 import { armExtensionDistances } from '../../../phaseDetection';
 
 const MIN_HOLD_FRAMES = 1;
 const MIN_RETRACT_FRAMES = 2;
-const COOLDOWN_MS = 2000;
+// Mirrors the jab module's cooldown (see jabRepDetector.ts COOLDOWN_MS = 1000):
+// 1s after a perfect rep before the next one can be counted.
+const COOLDOWN_MS = 1000;
 const GUARD_MAX_EXTENSION = 0.24;
+// Debounce so wrong-arm / guard-down bad reps don't fire every frame while the
+// user is held in the offending pose.
+const BAD_REP_COOLDOWN_MS = 600;
 
 type State = 'idle' | 'holding' | 'cooldown';
 
@@ -22,14 +30,18 @@ export function createLeadElbowStrikeRepDetector(): (frame: PoseFrame, now: numb
   let segment: PoseFrame[] = [];
   let cooldownUntil = 0;
   let retractFrames = 0;
+  let badRepCooldownUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
     const snap = getLeadArmSnapshot(frame);
     const finalPose = isLeadElbowFinalPose(snap, false);
-    const oppositeSnap = getRightElbowStrikeArmSnapshot(frame);
-    const oppositeFinalPose = isRightElbowStrikeFinalPose(oppositeSnap, false);
+    // Wrong-arm detection now uses the SAME relaxed angle/lateral/far-distance
+    // rules as the perfect rep, applied to the opposite arm's landmarks.
+    const oppositeSnap = getOppositeArmSnapshot(frame);
+    const oppositeFinalPose = isLeadElbowFinalPose(oppositeSnap, false);
 
-    if (oppositeFinalPose && !finalPose) {
+    if (oppositeFinalPose && !finalPose && now >= badRepCooldownUntil) {
+      badRepCooldownUntil = now + BAD_REP_COOLDOWN_MS;
       state = 'idle';
       segment = [];
       retractFrames = 0;

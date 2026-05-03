@@ -11,6 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
+import { getCachedVideoUri } from '../utils/videoCache';
 import { getPunchingGuideSource } from './punchingGuideAssets';
 
 export type TrainingGuideModuleFields = {
@@ -80,7 +81,7 @@ export function TrainingGuidePreloader({
 
   useEffect(() => {
     if (!active || desc.mode !== 'image') return;
-    Image.prefetch(desc.uri).catch(() => {});
+    void getCachedVideoUri(desc.uri).catch(() => {});
   }, [active, desc]);
 
   if (!active || desc.mode !== 'video') return null;
@@ -145,16 +146,33 @@ export function TrainingPoseGuideOverlay({
   const { baseW, baseH, expandedW, expandedH } = getGuideLayout();
 
   const bundled = getPunchingGuideSource(module.moduleId, module.moduleTitle ?? undefined, module.category ?? undefined);
-  const uri = pickRemoteGuideUri(module);
+  const remoteUri = pickRemoteGuideUri(module);
+  const [resolvedMediaUri, setResolvedMediaUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!remoteUri || !/^https?:\/\//i.test(remoteUri)) {
+      setResolvedMediaUri(remoteUri);
+      return;
+    }
+    let cancelled = false;
+    void getCachedVideoUri(remoteUri).then((localOrRemote) => {
+      if (!cancelled) setResolvedMediaUri(localOrRemote || remoteUri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteUri]);
+
+  const playUri = resolvedMediaUri ?? remoteUri;
   const tier = difficultyLabel(module.difficultyLevel ?? undefined);
   const title = typeof module.moduleTitle === 'string' ? module.moduleTitle.trim() : '';
 
   const renderMedia = (w: number, h: number) => {
-    if (uri) {
-      if (isProbablyStreamableVideoUri(uri)) {
+    if (playUri) {
+      if (isProbablyStreamableVideoUri(playUri)) {
         return (
           <Video
-            source={{ uri }}
+            source={{ uri: playUri }}
             style={{ width: w, height: h }}
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay
@@ -163,7 +181,7 @@ export function TrainingPoseGuideOverlay({
           />
         );
       }
-      return <Image source={{ uri }} style={{ width: w, height: h }} resizeMode="contain" />;
+      return <Image source={{ uri: playUri }} style={{ width: w, height: h }} resizeMode="contain" />;
     }
     if (bundled) {
       return <Image source={bundled} style={{ width: w, height: h }} resizeMode="contain" />;
@@ -171,7 +189,7 @@ export function TrainingPoseGuideOverlay({
     return null;
   };
 
-  const hasMedia = (uri != null && uri.length > 0) || bundled != null;
+  const hasMedia = (playUri != null && playUri.length > 0) || bundled != null;
 
   return (
     <>

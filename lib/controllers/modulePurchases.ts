@@ -1,6 +1,10 @@
 import { get, ref, runTransaction, set } from 'firebase/database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../config/firebaseConfig';
 import { getCurrentUser, updateStoredUserCredits } from './authSession';
+import { withTimeout } from './moduleCache';
+
+const purchasedIdsStorageKey = (uid: string) => `purchased_module_ids:v1:${uid}`;
 
 export interface ModulePurchaseInvoice {
   invoiceNo: string;
@@ -28,13 +32,59 @@ export interface PurchasedModuleMeta {
   referenceNo?: string;
 }
 
+async function readCachedPurchasedIds(uid: string): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(purchasedIdsStorageKey(uid));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.map((id) => String(id ?? '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeCachedPurchasedIds(uid: string, ids: string[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(purchasedIdsStorageKey(uid), JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Purchased module IDs from RTDB, with AsyncStorage fallback when offline or slow.
+ * When we already have cached IDs, returns them immediately and refreshes in the background.
+ */
 export async function getPurchasedModuleIds(): Promise<string[]> {
   const user = await getCurrentUser();
   if (!user) return [];
-  const snap = await get(ref(db, `users/${user.uid}/purchasedModules`));
-  if (!snap.exists()) return [];
-  const raw = snap.val() as Record<string, unknown>;
-  return Object.keys(raw);
+  const uid = user.uid;
+  const cached = await readCachedPurchasedIds(uid);
+
+  const fetchRemote = () =>
+    get(ref(db, `users/${uid}/purchasedModules`))
+      .then((snap) => {
+        if (!snap.exists()) return [] as string[];
+        return Object.keys(snap.val() as Record<string, unknown>);
+      })
+      .catch((): null => null);
+
+  const refresh = async () => {
+    const remote = await withTimeout(fetchRemote(), 4000);
+    if (remote !== null) await writeCachedPurchasedIds(uid, remote);
+  };
+
+  if (cached.length > 0) {
+    void refresh();
+    return cached;
+  }
+
+  const remote = await withTimeout(fetchRemote(), 4000);
+  if (remote !== null) {
+    await writeCachedPurchasedIds(uid, remote);
+    return remote;
+  }
+  return [];
 }
 
 export async function getPurchasedModulesMeta(): Promise<PurchasedModuleMeta[]> {
@@ -146,6 +196,9 @@ export async function purchaseModulesWithCredits(input: {
 
   await set(ref(db, `users/${user.uid}/modulePurchaseInvoices/${invoiceNo}`), invoice);
   await updateStoredUserCredits(newCredits);
+
+  const mergedIds = [...(await readCachedPurchasedIds(user.uid)), ...remaining];
+  await writeCachedPurchasedIds(user.uid, Array.from(new Set(mergedIds)));
 
   return {
     success: true,

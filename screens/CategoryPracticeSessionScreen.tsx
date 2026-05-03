@@ -335,6 +335,9 @@ export default function CategoryPracticeSessionScreen({
   }, [hasRecordedCompletion]);
   const pendingCompletionWritesRef = useRef<Set<Promise<unknown>>>(new Set());
   const exitRequestedRef = useRef(false);
+  useEffect(() => {
+    exitRequestedRef.current = false;
+  }, []);
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [showPreviousConfirm, setShowPreviousConfirm] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
@@ -764,31 +767,47 @@ export default function CategoryPracticeSessionScreen({
     pendingCompletionWritesRef.current.add(write);
   }, []);
 
+  /** recordModuleCompletion can hang indefinitely offline — never await it without a cap, or quit breaks forever (exitRequestedRef stuck). */
+  const EXIT_PENDING_COMPLETIONS_MS = 2500;
+  const EXIT_QUEUE_CATEGORY_REVIEW_MS = 2000;
+
   const exitSession = useCallback(async () => {
     if (exitRequestedRef.current) return;
     exitRequestedRef.current = true;
-    const pending = Array.from(pendingCompletionWritesRef.current);
-    if (pending.length > 0) await Promise.allSettled(pending);
-    const s = stepRef.current;
-    const inTraining =
-      s === 'training_introduction' ||
-      s === 'training_safety' ||
-      s === 'training_countdown' ||
-      s === 'training_stance' ||
-      s === 'training_pose_loading' ||
-      s === 'training_pose' ||
-      s === 'training_success' ||
-      s === 'training_category_success' ||
-      s === 'training_between_countdown' ||
-      s === 'training_between_stance';
-    if (inTraining) {
-      try {
-        await maybeQueueCategoryReviewPromptRef.current();
-      } catch {
-        // non-fatal
+    try {
+      const pending = Array.from(pendingCompletionWritesRef.current);
+      if (pending.length > 0) {
+        await Promise.race([
+          Promise.allSettled(pending),
+          new Promise<void>((r) => setTimeout(r, EXIT_PENDING_COMPLETIONS_MS)),
+        ]);
       }
+      const s = stepRef.current;
+      const inTraining =
+        s === 'training_introduction' ||
+        s === 'training_safety' ||
+        s === 'training_countdown' ||
+        s === 'training_stance' ||
+        s === 'training_pose_loading' ||
+        s === 'training_pose' ||
+        s === 'training_success' ||
+        s === 'training_category_success' ||
+        s === 'training_between_countdown' ||
+        s === 'training_between_stance';
+      if (inTraining) {
+        try {
+          await Promise.race([
+            maybeQueueCategoryReviewPromptRef.current(),
+            new Promise<boolean>((r) => setTimeout(() => r(false), EXIT_QUEUE_CATEGORY_REVIEW_MS)),
+          ]);
+        } catch {
+          // non-fatal
+        }
+      }
+      onExit();
+    } catch {
+      exitRequestedRef.current = false;
     }
-    onExit();
   }, [onExit]);
 
   const exitTrainingToCooldownOrDone = useCallback(() => {

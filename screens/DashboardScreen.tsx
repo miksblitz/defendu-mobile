@@ -41,6 +41,7 @@ import {
   purchaseModulesWithCredits,
   type ModulePurchaseInvoice,
 } from '../lib/controllers/modulePurchases';
+import { getCachedVideoUri, prefetchVideo } from '../utils/videoCache';
 
 // --- Constants ---
 /** Training category hero images (assets/images/training/). */
@@ -813,6 +814,25 @@ export default function DashboardScreen({
 
       if (list?.length) {
         AsyncStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(list)).catch(() => {});
+        // Warm on-device cache for module thumbnails + intro media (images + short loops use the same helper as video).
+        const mediaUrls: string[] = [];
+        for (const m of list.slice(0, 36)) {
+          const t = (m as ModuleItem).thumbnailUrl;
+          if (typeof t === 'string' && /^https?:\/\//i.test(t)) mediaUrls.push(t);
+          const intro = (m as unknown as { introductionVideoUrl?: string }).introductionVideoUrl;
+          if (typeof intro === 'string' && /^https?:\/\//i.test(intro)) prefetchVideo(intro);
+        }
+        for (const u of mediaUrls) {
+          getCachedVideoUri(u).catch(() => {});
+        }
+        if (Array.isArray(categoriesWithMeta)) {
+          for (const c of categoriesWithMeta.slice(0, 12)) {
+            const tu = c.thumbnailUrl;
+            if (typeof tu === 'string' && /^https?:\/\//i.test(tu)) {
+              getCachedVideoUri(tu).catch(() => {});
+            }
+          }
+        }
       }
 
       // Load recommendations in background (don't block showing the module list).

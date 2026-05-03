@@ -28,7 +28,6 @@ export {
 } from './skillProfile';
 
 export {
-  forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
   sendForgotPasswordOtp,
@@ -102,7 +101,6 @@ import {
   updateWeeklyRhythmTargetsOncePerWeek,
 } from './skillProfile';
 import {
-  forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
   sendForgotPasswordOtp,
@@ -174,7 +172,6 @@ export const AuthController = {
   getApprovedModules,
   getCategorySegmentProgram,
   getModuleCategoriesWithMeta,
-  forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
   sendForgotPasswordOtp,

@@ -1,5 +1,4 @@
 import { StatusBar } from 'expo-status-bar';
-import * as Linking from 'expo-linking';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image, LogBox, BackHandler, ToastAndroid, Platform } from 'react-native';
 
@@ -76,21 +75,6 @@ const startupOverlayStyle = {
   bottom: 0,
 };
 
-function parseResetPasswordToken(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const parsed = Linking.parse(url);
-    // Support both path "resetpassword" and hostname "resetpassword" (platform-dependent)
-    const pathOrHost = (parsed.path ?? parsed.hostname ?? '').toLowerCase();
-    if (pathOrHost !== 'resetpassword') return null;
-    const token = parsed.queryParams?.token;
-    if (token && typeof token === 'string') return token;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export default function App() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [topUpStep, setTopUpStep] = useState<'packs' | 'payment'>('packs');
@@ -100,7 +84,6 @@ export default function App() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState<string | null>(null);
-  const [initialUrlChecked, setInitialUrlChecked] = useState(false);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
   const [viewModuleInitial, setViewModuleInitial] = useState<ModuleItem | null>(null);
   const [categoryPracticeSession, setCategoryPracticeSession] = useState<{
@@ -159,37 +142,6 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [screen]);
-
-  // Deep link: defenduapp://resetpassword?token=... (from email reset link → open app → Enter new password)
-  useEffect(() => {
-    const handleUrl = (url: string) => {
-      const token = parseResetPasswordToken(url);
-      if (token) {
-        setResetPasswordToken(token);
-        setScreen('reset-password');
-      }
-    };
-
-    // Cold start: app opened by tapping link in email – go straight to reset-password, don’t show login
-    Linking.getInitialURL().then((url) => {
-      const token = parseResetPasswordToken(url);
-      if (token) {
-        setResetPasswordToken(token);
-        setScreen('reset-password');
-      }
-      setInitialUrlChecked(true);
-    });
-
-    // If getInitialURL() never resolves (e.g. some devices), allow startup→login after 3s
-    const timeout = setTimeout(() => setInitialUrlChecked(true), 3000);
-
-    // App already open, user taps link again
-    const sub = Linking.addEventListener('url', (e) => handleUrl(e.url));
-    return () => {
-      clearTimeout(timeout);
-      sub.remove();
-    };
-  }, []);
 
   const handleLoginSuccess = (user: User) => {
     setCreditsBalance(typeof user.credits === 'number' ? user.credits : 0);
@@ -388,7 +340,6 @@ export default function App() {
             <View style={startupOverlayStyle} pointerEvents="box-none">
               <StartupScreen
                 onFinish={() => {
-                  if (!initialUrlChecked) return;
                   void (async () => {
                     // If a user session is already cached, skip the login screen.
                     const user = await AuthController.getCurrentUser().catch(() => null);

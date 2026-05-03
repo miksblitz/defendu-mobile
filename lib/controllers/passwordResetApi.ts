@@ -4,55 +4,6 @@ function getApiBaseUrl(): string {
   return process.env.EXPO_PUBLIC_API_BASE_URL || process.env.REACT_APP_API_BASE_URL || 'https://defendu-mobile.vercel.app';
 }
 
-export async function forgotPassword(data: { email: string }): Promise<string> {
-  const apiBaseUrl = getApiBaseUrl();
-  const url = `${apiBaseUrl}/api/password-reset`;
-
-  let response: Response;
-  let text: string;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: data.email }),
-    });
-    text = await response.text();
-  } catch (fetchErr: unknown) {
-    const err = fetchErr as Error;
-    const msg = `Network/request failed. URL: ${url} | Error: ${err?.message ?? String(fetchErr)}`;
-    console.error('[forgotPassword]', msg);
-    throw new Error(msg);
-  }
-
-  let result: { code?: string; message?: string; error?: string };
-  try {
-    result = text ? JSON.parse(text) : {};
-  } catch {
-    const preview = text ? text.substring(0, 80).replace(/\n/g, ' ') : '(empty)';
-    if (response.status === 404) {
-      console.error('[forgotPassword] 404 - API route not found. URL:', url);
-      throw new Error('Password reset service is currently unavailable. Please try again later or contact support.');
-    }
-    console.error('[forgotPassword]', 'Non-JSON response. Status:', response.status, 'URL:', url, 'Preview:', preview);
-    throw new Error('Server did not respond correctly. Please try again later.');
-  }
-
-  if (!response.ok) {
-    if (response.status === 404 && result.code === 'USER_NOT_FOUND') {
-      throw new Error('No account found with this email address. Please check your email or create an account.');
-    }
-    if (response.status === 404 && (result.code === 'NOT_FOUND' || (result.error && String(result.error).includes('NOT_FOUND')))) {
-      console.error('[forgotPassword] 404 NOT_FOUND - API route missing at', url);
-      throw new Error('Password reset service is currently unavailable. Please try again later or contact support.');
-    }
-    const fullMsg = result.message || result.error || 'Failed to send password reset email';
-    console.error('[forgotPassword]', response.status, url, result);
-    throw new Error(fullMsg);
-  }
-
-  return result.message ?? 'Password reset email sent successfully';
-}
-
 export async function sendRegistrationOtp(email: string): Promise<string> {
   const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}/api/register-send-otp`;

@@ -32,10 +32,11 @@ function validateEmail(email: string): string {
 // --- Types ---
 interface ForgotPasswordScreenProps {
   onBackToLogin?: () => void;
+  onOtpSent?: (email: string) => void;
 }
 
 // --- Component ---
-export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordScreenProps) {
+export default function ForgotPasswordScreen({ onBackToLogin, onOtpSent }: ForgotPasswordScreenProps) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -61,11 +62,10 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
 
     setLoading(true);
     try {
-      await AuthController.forgotPassword({ email });
-      showToast('Password reset email sent! Please check your inbox.');
-      setTimeout(() => {
-        onBackToLogin?.();
-      }, 2000);
+      const normalizedEmail = email.trim().toLowerCase();
+      await AuthController.sendForgotPasswordOtp(normalizedEmail);
+      showToast('We sent a 6-digit code to your email.');
+      setTimeout(() => onOtpSent?.(normalizedEmail), 600);
     } catch (err) {
       const rawMsg = ((err as Error)?.message ?? '').trim();
       const lower = rawMsg.toLowerCase();
@@ -74,11 +74,10 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
         lower.includes('no account') ||
         lower.includes('no user') ||
         lower.includes('does not exist') ||
-        lower.includes('email not registered') ||
-        lower.includes('invalid email');
+        lower.includes('email not registered');
       const msg = noAccount
         ? 'No account found with this email.'
-        : (rawMsg || 'Failed to send reset email. Please try again.');
+        : (rawMsg || 'Failed to send the code. Please try again.');
       showToast(msg);
       console.log('[ForgotPassword]', err);
     } finally {
@@ -115,7 +114,7 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
           />
 
           <Text style={styles.title}>Forgot your password?</Text>
-          <Text style={styles.subtitle}>We'll send a reset link to your email</Text>
+          <Text style={styles.subtitle}>We'll send a 6-digit code to your email</Text>
 
           <View style={styles.inputWrapper}>
             <Image
@@ -154,7 +153,7 @@ export default function ForgotPasswordScreen({ onBackToLogin }: ForgotPasswordSc
             {loading ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.buttonText}>Send Reset Link</Text>
+              <Text style={styles.buttonText}>Send Code</Text>
             )}
           </TouchableOpacity>
 

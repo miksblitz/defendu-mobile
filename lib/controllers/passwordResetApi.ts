@@ -98,6 +98,59 @@ export async function verifyRegistrationOtp(email: string, code: string): Promis
   return (result as any).message || 'OTP verified';
 }
 
+export async function sendForgotPasswordOtp(email: string): Promise<{ message: string; expiresAt?: number }> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/api/forgot-password-send-otp`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  const raw = await response.text();
+  let result: any = {};
+  try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
+  if (!response.ok) {
+    if (response.status === 404 && (result?.code === 'USER_NOT_FOUND' || /no account/i.test(String(result?.error ?? '')))) {
+      throw new Error('No account found with this email address.');
+    }
+    if (response.status === 404) {
+      throw new Error('Password reset service is unavailable. Please try again later.');
+    }
+    if (response.status === 503) {
+      throw new Error('Email service is not configured yet. Please contact support.');
+    }
+    const msg = (result as any).error || (result as any).message || 'Failed to send OTP';
+    throw new Error(msg);
+  }
+  return { message: (result as any).message || 'OTP sent', expiresAt: (result as any).expiresAt };
+}
+
+export async function verifyForgotPasswordOtp(email: string, code: string): Promise<{ token: string; expiresAt: number }> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/api/forgot-password-verify-otp`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  });
+  const raw = await response.text();
+  let result: any = {};
+  try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('OTP verification service is unavailable. Please try again later.');
+    }
+    const msg = (result as any).error || (result as any).message || 'Failed to verify OTP';
+    throw new Error(msg);
+  }
+  const token = (result as any).token;
+  const expiresAt = (result as any).expiresAt;
+  if (!token || typeof token !== 'string') {
+    throw new Error('Verification succeeded but no reset token was returned. Please try again.');
+  }
+  return { token, expiresAt: typeof expiresAt === 'number' ? expiresAt : Date.now() + 5 * 60 * 1000 };
+}
+
 /** Validate reset token (e.g. when app opens via deep link). */
 export async function validateResetToken(token: string): Promise<{ valid: true; email: string } | { valid: false; error: string }> {
   const apiBaseUrl = getApiBaseUrl();

@@ -30,6 +30,7 @@ import SkillProfilePreferencesScreen from './screens/SkillProfilePreferencesScre
 import SkillProfilePastExperienceScreen from './screens/SkillProfilePastExperienceScreen';
 import SkillProfileFitnessScreen from './screens/SkillProfileFitnessScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import ForgotPasswordOtpScreen from './screens/ForgotPasswordOtpScreen';
 import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import MainLayout from './components/MainLayout';
 import { SkillProfileProvider } from './lib/contexts/SkillProfileContext';
@@ -46,6 +47,7 @@ type Screen =
   | 'register'
   | 'register-otp'
   | 'forgot-password'
+  | 'forgot-password-otp'
   | 'reset-password'
   | 'dashboard'
   | 'view-module'
@@ -97,6 +99,7 @@ export default function App() {
   const [modulePurchaseReceipt, setModulePurchaseReceipt] = useState<{ invoice: ModulePurchaseInvoice; newCredits: number } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState<string | null>(null);
   const [initialUrlChecked, setInitialUrlChecked] = useState(false);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
   const [viewModuleInitial, setViewModuleInitial] = useState<ModuleItem | null>(null);
@@ -144,7 +147,7 @@ export default function App() {
   }, [screen]);
 
   useEffect(() => {
-    if (screen === 'splash' || screen === 'startup' || screen === 'login' || screen === 'register' || screen === 'register-otp' || screen === 'forgot-password' || screen === 'reset-password') {
+    if (screen === 'splash' || screen === 'startup' || screen === 'login' || screen === 'register' || screen === 'register-otp' || screen === 'forgot-password' || screen === 'forgot-password-otp' || screen === 'reset-password') {
       return;
     }
     let cancelled = false;
@@ -255,10 +258,15 @@ export default function App() {
           }
           return true;
         case 'forgot-password':
+          setForgotPasswordEmail(null);
           setScreen('login');
+          return true;
+        case 'forgot-password-otp':
+          setScreen('forgot-password');
           return true;
         case 'reset-password':
           setResetPasswordToken(null);
+          setForgotPasswordEmail(null);
           setScreen('login');
           return true;
         case 'dashboard':
@@ -397,13 +405,46 @@ export default function App() {
         </View>
       )}
       {screen === 'forgot-password' && (
-        <ForgotPasswordScreen onBackToLogin={() => setScreen('login')} />
+        <ForgotPasswordScreen
+          onBackToLogin={() => { setForgotPasswordEmail(null); setScreen('login'); }}
+          onOtpSent={(email) => {
+            setForgotPasswordEmail(email);
+            setScreen('forgot-password-otp');
+          }}
+        />
+      )}
+      {screen === 'forgot-password-otp' && forgotPasswordEmail && (
+        <ForgotPasswordOtpScreen
+          email={forgotPasswordEmail}
+          onBack={() => setScreen('forgot-password')}
+          onVerified={(token) => {
+            setResetPasswordToken(token);
+            setScreen('reset-password');
+          }}
+        />
+      )}
+      {screen === 'forgot-password-otp' && !forgotPasswordEmail && (
+        <ForgotPasswordScreen
+          onBackToLogin={() => { setForgotPasswordEmail(null); setScreen('login'); }}
+          onOtpSent={(email) => {
+            setForgotPasswordEmail(email);
+            setScreen('forgot-password-otp');
+          }}
+        />
       )}
       {screen === 'reset-password' && resetPasswordToken && (
         <ResetPasswordScreen
           token={resetPasswordToken}
-          onSuccess={() => { setResetPasswordToken(null); setScreen('login'); }}
-          onInvalidLink={() => { setResetPasswordToken(null); setScreen('login'); }}
+          onSuccess={() => {
+            setResetPasswordToken(null);
+            setForgotPasswordEmail(null);
+            setScreen('login');
+          }}
+          onInvalidLink={() => {
+            setResetPasswordToken(null);
+            setForgotPasswordEmail(null);
+            setScreen('login');
+          }}
         />
       )}
       {screen === 'register' && (

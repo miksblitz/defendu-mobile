@@ -31,6 +31,8 @@ export {
   forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
   validateResetToken,
   confirmPasswordReset,
 } from './passwordResetApi';
@@ -103,6 +105,8 @@ import {
   forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
 } from './passwordResetApi';
 import {
   getRecommendations,
@@ -173,6 +177,8 @@ export const AuthController = {
   forgotPassword,
   sendRegistrationOtp,
   verifyRegistrationOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
   logout,
   getRecommendations,
   getUserProgress,

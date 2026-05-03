@@ -25,6 +25,7 @@
     "expo-document-picker": "~14.0.3",
     "expo-image-picker": "~17.0.10",
     "expo-linking": "~8.0.11",
+    "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "firebase": "^12.9.0",
     "firebase-admin": "^12.0.0",

@@ -1,4 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TouchableOpacity, Text, View, ActivityIndicator, StyleSheet, Image, LogBox, BackHandler, ToastAndroid, Platform } from 'react-native';
 
@@ -112,11 +113,33 @@ export default function App() {
   const [pendingRegistration, setPendingRegistration] = useState<RegisterData | null>(null);
   const [trainerRefreshKey, setTrainerRefreshKey] = useState(0);
 
+  // Hand off from Expo native splash → JS splash without a white flash (release APK).
+  useEffect(() => {
+    if (screen !== 'splash') return;
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        void SplashScreen.hideAsync();
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [screen]);
+
   // Splash: brief branding then startup (shorter = faster to interactive)
   useEffect(() => {
     if (screen !== 'splash') return;
     const t = setTimeout(() => setScreen('startup'), 1200);
     return () => clearTimeout(t);
+  }, [screen]);
+
+  // If we ever leave splash without the handoff effect running, ensure native splash is cleared.
+  useEffect(() => {
+    if (screen === 'splash') return;
+    void SplashScreen.hideAsync();
   }, [screen]);
 
   useEffect(() => {

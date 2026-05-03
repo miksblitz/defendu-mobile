@@ -155,6 +155,9 @@ const DAY_DOUBLE_TAP_MS = 320;
 const START_HERE_DOUBLE_TAP_MS = 350;
 
 const MODULES_CACHE_KEY = 'dashboard_modules_cache';
+const CATEGORIES_CACHE_KEY = 'dashboard_categories_cache';
+const SEGMENT_PROGRAM_CACHE_KEY = 'dashboard_segment_program_cache';
+const PROGRESS_CACHE_KEY = 'dashboard_progress_cache';
 
 function reviveCachedModules(raw: unknown): ModuleItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
@@ -163,6 +166,16 @@ function reviveCachedModules(raw: unknown): ModuleItem[] {
     createdAt: item.createdAt ? new Date(item.createdAt as string | number) : new Date(),
     updatedAt: item.updatedAt ? new Date(item.updatedAt as string | number) : new Date(),
   })) as ModuleItem[];
+}
+
+async function readJsonCache<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
 }
 
 const MODULE_CATEGORY_FALLBACK_NAMES = ['Punching', 'Kicking', 'Elbow Strikes', 'Knee Strikes', 'Defensive Moves'] as const;
@@ -675,20 +688,47 @@ export default function DashboardScreen({
       setRefreshing(false);
     }, LOAD_TIMEOUT_MS);
 
+    let hadCachedModules = false;
     try {
-      // Show cached modules immediately so the user sees the list while we fetch fresh data.
-      const cached = await AsyncStorage.getItem(MODULES_CACHE_KEY);
-      if (cached) {
+      // Show cached dashboard data immediately so the user sees the list while we fetch fresh data.
+      // This is what makes the dashboard usable offline once the user has loaded it at least once online.
+      const [cachedModulesRaw, cachedCategories, cachedSegmentProgram, cachedProgress] = await Promise.all([
+        AsyncStorage.getItem(MODULES_CACHE_KEY),
+        readJsonCache<ModuleCategoryWithMeta[]>(CATEGORIES_CACHE_KEY),
+        readJsonCache<Record<string, { warmupModuleIds?: string[]; cooldownModuleIds?: string[] }>>(SEGMENT_PROGRAM_CACHE_KEY),
+        readJsonCache<{
+          completedModuleIds?: string[];
+          completionTimestamps?: Record<string, number>;
+          moduleCompletionCounts?: Record<string, number>;
+          moduleTrainingStats?: Record<string, ModuleTrainingStat>;
+          weeklyReward?: WeeklyReward | null;
+        }>(PROGRESS_CACHE_KEY),
+      ]);
+
+      if (cachedModulesRaw) {
         try {
-          const parsed = JSON.parse(cached);
+          const parsed = JSON.parse(cachedModulesRaw);
           const revived = reviveCachedModules(parsed);
           if (revived.length > 0) {
             setModules(revived);
+            hadCachedModules = true;
             setLoading(false);
           }
         } catch (_) {
           // ignore invalid cache
         }
+      }
+      if (Array.isArray(cachedCategories) && cachedCategories.length > 0) {
+        setModuleCategories(cachedCategories);
+      }
+      if (cachedSegmentProgram && typeof cachedSegmentProgram === 'object') {
+        setCategorySegmentProgram(cachedSegmentProgram);
+      }
+      if (cachedProgress && typeof cachedProgress === 'object') {
+        if (Array.isArray(cachedProgress.completedModuleIds)) setCompletedModuleIds(cachedProgress.completedModuleIds);
+        if (cachedProgress.completionTimestamps) setCompletionTimestamps(cachedProgress.completionTimestamps);
+        if (cachedProgress.moduleCompletionCounts) setModuleCompletionCounts(cachedProgress.moduleCompletionCounts);
+        if (cachedProgress.moduleTrainingStats) setModuleTrainingStats(cachedProgress.moduleTrainingStats);
       }
 
       // Load modules and progress (query only approved, so payload is smaller).
@@ -703,7 +743,13 @@ export default function DashboardScreen({
         AuthController.getModuleCategoriesWithMeta(),
       ]);
       const completedIds = Array.isArray(progress?.completedModuleIds) ? progress.completedModuleIds : [];
-      setModules(list ?? []);
+      // Don't wipe the cached module list if the network came back empty (offline / fetch failed).
+      // getApprovedModules() returns [] on error, so an empty result is ambiguous; keep cache instead.
+      if (Array.isArray(list) && list.length > 0) {
+        setModules(list);
+      } else if (!hadCachedModules) {
+        setModules([]);
+      }
       const fallbackCategories = MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
         key: toCategoryProgramKey(name),
         name,
@@ -712,23 +758,47 @@ export default function DashboardScreen({
       if (Array.isArray(categoriesWithMeta) && categoriesWithMeta.length > 0) {
         setModuleCategories(categoriesWithMeta);
         setCategoryLoadError(null);
-      } else {
+        AsyncStorage.setItem(CATEGORIES_CACHE_KEY, JSON.stringify(categoriesWithMeta)).catch(() => {});
+      } else if (!Array.isArray(cachedCategories) || cachedCategories.length === 0) {
+        // No fresh data and no cache → fall back to hardcoded category names.
         setModuleCategories(fallbackCategories);
         setCategoryLoadError('Category metadata unavailable. Showing default category cards.');
       }
-      setCompletionTimestamps(progress?.completionTimestamps ?? {});
-      setModuleCompletionCounts(progress?.moduleCompletionCounts ?? {});
-      setCompletedModuleIds(completedIds);
-      setModuleTrainingStats(progress?.moduleTrainingStats ?? {});
-      const reward = (progress as { weeklyReward?: WeeklyReward | null } | null)?.weeklyReward ?? null;
+      // Same idea for progress: don't blank user progress if the network call failed.
+      const progressLooksFresh =
+        progress &&
+        (
+          (Array.isArray(progress.completedModuleIds) && progress.completedModuleIds.length > 0) ||
+          (progress.completionTimestamps && Object.keys(progress.completionTimestamps).length > 0)
+        );
+      if (progressLooksFresh) {
+        setCompletionTimestamps(progress.completionTimestamps ?? {});
+        setModuleCompletionCounts(progress.moduleCompletionCounts ?? {});
+        setCompletedModuleIds(completedIds);
+        setModuleTrainingStats(progress.moduleTrainingStats ?? {});
+        AsyncStorage.setItem(
+          PROGRESS_CACHE_KEY,
+          JSON.stringify({
+            completedModuleIds: completedIds,
+            completionTimestamps: progress.completionTimestamps ?? {},
+            moduleCompletionCounts: progress.moduleCompletionCounts ?? {},
+            moduleTrainingStats: progress.moduleTrainingStats ?? {},
+            weeklyReward: (progress as { weeklyReward?: WeeklyReward | null } | null)?.weeklyReward ?? null,
+          })
+        ).catch(() => {});
+      }
+      const reward = (progress as { weeklyReward?: WeeklyReward | null } | null)?.weeklyReward ?? cachedProgress?.weeklyReward ?? null;
       setWeeklyReward(reward);
       const currentWeekKey = getCurrentWeekKey();
       const hasUnclaimedRewardThisWeek = reward?.weekKey === currentWeekKey && reward.claimedAt == null;
       setWeeklyRewardModalVisible(hasUnclaimedRewardThisWeek);
-      setSkillProfile(fullProfile);
-      setPurchasedModuleIds(purchased);
-      setUserCredits(liveCredits);
-      setCategorySegmentProgram(segmentProgram ?? {});
+      if (fullProfile) setSkillProfile(fullProfile);
+      if (Array.isArray(purchased)) setPurchasedModuleIds(purchased);
+      if (typeof liveCredits === 'number') setUserCredits(liveCredits);
+      if (segmentProgram && Object.keys(segmentProgram).length > 0) {
+        setCategorySegmentProgram(segmentProgram);
+        AsyncStorage.setItem(SEGMENT_PROGRAM_CACHE_KEY, JSON.stringify(segmentProgram)).catch(() => {});
+      }
       const dailyTarget = currentUser?.targetModulesPerDay && currentUser.targetModulesPerDay > 0
         ? currentUser.targetModulesPerDay
         : DEFAULT_MODULES_PER_DAY_GOAL;
@@ -765,15 +835,18 @@ export default function DashboardScreen({
           setRecommendedModules([]);
         });
     } catch (e) {
-      setModules([]);
-      setModuleCategories(
-        MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
-          key: toCategoryProgramKey(name),
-          name,
-          thumbnailUrl: null,
-        }))
-      );
-      setCategoryLoadError('Unable to refresh categories right now.');
+      // Network / unexpected failure. Keep whatever we already showed from cache (if any).
+      if (!hadCachedModules) {
+        setModules([]);
+        setModuleCategories(
+          MODULE_CATEGORY_FALLBACK_NAMES.map((name) => ({
+            key: toCategoryProgramKey(name),
+            name,
+            thumbnailUrl: null,
+          }))
+        );
+        setCategoryLoadError('Unable to refresh categories right now.');
+      }
       clearTimeout(timeoutId);
       setLoading(false);
       setRefreshing(false);

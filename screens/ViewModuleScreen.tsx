@@ -434,17 +434,19 @@ export default function ViewModuleScreen({ moduleId, onBack, initialModule }: Vi
     AuthController.recordModuleTrainingFailure(mid).catch(() => {});
   }, []);
 
-  const handleSaveProgress = async () => {
+  const handleSaveProgress = () => {
     if (moduleId) {
-      try {
-        // Idempotent: may already be synced when opening Module Complete from training.
-        const newCount = await AuthController.recordModuleCompletion(moduleId);
-        if (newCount > 0 && newCount % 5 === 0) {
-          Alert.alert('Recommendations updated!', 'Your recommended modules have been refreshed. Check your dashboard.', [{ text: 'OK' }]);
-        }
-      } catch (e) {
-        console.error('recordModuleCompletion:', e);
-      }
+      // Fire-and-forget so we don't block exiting the screen if the user is offline.
+      // The completion is idempotent on the server, so a retry on next launch is safe.
+      AuthController.recordModuleCompletion(moduleId)
+        .then((newCount) => {
+          if (newCount > 0 && newCount % 5 === 0) {
+            Alert.alert('Recommendations updated!', 'Your recommended modules have been refreshed. Check your dashboard.', [{ text: 'OK' }]);
+          }
+        })
+        .catch((e) => {
+          console.error('recordModuleCompletion:', e);
+        });
     }
     onBack();
   };

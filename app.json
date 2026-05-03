@@ -5,7 +5,7 @@
     "scheme": "defenduapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/defendulogo.png",
+    "icon": "./assets/images/app-icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "updates": {
@@ -28,7 +28,7 @@
     "android": {
       "package": "com.defendu.mobile",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/defendulogo.png",
+        "foregroundImage": "./assets/images/app-icon.png",
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,

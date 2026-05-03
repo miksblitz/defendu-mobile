@@ -29,6 +29,7 @@ import type { SkillProfile } from '../lib/models/SkillProfile';
 import type { ModuleTrainingStat, WeeklyReward } from '../lib/controllers/userProgress';
 import {
   buildPersonalizedModuleRecommendations,
+  isModuleAccessible,
   PERFORMANCE_PHASE_COMPLETION_THRESHOLD,
 } from '../lib/recommendations/trainingModuleRecommendations';
 import { useToast } from '../hooks/useToast';
@@ -47,7 +48,7 @@ const CATEGORY_IMAGES: Record<string, ReturnType<typeof require>> = {
   'Punching': require('../assets/images/training/punching.png'),
   'Kicking': require('../assets/images/training/kicking.png'),
   'Elbow Strikes': require('../assets/images/training/elbow-strikes.png'),
-  'Knee Strikes': require('../assets/images/training/palm-strikes.png'),
+  'Knee Strikes': require('../assets/images/training/knee-strikes.png'),
   'Defensive Moves': require('../assets/images/training/defensive-moves.png'),
 };
 
@@ -871,10 +872,12 @@ export default function DashboardScreen({
     if (selected.size >= 5) return Array.from(selected.values()).slice(0, 5);
 
     // Backfill to always show up to 5 training modules (never warmup/cooldown/introduction).
+    // Honors `isModuleAccessible` so users with limb limitations don't see impossible modules.
     const fallbackPool = modules
       .filter((m) => isTrainingModuleOnly(m))
       .filter((m) => !completedModuleIds.includes(m.moduleId))
-      .filter((m) => !selected.has(m.moduleId));
+      .filter((m) => !selected.has(m.moduleId))
+      .filter((m) => isModuleAccessible(skillProfile, m));
 
     for (const mod of fallbackPool) {
       if (selected.size >= 5) break;
@@ -882,7 +885,7 @@ export default function DashboardScreen({
     }
 
     return Array.from(selected.values()).slice(0, 5);
-  }, [modules, personalizedRecIds, completedModuleIds]);
+  }, [modules, personalizedRecIds, completedModuleIds, skillProfile]);
 
   const recDetailReasons = React.useMemo(() => {
     if (!recDetailModule) return [];

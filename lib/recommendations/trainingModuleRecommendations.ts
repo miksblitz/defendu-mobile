@@ -9,10 +9,10 @@ import type { SkillProfile } from '../models/SkillProfile';
 const EXPERIENCE_LEVELS = ['Complete Beginner', 'Some Experience', 'Experienced', 'Expert/Instructor'] as const;
 const CURRENT_FITNESS_LEVELS = ['Low', 'Moderate', 'High', 'Athlete'] as const;
 const HIGH_DEMAND_TAGS = new Set(['Power', 'Speed', 'Agility', 'Endurance', 'Strength']);
-const ARM_CATEGORIES = new Set(['punching', 'palm strikes', 'elbow strikes']);
+const ARM_CATEGORIES = new Set(['punching', 'elbow strikes']);
 const LEG_CATEGORIES = new Set(['kicking', 'knee strikes']);
 /** Strikes that require at least one arm; used when both arms are unavailable. */
-const UPPER_BODY_STRIKE_CATEGORIES = new Set(['punching', 'palm strikes', 'elbow strikes']);
+const UPPER_BODY_STRIKE_CATEGORIES = new Set(['punching', 'elbow strikes']);
 /**
  * Categories where we infer left/right emphasis for single-limb routing (arm + defensive).
  */
@@ -60,11 +60,11 @@ function parseMissingLimbFlags(text: string): MissingLimbFlags {
   };
 }
 
-/** Which arm-side the module emphasizes (lead/jab vs rear/cross), from title + category. */
+/** Which arm-side the module emphasizes (lead/jab vs rear/cross), from title + category + description. */
 function armSideAffinitySet(mod: ModuleItem): Set<Side> {
   const cat = (mod.category ?? '').trim().toLowerCase();
   if (!ARM_SIDE_RELEVANT_CATEGORIES.has(cat)) return new Set();
-  const tokens = `${mod.moduleTitle ?? ''} ${mod.category ?? ''}`.toLowerCase();
+  const tokens = `${mod.moduleTitle ?? ''} ${mod.category ?? ''} ${mod.description ?? ''}`.toLowerCase();
   const out = new Set<Side>();
   const leftHint =
     /\bjab\b/.test(tokens) ||
@@ -85,14 +85,28 @@ function armSideAffinitySet(mod: ModuleItem): Set<Side> {
   return out;
 }
 
-/** Left vs right emphasis for kicks/knees from module title. */
+/** Left vs right emphasis for kicks/knees from module title + description. */
 function legSideAffinitySet(mod: ModuleItem): Set<Side> {
   const cat = (mod.category ?? '').trim().toLowerCase();
   if (!LEG_CATEGORIES.has(cat)) return new Set();
-  const tokens = `${mod.moduleTitle ?? ''}`.toLowerCase();
+  const tokens = `${mod.moduleTitle ?? ''} ${mod.description ?? ''}`.toLowerCase();
   const out = new Set<Side>();
-  if (/\bleft\b/.test(tokens) || /lead\s*leg\b/.test(tokens) || /\bleft\s+(kick|knee)\b/.test(tokens)) out.add('left');
-  if (/\bright\b/.test(tokens) || /rear\s*leg\b/.test(tokens) || /\bright\s+(kick|knee)\b/.test(tokens)) out.add('right');
+  if (
+    /\bleft\b/.test(tokens) ||
+    /\blead\b/.test(tokens) ||
+    /lead\s*leg\b/.test(tokens) ||
+    /\bleft\s+(kick|knee)\b/.test(tokens)
+  ) {
+    out.add('left');
+  }
+  if (
+    /\bright\b/.test(tokens) ||
+    /\brear\b/.test(tokens) ||
+    /rear\s*leg\b/.test(tokens) ||
+    /\bright\s+(kick|knee)\b/.test(tokens)
+  ) {
+    out.add('right');
+  }
   return out;
 }
 
@@ -110,9 +124,58 @@ function bothLegsUnavailable(flags: MissingLimbFlags, limitationsText: string, n
   return false;
 }
 
+type LimbContext = {
+  flags: MissingLimbFlags;
+  limitationsText: string;
+  noArms: boolean;
+  noLegs: boolean;
+  bothArms: boolean;
+  bothLegs: boolean;
+};
+
+/** Single source of truth for limb-impairment flags used by both scoring and accessibility filtering. */
+function deriveLimbContext(profile: SkillProfile): LimbContext {
+  const limitationsText = `${profile.physicalAttributes.limitations ?? ''} ${profile.fitnessCapabilities.injuries ?? ''}`.toLowerCase();
+  const flags = parseMissingLimbFlags(limitationsText);
+  let noArms = ['no arm', 'no use of arm', 'without arm', 'limited arm', 'arms limited', 'no arms'].some((p) =>
+    limitationsText.includes(p)
+  );
+  let noLegs = ['no leg', 'no use of leg', 'without leg', 'limited leg', 'legs limited', 'no legs', 'wheelchair', 'no use of legs'].some(
+    (p) => limitationsText.includes(p)
+  );
+  if (limitationsText.includes('upper body only') || limitationsText.includes('wheelchair')) {
+    noLegs = true;
+    noArms = false;
+  }
+  if (limitationsText.includes('no use of arms') || limitationsText.includes('no arms')) noArms = true;
+  if (limitationsText.includes('no use of legs') || limitationsText.includes('no legs')) noLegs = true;
+  return {
+    flags,
+    limitationsText,
+    noArms,
+    noLegs,
+    bothArms: bothArmsUnavailable(flags, limitationsText, noArms),
+    bothLegs: bothLegsUnavailable(flags, limitationsText, noLegs),
+  };
+}
+
+/**
+ * Hard accessibility filter: returns `false` for modules the user physically cannot perform.
+ * Used to keep impossible categories out of recommendations entirely (not just downranked).
+ * Single-limb impairments (only one leg/arm) stay accessible — the working limb can do most reps.
+ */
+export function isModuleAccessible(profile: SkillProfile | null, mod: ModuleItem): boolean {
+  if (!profile) return true;
+  const ctx = deriveLimbContext(profile);
+  const category = (mod.category ?? '').trim().toLowerCase();
+  if (ctx.bothLegs && LEG_CATEGORIES.has(category)) return false;
+  if (ctx.bothArms && UPPER_BODY_STRIKE_CATEGORIES.has(category)) return false;
+  return true;
+}
+
 function prefRequiresArmsForTechnique(p: string): boolean {
   const s = p.toLowerCase();
-  return s.includes('punch') || s.includes('elbow') || s.includes('palm');
+  return s.includes('punch') || s.includes('elbow');
 }
 
 function prefRequiresLegsForTechnique(p: string): boolean {
@@ -166,6 +229,24 @@ function applyLimbAwareTechniqueAdjustments(
     }
   }
 
+  // Single-limb impairment: when prefs only target the impaired family, lightly boost
+  // viable alternative categories so the user still sees variety they can train.
+  const oneArmImpaired =
+    !bothArms && (missingLimbFlags.leftArmMissing || missingLimbFlags.rightArmMissing);
+  const oneLegImpaired =
+    !bothLegs && (missingLimbFlags.leftLegMissing || missingLimbFlags.rightLegMissing);
+
+  if (oneArmImpaired && onlyArmStrikePrefs) {
+    if (LEG_CATEGORIES.has(category) || category === 'defensive moves') {
+      ts = Math.max(ts, 0.65);
+    }
+  }
+  if (oneLegImpaired && onlyLegStrikePrefs) {
+    if (ARM_SIDE_RELEVANT_CATEGORIES.has(category)) {
+      ts = Math.max(ts, 0.65);
+    }
+  }
+
   return ts;
 }
 
@@ -202,17 +283,30 @@ function limbFunctionalFitMultiplier(
 
   if (onlyLeftArmGone || onlyRightArmGone) {
     const armSides = armSideAffinitySet(mod);
-    if (ARM_SIDE_RELEVANT_CATEGORIES.has(category)) {
-      if (armSides.size === 0) return 1.0;
-      if (armSides.has('left') && armSides.has('right')) return 0.96;
-      // Missing left arm → use right (rear/cross); missing right → use left (lead/jab).
+    // Arm-strike modules with no detectable side are risky when an arm is missing —
+    // demote rather than treat as neutral. Defensive moves can usually be done with
+    // the remaining arm, so they stay neutral when side is unknown.
+    if (ARM_CATEGORIES.has(category)) {
+      if (armSides.size === 0) return 0.55;
+      if (armSides.has('left') && armSides.has('right')) return 0.78;
       if (onlyLeftArmGone) {
         if (armSides.has('right')) return 1.22;
-        if (armSides.has('left')) return 0.78;
+        if (armSides.has('left')) return 0.45;
       }
       if (onlyRightArmGone) {
         if (armSides.has('left')) return 1.22;
-        if (armSides.has('right')) return 0.78;
+        if (armSides.has('right')) return 0.45;
+      }
+    } else if (category === 'defensive moves') {
+      if (armSides.size === 0) return 1.0;
+      if (armSides.has('left') && armSides.has('right')) return 0.92;
+      if (onlyLeftArmGone) {
+        if (armSides.has('right')) return 1.18;
+        if (armSides.has('left')) return 0.7;
+      }
+      if (onlyRightArmGone) {
+        if (armSides.has('left')) return 1.18;
+        if (armSides.has('right')) return 0.7;
       }
     }
   }
@@ -223,20 +317,76 @@ function limbFunctionalFitMultiplier(
   if (onlyLeftLegGone || onlyRightLegGone) {
     const legSides = legSideAffinitySet(mod);
     if (LEG_CATEGORIES.has(category)) {
-      if (legSides.size === 0) return 1.0;
-      if (legSides.has('left') && legSides.has('right')) return 0.96;
+      // Leg modules with no detectable side are risky when a leg is missing — demote
+      // strongly so unlabelled kicks/knees stop competing with usable alternatives.
+      if (legSides.size === 0) return 0.45;
+      if (legSides.has('left') && legSides.has('right')) return 0.7;
       if (onlyLeftLegGone) {
         if (legSides.has('right')) return 1.22;
-        if (legSides.has('left')) return 0.78;
+        if (legSides.has('left')) return 0.35;
       }
       if (onlyRightLegGone) {
         if (legSides.has('left')) return 1.22;
-        if (legSides.has('right')) return 0.78;
+        if (legSides.has('right')) return 0.35;
       }
     }
   }
 
   return 1.0;
+}
+
+/**
+ * Goal → category affinity. Goal labels (Personal Safety / Fitness / Confidence Building) never
+ * literally appear in module categories, so the previous `category.includes(goal)` substring match
+ * always returned the neutral 0.5 fallback. This replaces it with curated weights.
+ */
+const GOAL_CATEGORY_AFFINITY: Record<string, Record<string, number>> = {
+  'personal safety': {
+    'defensive moves': 1.0,
+    'punching': 0.85,
+    'elbow strikes': 0.85,
+    'knee strikes': 0.85,
+    'kicking': 0.7,
+  },
+  'fitness': {
+    'kicking': 0.95,
+    'knee strikes': 0.9,
+    'punching': 0.9,
+    'elbow strikes': 0.75,
+    'defensive moves': 0.6,
+  },
+  'confidence building': {
+    'defensive moves': 0.95,
+    'punching': 0.85,
+    'elbow strikes': 0.75,
+    'kicking': 0.7,
+    'knee strikes': 0.7,
+  },
+};
+
+function goalsAffinityScore(goals: string[] | undefined, category: string): number {
+  if (!category || !goals?.length) return 0.5;
+  let best = 0.5;
+  for (const g of goals) {
+    if (!g) continue;
+    const map = GOAL_CATEGORY_AFFINITY[g.toLowerCase().trim()];
+    if (!map) continue;
+    const score = map[category];
+    if (typeof score === 'number' && score > best) best = score;
+  }
+  return best;
+}
+
+/**
+ * Smooth intensity falloff: peaks at the user's preferred level, gentle decline either side
+ * with a slightly steeper drop above (don't recommend much harder). Replaces the previous
+ * hard cliff at `preferred + 1`.
+ */
+function intensityFitScore(intensity: number, preferred: number): number {
+  const diff = intensity - preferred;
+  const sigma = diff >= 0 ? 1.6 : 1.9;
+  const score = Math.exp(-(diff * diff) / (2 * sigma * sigma));
+  return Math.max(0.2, Math.min(1.0, score));
 }
 
 /**
@@ -250,10 +400,7 @@ export function profileModuleFit(profile: SkillProfile, mod: ModuleItem): number
   const expNum = levelTo15(profile.pastExperience.experienceLevel, EXPERIENCE_LEVELS);
   const fitNum = levelTo15(profile.fitnessCapabilities.currentFitnessLevel, CURRENT_FITNESS_LEVELS);
   const preferred = Math.max(expNum, fitNum);
-  const diff = Math.abs(intensity - preferred);
-  let intensityScore: number;
-  if (intensity > preferred + 1) intensityScore = 0.3;
-  else intensityScore = Math.max(0.2, 1.0 - 0.2 * diff);
+  const intensityScore = intensityFitScore(intensity, preferred);
 
   let techniqueScore = 0.5;
   for (const t of profile.preferences.preferredTechnique ?? []) {
@@ -267,24 +414,11 @@ export function profileModuleFit(profile: SkillProfile, mod: ModuleItem): number
     }
   }
 
-  const limitationsText = `${profile.physicalAttributes.limitations ?? ''} ${profile.fitnessCapabilities.injuries ?? ''}`.toLowerCase();
-  const missingLimbFlags = parseMissingLimbFlags(limitationsText);
+  const ctx = deriveLimbContext(profile);
+  const { flags: missingLimbFlags, limitationsText, noArms, noLegs } = ctx;
   const hasLimitations = Boolean(
     (profile.physicalAttributes.limitations ?? '').trim() || (profile.fitnessCapabilities.injuries ?? '').trim()
   );
-
-  let noArms = ['no arm', 'no use of arm', 'without arm', 'limited arm', 'arms limited', 'no arms'].some((p) =>
-    limitationsText.includes(p)
-  );
-  let noLegs = ['no leg', 'no use of leg', 'without leg', 'limited leg', 'legs limited', 'no legs', 'wheelchair', 'no use of legs'].some(
-    (p) => limitationsText.includes(p)
-  );
-  if (limitationsText.includes('upper body only') || limitationsText.includes('wheelchair')) {
-    noLegs = true;
-    noArms = false;
-  }
-  if (limitationsText.includes('no use of arms') || limitationsText.includes('no arms')) noArms = true;
-  if (limitationsText.includes('no use of legs') || limitationsText.includes('no legs')) noLegs = true;
 
   techniqueScore = applyLimbAwareTechniqueAdjustments(
     techniqueScore,
@@ -296,13 +430,7 @@ export function profileModuleFit(profile: SkillProfile, mod: ModuleItem): number
     noLegs
   );
 
-  let goalsScore = 0.5;
-  for (const g of profile.preferences.trainingGoal ?? []) {
-    if (g && category.includes(g.toLowerCase())) {
-      goalsScore = 1.0;
-      break;
-    }
-  }
+  const goalsScore = goalsAffinityScore(profile.preferences.trainingGoal, category);
   const wantsScore = (techniqueScore + goalsScore) / 2;
 
   let capabilityPenalty = 1.0;
@@ -312,6 +440,19 @@ export function profileModuleFit(profile: SkillProfile, mod: ModuleItem): number
 
   if (noArms && ARM_CATEGORIES.has(category)) capabilityPenalty = Math.min(capabilityPenalty, 0.4);
   if (noLegs && LEG_CATEGORIES.has(category)) capabilityPenalty = Math.min(capabilityPenalty, 0.4);
+
+  // Single-limb impairment also caps leg/arm strike scores so unknown-side modules
+  // can't quietly outrank usable alternatives.
+  const oneArmImpaired =
+    !noArms && (missingLimbFlags.leftArmMissing || missingLimbFlags.rightArmMissing);
+  const oneLegImpaired =
+    !noLegs && (missingLimbFlags.leftLegMissing || missingLimbFlags.rightLegMissing);
+  if (oneArmImpaired && ARM_CATEGORIES.has(category)) {
+    capabilityPenalty = Math.min(capabilityPenalty, 0.7);
+  }
+  if (oneLegImpaired && LEG_CATEGORIES.has(category)) {
+    capabilityPenalty = Math.min(capabilityPenalty, 0.6);
+  }
 
   const combined = 0.6 * intensityScore + 0.4 * wantsScore;
   const limbFit = limbFunctionalFitMultiplier(mod, category, missingLimbFlags, limitationsText, noArms, noLegs);
@@ -346,6 +487,13 @@ export interface PersonalizedRecommendationInput {
   topN?: number;
 }
 
+/**
+ * Per-extra-pick category penalty for MMR diversity rerank. Small enough that a clearly better
+ * module can still win against a same-category neighbour, but large enough to break category
+ * monocultures (e.g. five punching modules in a row).
+ */
+const DIVERSITY_PENALTY = 0.06;
+
 export function buildPersonalizedModuleRecommendations(input: PersonalizedRecommendationInput): string[] {
   const {
     modules,
@@ -360,12 +508,19 @@ export function buildPersonalizedModuleRecommendations(input: PersonalizedRecomm
   const completedCount = completedModuleIds.length;
   const inPerformancePhase = completedCount >= PERFORMANCE_PHASE_COMPLETION_THRESHOLD;
 
-  const candidates = modules.filter((m) => m.moduleId && !completed.has(m.moduleId));
+  const candidates = modules.filter(
+    (m) => m.moduleId && !completed.has(m.moduleId) && isModuleAccessible(skillProfile, m)
+  );
   if (candidates.length === 0) return [];
 
   const weights = inPerformancePhase
     ? { profile: 0.32, ml: 0.28, struggle: 0.4 }
     : { profile: 0.52, ml: 0.38, struggle: 0.1 };
+
+  const categoryByModuleId = new Map<string, string>();
+  for (const m of candidates) {
+    categoryByModuleId.set(m.moduleId, (m.category ?? '').trim().toLowerCase());
+  }
 
   const scored = candidates.map((mod) => {
     const profileScore = skillProfile ? profileModuleFit(skillProfile, mod) : 0.48;
@@ -376,13 +531,41 @@ export function buildPersonalizedModuleRecommendations(input: PersonalizedRecomm
     return { moduleId: mod.moduleId, total, profileScore, mlScore, strScore };
   });
 
-  scored.sort((a, b) => b.total - a.total || b.profileScore - a.profileScore);
+  // Stable order: total desc, then profileScore desc, then moduleId asc (deterministic).
+  scored.sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    if (b.profileScore !== a.profileScore) return b.profileScore - a.profileScore;
+    return a.moduleId.localeCompare(b.moduleId);
+  });
 
+  // MMR-style diversity rerank. Pick one at a time, choosing the candidate with the
+  // highest (total - DIVERSITY_PENALTY * categoryRepeatCount). Keeps strong picks but
+  // breaks up category monocultures in the top N.
   const out: string[] = [];
-  for (const row of scored) {
-    if (out.includes(row.moduleId)) continue;
-    out.push(row.moduleId);
-    if (out.length >= topN) break;
+  const seen = new Set<string>();
+  const usedCategoryCount = new Map<string, number>();
+  const remaining = scored.slice();
+
+  while (out.length < topN && remaining.length > 0) {
+    let bestIdx = 0;
+    let bestAdjusted = -Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const row = remaining[i];
+      const cat = categoryByModuleId.get(row.moduleId) ?? '';
+      const repeats = usedCategoryCount.get(cat) ?? 0;
+      const adjusted = row.total - DIVERSITY_PENALTY * repeats;
+      if (adjusted > bestAdjusted) {
+        bestAdjusted = adjusted;
+        bestIdx = i;
+      }
+    }
+    const picked = remaining.splice(bestIdx, 1)[0];
+    if (seen.has(picked.moduleId)) continue;
+    seen.add(picked.moduleId);
+    out.push(picked.moduleId);
+    const pickedCat = categoryByModuleId.get(picked.moduleId) ?? '';
+    usedCategoryCount.set(pickedCat, (usedCategoryCount.get(pickedCat) ?? 0) + 1);
   }
+
   return out;
 }

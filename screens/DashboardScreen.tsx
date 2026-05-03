@@ -29,7 +29,9 @@ import type { SkillProfile } from '../lib/models/SkillProfile';
 import type { ModuleTrainingStat, WeeklyReward } from '../lib/controllers/userProgress';
 import {
   buildPersonalizedModuleRecommendations,
+  categoryMatchesPreferredTechnique,
   isModuleAccessible,
+  profileModuleFit,
   PERFORMANCE_PHASE_COMPLETION_THRESHOLD,
 } from '../lib/recommendations/trainingModuleRecommendations';
 import { useToast } from '../hooks/useToast';
@@ -973,7 +975,22 @@ export default function DashboardScreen({
       .filter((m) => !selected.has(m.moduleId))
       .filter((m) => isModuleAccessible(skillProfile, m));
 
-    for (const mod of fallbackPool) {
+    let orderedFallback = fallbackPool;
+    if (skillProfile && fallbackPool.length > 0) {
+      orderedFallback = [...fallbackPool].sort((a, b) => {
+        const ca = (a.category ?? '').trim().toLowerCase();
+        const cb = (b.category ?? '').trim().toLowerCase();
+        const ma = categoryMatchesPreferredTechnique(skillProfile, ca) ? 1 : 0;
+        const mb = categoryMatchesPreferredTechnique(skillProfile, cb) ? 1 : 0;
+        if (ma !== mb) return mb - ma;
+        const fa = profileModuleFit(skillProfile, a);
+        const fb = profileModuleFit(skillProfile, b);
+        if (fb !== fa) return fb - fa;
+        return a.moduleId.localeCompare(b.moduleId);
+      });
+    }
+
+    for (const mod of orderedFallback) {
       if (selected.size >= 5) break;
       selected.set(mod.moduleId, mod);
     }

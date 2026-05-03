@@ -10,6 +10,7 @@ import type { ModuleItem } from '../lib/controllers/modulesCatalog';
 import type { SkillProfile } from '../lib/models/SkillProfile';
 import {
   buildPersonalizedModuleRecommendations,
+  isModuleAccessible,
   profileModuleFit,
 } from '../lib/recommendations/trainingModuleRecommendations';
 
@@ -113,13 +114,12 @@ const PERSONAS: Persona[] = [
       fitnessLevel: 'Moderate',
     }),
     expectations: [
-      'Top picks should NOT include rear-leg modules (rear_low_kick, rear_high_kick, rear_knee).',
-      'Lead-leg modules (lead_low_kick, lead_high_kick, lead_knee) should rank higher than rear ones.',
-      'Side-unknown leg modules (roundhouse_kick, side_kick, front_kick, knee_strike_basic) should be demoted vs lead-leg.',
+      'Kicking/knee modules must be lead/left-leg only (rear_* and ambiguous kicks/knees are excluded by accessibility).',
+      'Top 5 may emphasize defensive/punching when goals outweigh prefs; any leg module that appears must still pass the lead-leg filter.',
     ],
   },
   {
-    name: 'No left arm + Boxing prefs',
+    name: 'No left arm + Punching only (arms impaired → legs first)',
     profile: profile({
       uid: 'persona_no_left_arm',
       preferredTechnique: ['Punching'],
@@ -127,8 +127,21 @@ const PERSONAS: Persona[] = [
       limitations: 'no left arm',
     }),
     expectations: [
-      'Lead/jab punches should be downranked, rear/cross punches boosted.',
-      'Side-unknown punches (combo_punches) should be demoted.',
+      'Kicks/knees should fill top picks before punching modules (tier ordering for arm limitation).',
+    ],
+  },
+  {
+    name: 'No left leg + Punching + Elbow only (arms healthy)',
+    profile: profile({
+      uid: 'persona_no_left_leg_punch_elbow',
+      preferredTechnique: ['Punching', 'Elbow Strikes'],
+      trainingGoal: ['Fitness'],
+      limitations: 'no left leg',
+      experienceLevel: 'Some Experience',
+      fitnessLevel: 'Moderate',
+    }),
+    expectations: [
+      'Top 5 should be punching / elbow only — no knee, kicking, or defensive moves when user explicitly excluded them.',
     ],
   },
   {
@@ -231,6 +244,7 @@ function check(label: string, ok: boolean, detail?: string): boolean {
 
 function runRegressionAssertions(): boolean {
   let allOk = true;
+  const LEG_STRIKE_CATS = new Set(['kicking', 'knee strikes']);
   console.log('\nRegression assertions:');
 
   // Bug report: no right leg + knee prefs.
@@ -270,29 +284,108 @@ function runRegressionAssertions(): boolean {
     `roundhouse=${format(scoreOf('roundhouse_kick'))} vs rear=${format(scoreOf('rear_low_kick'))}`
   ) && allOk;
 
-  // No left arm: cross > jab.
+  const allowedLegNoRight = new Set(['lead_low_kick', 'lead_high_kick', 'lead_knee']);
+  for (const m of CATALOG) {
+    const cat = (m.category ?? '').toLowerCase();
+    if ((cat === 'kicking' || cat === 'knee strikes') && isModuleAccessible(noRightLeg, m)) {
+      allOk = check(
+        `no_right_leg: only lead-side leg modules accessible (${m.moduleId})`,
+        allowedLegNoRight.has(m.moduleId),
+        `unexpected accessible module`
+      ) && allOk;
+    }
+  }
+
+  const noLeftLeg = profile({ uid: 'persona_no_left_leg', limitations: 'no left leg' });
+  const allowedLegNoLeft = new Set(['rear_low_kick', 'rear_high_kick', 'rear_knee']);
+  for (const m of CATALOG) {
+    const cat = (m.category ?? '').toLowerCase();
+    if ((cat === 'kicking' || cat === 'knee strikes') && isModuleAccessible(noLeftLeg, m)) {
+      allOk = check(
+        `no_left_leg: only rear-side leg modules accessible (${m.moduleId})`,
+        allowedLegNoLeft.has(m.moduleId),
+        `unexpected accessible module`
+      ) && allOk;
+    }
+  }
+
+  const noLeftLegPunchElbow = profile({
+    uid: 'persona_no_left_leg_punch_elbow',
+    preferredTechnique: ['Punching', 'Elbow Strikes'],
+    trainingGoal: ['Fitness'],
+    limitations: 'no left leg',
+    experienceLevel: 'Some Experience',
+    fitnessLevel: 'Moderate',
+  });
+  const top5NoLeftPunchElbow = topRecommendations(noLeftLegPunchElbow);
+  const allowedUpperOnly = new Set(['punching', 'elbow strikes']);
+  for (const id of top5NoLeftPunchElbow) {
+    const m = CATALOG.find((x) => x.moduleId === id);
+    const cat = (m?.category ?? '').toLowerCase();
+    allOk = check(
+      `no_left_leg + punch/elbow prefs: top 5 only punching/elbow (${id})`,
+      allowedUpperOnly.has(cat),
+      `cat=${cat} top5=${top5NoLeftPunchElbow.join(', ')}`
+    ) && allOk;
+  }
+
+  const noRightLegPunchElbow = profile({
+    uid: 'persona_no_right_leg_punch_elbow',
+    preferredTechnique: ['Punching', 'Elbow Strikes'],
+    trainingGoal: ['Personal Safety', 'Fitness'],
+    limitations: 'no right leg',
+    experienceLevel: 'Some Experience',
+    fitnessLevel: 'Moderate',
+  });
+  const top5NoRightPunchElbow = topRecommendations(noRightLegPunchElbow);
+  for (const id of top5NoRightPunchElbow) {
+    const m = CATALOG.find((x) => x.moduleId === id);
+    const cat = (m?.category ?? '').toLowerCase();
+    allOk = check(
+      `no_right_leg + punch/elbow prefs: top 5 only punching/elbow (${id})`,
+      allowedUpperOnly.has(cat),
+      `cat=${cat} top5=${top5NoRightPunchElbow.join(', ')}`
+    ) && allOk;
+  }
+
   const noLeftArm = PERSONAS[1].profile;
-  const armRanked = rankAll(noLeftArm);
-  const armScoreOf = (id: string) => armRanked.find((r) => r.moduleId === id)?.score ?? 0;
+  const noLeftArmTop5 = topRecommendations(noLeftArm);
+  const noLeftArmLegN = noLeftArmTop5.filter((id) => {
+    const m = CATALOG.find((x) => x.moduleId === id);
+    return m && LEG_STRIKE_CATS.has((m.category ?? '').toLowerCase());
+  }).length;
   allOk = check(
-    'no_left_arm: cross scores higher than jab',
-    armScoreOf('cross') > armScoreOf('jab'),
-    `cross=${format(armScoreOf('cross'))} vs jab=${format(armScoreOf('jab'))}`
+    'no_left_arm + punch-only: most of top 5 is kicking/knee (legs first)',
+    noLeftArmLegN >= 4,
+    `leg_modules=${noLeftArmLegN} top5=${noLeftArmTop5.join(', ')}`
   ) && allOk;
+
+  const noLeftArmAllPrefs = profile({
+    uid: 'persona_no_left_arm_all',
+    preferredTechnique: ['Punching', 'Kicking', 'Knee Strikes', 'Elbow Strikes', 'Defensive Moves'],
+    trainingGoal: ['Fitness'],
+    limitations: 'no left arm',
+    experienceLevel: 'Some Experience',
+    fitnessLevel: 'Moderate',
+  });
+  const top5NoLeftAll = topRecommendations(noLeftArmAllPrefs);
+  const noLeftAllLegN = top5NoLeftAll.filter((id) => {
+    const m = CATALOG.find((x) => x.moduleId === id);
+    return m && LEG_STRIKE_CATS.has((m.category ?? '').toLowerCase());
+  }).length;
   allOk = check(
-    'no_left_arm: cross scores higher than side-unknown combo_punches',
-    armScoreOf('cross') > armScoreOf('combo_punches'),
-    `cross=${format(armScoreOf('cross'))} vs combo=${format(armScoreOf('combo_punches'))}`
+    'no_left_arm + all technique prefs: kicking/knee still dominates over punching',
+    noLeftAllLegN >= 3,
+    `leg_modules=${noLeftAllLegN} top5=${top5NoLeftAll.join(', ')}`
   ) && allOk;
 
   // Wheelchair: no leg modules in top 5.
-  const wheelchair = PERSONAS[2].profile;
+  const wheelchair = PERSONAS[3].profile;
   const wcTop5 = topRecommendations(wheelchair);
-  const legCats = new Set(['kicking', 'knee strikes']);
   const armCats = new Set(['punching', 'elbow strikes']);
   const wcLegLeak = wcTop5.filter((id) => {
     const m = CATALOG.find((x) => x.moduleId === id);
-    return m && legCats.has((m.category ?? '').toLowerCase());
+    return m && LEG_STRIKE_CATS.has((m.category ?? '').toLowerCase());
   });
   allOk = check(
     'wheelchair: no kicking/knee modules in top 5',
@@ -301,11 +394,11 @@ function runRegressionAssertions(): boolean {
   ) && allOk;
 
   // Wheelchair with leg-only prefs: hard filter must still work.
-  const wcLeg = PERSONAS[3].profile;
+  const wcLeg = PERSONAS[4].profile;
   const wcLegTop5 = topRecommendations(wcLeg);
   const wcLegLeak2 = wcLegTop5.filter((id) => {
     const m = CATALOG.find((x) => x.moduleId === id);
-    return m && legCats.has((m.category ?? '').toLowerCase());
+    return m && LEG_STRIKE_CATS.has((m.category ?? '').toLowerCase());
   });
   allOk = check(
     'wheelchair_leg_prefs: still no kicking/knee in top 5',
@@ -319,7 +412,7 @@ function runRegressionAssertions(): boolean {
   ) && allOk;
 
   // No arms with arm-only prefs: arm strikes filtered.
-  const noArms = PERSONAS[4].profile;
+  const noArms = PERSONAS[5].profile;
   const noArmsTop5 = topRecommendations(noArms);
   const armLeak = noArmsTop5.filter((id) => {
     const m = CATALOG.find((x) => x.moduleId === id);
@@ -364,8 +457,45 @@ function runRegressionAssertions(): boolean {
     `lead_low_kick=${format(kickScore)} vs slip_left=${format(slipScore)}`
   ) && allOk;
 
+  const noviceBroadPrefs = profile({
+    uid: 'persona_novice_broad_prefs',
+    preferredTechnique: ['Punching', 'Kicking', 'Knee Strikes', 'Elbow Strikes', 'Defensive Moves'],
+    trainingGoal: ['Fitness'],
+    experienceLevel: 'Complete Beginner',
+    fitnessLevel: 'Low',
+    limitations: '',
+    injuries: '',
+  });
+  const noviceBroadRanked = rankAll(noviceBroadPrefs);
+  const nbScore = (id: string) => noviceBroadRanked.find((r) => r.moduleId === id)?.score ?? 0;
+  allOk = check(
+    'novice + broad technique prefs: easier modules beat high-demand knee drill',
+    nbScore('front_kick') > nbScore('plyo_knee'),
+    `front_kick=${format(nbScore('front_kick'))} vs plyo_knee=${format(nbScore('plyo_knee'))}`
+  ) && allOk;
+
+  const punchOnlyNovice = profile({
+    uid: 'punch_only_novice',
+    preferredTechnique: ['Punching'],
+    trainingGoal: ['Fitness'],
+    experienceLevel: 'Complete Beginner',
+    fitnessLevel: 'Low',
+    limitations: '',
+    injuries: '',
+  });
+  const top5PunchOnly = topRecommendations(punchOnlyNovice);
+  for (const id of top5PunchOnly) {
+    const m = CATALOG.find((x) => x.moduleId === id);
+    const cat = (m?.category ?? '').toLowerCase();
+    allOk = check(
+      `punch-only pref: top 5 stays punching (${id})`,
+      cat === 'punching',
+      `cat=${cat} top5=${top5PunchOnly.join(', ')}`
+    ) && allOk;
+  }
+
   // MMR diversity: top 5 for athlete with broad prefs should span at least 3 distinct categories.
-  const athlete = PERSONAS[6].profile;
+  const athlete = PERSONAS[7].profile;
   const athleteTop5 = topRecommendations(athlete);
   const athleteCats = new Set(
     athleteTop5
@@ -373,8 +503,8 @@ function runRegressionAssertions(): boolean {
       .filter(Boolean)
   );
   allOk = check(
-    'mmr diversity: athlete top 5 spans >=3 distinct categories',
-    athleteCats.size >= 3,
+    'all-five technique prefs + no limitations: top 5 includes one per module category (5)',
+    athleteCats.size === 5,
     `cats=${[...athleteCats].join(', ')} | top5=${athleteTop5.join(', ')}`
   ) && allOk;
 

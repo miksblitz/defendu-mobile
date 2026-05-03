@@ -14,7 +14,8 @@
  *
  * ### 2. Preferences (after accessibility)
  * - **All five technique toggles** (matches onboarding) + **no limb limitations**: guarantee at least one
- *   top pick per module category when the catalog has each category (`pickBestPerModuleCategoryBucket`).
+ *   top pick per category in order punching → kicking → elbow → knee → defense when the catalog has
+ *   each (`pickBestPerModuleCategoryBucket`, stable display order).
  * - **Subset of techniques** + **no limb limitations**: only modules whose category matches a selected
  *   technique (`filterCandidatesByExplicitTechniquePreferences`).
  * - **Subset + limb limitations**: do not narrow the catalog by prefs alone — limitations may require
@@ -49,11 +50,14 @@ export const CANONICAL_TECHNIQUE_PREF_LABELS = [
   'Defensive Moves',
 ] as const;
 
-/** Module `category` values used for diversity when the user selected every technique above. */
-const MODULE_CATEGORY_BUCKETS_FOR_DIVERSITY = [
+/**
+ * One recommended module per bucket when user selected all techniques and has no limb limits.
+ * Order matches UX: punching, kicking, elbows, knees, then defense.
+ */
+export const ALL_FIVE_RECOMMENDATION_CATEGORY_ORDER = [
   'punching',
-  'elbow strikes',
   'kicking',
+  'elbow strikes',
   'knee strikes',
   'defensive moves',
 ] as const;
@@ -327,6 +331,13 @@ export function userSelectedAllFiveTechniques(profile: SkillProfile | null): boo
     profile.preferences.preferredTechnique.map((t) => (t ?? '').trim()).filter(Boolean)
   );
   return CANONICAL_TECHNIQUE_PREF_LABELS.every((k) => sel.has(k));
+}
+
+/** True when recommendations should include one strong pick per `ALL_FIVE_RECOMMENDATION_CATEGORY_ORDER`. */
+export function shouldRecommendOneModulePerCategoryDiversity(profile: SkillProfile | null): boolean {
+  if (!profile) return false;
+  if (!userSelectedAllFiveTechniques(profile)) return false;
+  return hasNoLimbLimitationsForRecommendations(deriveLimbContext(profile));
 }
 
 /**
@@ -838,8 +849,8 @@ type ScoredRecommendationRow = {
 };
 
 /**
- * One highest-scoring module per canonical category (for users who enabled every technique and have
- * no limb limits). Order returned is by descending `total` so the list stays quality-sorted.
+ * Highest-scoring module per category bucket (for all-five + no limb limits).
+ * Return order follows `ALL_FIVE_RECOMMENDATION_CATEGORY_ORDER` so the row reads punch → kick → elbow → knee → defense.
  */
 function pickBestPerModuleCategoryBucket(
   scoredDesc: ScoredRecommendationRow[],
@@ -847,7 +858,7 @@ function pickBestPerModuleCategoryBucket(
 ): string[] {
   const picked: ScoredRecommendationRow[] = [];
   const seen = new Set<string>();
-  for (const bucket of MODULE_CATEGORY_BUCKETS_FOR_DIVERSITY) {
+  for (const bucket of ALL_FIVE_RECOMMENDATION_CATEGORY_ORDER) {
     for (const row of scoredDesc) {
       if (seen.has(row.moduleId)) continue;
       if ((categoryByModuleId.get(row.moduleId) ?? '') === bucket) {
@@ -857,7 +868,6 @@ function pickBestPerModuleCategoryBucket(
       }
     }
   }
-  picked.sort((a, b) => b.total - a.total);
   return picked.map((r) => r.moduleId);
 }
 
@@ -959,12 +969,9 @@ export function buildPersonalizedModuleRecommendations(input: PersonalizedRecomm
     return a.moduleId.localeCompare(b.moduleId);
   });
 
-  const diversitySeedIds =
-    skillProfile &&
-    userSelectedAllFiveTechniques(skillProfile) &&
-    hasNoLimbLimitationsForRecommendations(deriveLimbContext(skillProfile))
-      ? pickBestPerModuleCategoryBucket(scored, categoryByModuleId)
-      : [];
+  const diversitySeedIds = shouldRecommendOneModulePerCategoryDiversity(skillProfile)
+    ? pickBestPerModuleCategoryBucket(scored, categoryByModuleId)
+    : [];
 
   const tier1: typeof scored = [];
   const tier2: typeof scored = [];

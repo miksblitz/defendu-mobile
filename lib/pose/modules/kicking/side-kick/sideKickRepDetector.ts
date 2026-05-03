@@ -1,19 +1,27 @@
 /**
- * Side kick — low-kick style rep detector with explicit reset gating.
- * After each rep, both feet must return to planted/reset for a few frames.
+ * Side kick — rep detector with reset gating after each good rep.
+ * Before the next rep can arm, the kicking leg must leave the strike line: either **rechamber**
+ * (knee bent back — foot may stay off the floor) **or** a full planted low-kick reset, held a few frames.
  */
 
 import type { PoseFrame } from '../../../types';
 import type { RepDetectorResult } from '../../types';
 import { buildFacingRightBadRep, isFacingRightSide } from '../facingDirection';
-import { getIdx, leadLowKickResetPose } from '../lead-low-kick/leadLowKickGeometry';
-import { inOppositeLegSideKickStrikePose, inSideKickStrikePose, oppositeFootFullySideways } from './sideKickGeometry';
+import { getIdx } from '../lead-low-kick/leadLowKickGeometry';
+import {
+  inOppositeLegSideKickStrikePose,
+  inSideKickStrikePose,
+  oppositeFootFullySideways,
+  sideKickReadyForNextRep,
+} from './sideKickGeometry';
 
 const COOLDOWN_MS = 700;
 const RIGHT_FACING_BAD_COOLDOWN_MS = 250;
 const FOOT_SIDEWAYS_SPAM_COOLDOWN_MS = 220;
-const MIN_REP_FRAMES = 2;
-const MIN_PLANTED_STREAK = 3;
+/** Require a short visible strike segment so pose noise does not double-count. */
+const MIN_REP_FRAMES = 4;
+/** Consecutive frames of rechamber or planted reset before arming the next strike. */
+const MIN_READY_STREAK = 4;
 
 export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => RepDetectorResult {
   let phase: 'idle' | 'striking' | 'cooldown' = 'idle';
@@ -21,8 +29,8 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
   let cooldownUntil = 0;
   let prevStrike = false;
   let prevReset = false;
-  let needsReplantAfterRep = false;
-  let plantedStreak = 0;
+  let needsResetAfterRep = false;
+  let readyStreak = 0;
   let rightFacingBadUntil = 0;
 
   return function tick(frame: PoseFrame, now: number): RepDetectorResult {
@@ -32,8 +40,8 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       segment = [];
       prevStrike = false;
       prevReset = false;
-      needsReplantAfterRep = false;
-      plantedStreak = 0;
+      needsResetAfterRep = false;
+      readyStreak = 0;
       return buildFacingRightBadRep(frame, 'side-kick-facing-right-bad-rep');
     }
 
@@ -43,15 +51,15 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
     const strike = inSideKickStrikePose(frame, idx);
     const oppositeLegStrike = inOppositeLegSideKickStrikePose(frame, idx);
     const oppositeFootSideways = oppositeFootFullySideways(frame, idx);
-    const reset = leadLowKickResetPose(frame, idx);
+    const readyForNext = sideKickReadyForNextRep(frame, idx);
 
     if (phase === 'cooldown') {
       if (now < cooldownUntil) return { done: false };
       phase = 'idle';
       segment = [];
       prevStrike = strike;
-      prevReset = reset;
-      plantedStreak = 0;
+      prevReset = readyForNext;
+      readyStreak = 0;
       return { done: false };
     }
 
@@ -60,9 +68,9 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       segment = [];
       cooldownUntil = now + FOOT_SIDEWAYS_SPAM_COOLDOWN_MS;
       prevStrike = false;
-      prevReset = reset;
-      needsReplantAfterRep = false;
-      plantedStreak = 0;
+      prevReset = readyForNext;
+      needsResetAfterRep = false;
+      readyStreak = 0;
       return {
         done: true,
         segment: [frame],
@@ -81,9 +89,9 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       segment = [];
       cooldownUntil = now + COOLDOWN_MS;
       prevStrike = false;
-      prevReset = reset;
-      needsReplantAfterRep = false;
-      plantedStreak = 0;
+      prevReset = readyForNext;
+      needsResetAfterRep = false;
+      readyStreak = 0;
       return {
         done: true,
         segment: [frame],
@@ -98,24 +106,24 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
     }
 
     if (phase === 'idle') {
-      if (needsReplantAfterRep) {
-        plantedStreak = reset ? plantedStreak + 1 : 0;
-        if (plantedStreak >= MIN_PLANTED_STREAK) {
-          needsReplantAfterRep = false;
-          plantedStreak = 0;
+      if (needsResetAfterRep) {
+        readyStreak = readyForNext ? readyStreak + 1 : 0;
+        if (readyStreak >= MIN_READY_STREAK) {
+          needsResetAfterRep = false;
+          readyStreak = 0;
         }
       } else {
-        plantedStreak = 0;
+        readyStreak = 0;
       }
 
-      const replantOk = !needsReplantAfterRep;
-      if (replantOk && strike && (!prevStrike || prevReset)) {
+      const resetGateOk = !needsResetAfterRep;
+      if (resetGateOk && strike && (!prevStrike || prevReset)) {
         phase = 'striking';
         segment = [frame];
       }
 
       prevStrike = strike;
-      prevReset = reset;
+      prevReset = readyForNext;
       return { done: false };
     }
 
@@ -123,7 +131,7 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       phase = 'idle';
       segment = [];
       prevStrike = false;
-      prevReset = reset;
+      prevReset = readyForNext;
       return { done: false };
     }
 
@@ -133,8 +141,8 @@ export function createSideKickRepDetector(): (frame: PoseFrame, now: number) => 
       segment = [];
       phase = 'cooldown';
       cooldownUntil = now + COOLDOWN_MS;
-      needsReplantAfterRep = true;
-      plantedStreak = 0;
+      needsResetAfterRep = true;
+      readyStreak = 0;
       return { done: true, segment: out };
     }
 

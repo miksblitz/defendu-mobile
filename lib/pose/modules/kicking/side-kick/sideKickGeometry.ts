@@ -5,7 +5,14 @@
  */
 
 import type { PoseFrame } from '../../../types';
-import { midHipY, validPoint, MP, MN17 } from '../lead-low-kick/leadLowKickGeometry';
+import {
+  leadLowKickResetPose,
+  midHipY,
+  rightKneeInteriorAngleDeg,
+  validPoint,
+  MP,
+  MN17,
+} from '../lead-low-kick/leadLowKickGeometry';
 
 export const SIDE_KICK_MIN_OUTWARD_FROM_HIP_X = 0.004;
 export const SIDE_KICK_MIN_HIP_ANKLE_DX = 0.01;
@@ -112,4 +119,19 @@ export function oppositeFootFullySideways(frame: PoseFrame, idx: typeof MP | typ
     dx >= dy * SIDE_KICK_OPPOSITE_FOOT_FULL_SIDEWAYS_RATIO ||
     ankleDxFromHip >= SIDE_KICK_OPPOSITE_FOOT_SIDEWAYS_MIN_ANKLE_DX_FROM_HIP
   );
+}
+
+/**
+ * After a rep, the kicking leg must leave the strike pose before another rep can start.
+ * Ready when **not** in strike and either:
+ * - Knee is clearly bent (rechamber / leg folded back — foot does not need to touch the floor), or
+ * - Classic planted reset (both feet down, low-kick reset pose).
+ */
+export const SIDE_KICK_RECHAMBER_KNEE_INTERIOR_MAX_DEG = 125;
+
+export function sideKickReadyForNextRep(frame: PoseFrame, idx: typeof MP | typeof MN17): boolean {
+  if (inSideKickStrikePose(frame, idx)) return false;
+  const bend = rightKneeInteriorAngleDeg(frame, idx);
+  if (bend != null && bend < SIDE_KICK_RECHAMBER_KNEE_INTERIOR_MAX_DEG) return true;
+  return leadLowKickResetPose(frame, idx);
 }

@@ -2204,6 +2204,12 @@ export default function CategoryPracticeSessionScreen({
     const isNumericCountdown = countdownText === '3' || countdownText === '2' || countdownText === '1';
     const isSuccessStep = step === 'training_success';
     const isCategorySuccessStep = step === 'training_category_success';
+    const completionTitle =
+      sessionVariant === 'recommendedSingle' ? 'MODULE COMPLETED' : 'CATEGORY COMPLETED';
+    const completionSubtitle =
+      sessionVariant === 'recommendedSingle'
+        ? 'Outstanding work. You completed this training module.'
+        : 'Outstanding work. You completed all training modules in this category.';
     const hideControls =
       isTrainingStanceStep ||
       isCategorySuccessStep ||
@@ -2235,10 +2241,8 @@ export default function CategoryPracticeSessionScreen({
           ) : isCategorySuccessStep ? (
             <View style={styles.categoryCompleteWrap}>
               <Image source={require('../assets/images/defendulogo.png')} style={styles.categoryCompleteLogo} resizeMode="contain" />
-              <Text style={styles.categoryCompleteTitle}>CATEGORY COMPLETED</Text>
-              <Text style={styles.categoryCompleteSubtitle}>
-                Outstanding work. You completed all training modules in this category.
-              </Text>
+              <Text style={styles.categoryCompleteTitle}>{completionTitle}</Text>
+              <Text style={styles.categoryCompleteSubtitle}>{completionSubtitle}</Text>
             </View>
           ) : isTrainingStanceStep ? (
             <View style={styles.stancePageWrap}>

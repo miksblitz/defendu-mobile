@@ -28,11 +28,13 @@ import type { Module } from '../lib/models/Module';
 import type { SkillProfile } from '../lib/models/SkillProfile';
 import type { ModuleTrainingStat, WeeklyReward } from '../lib/controllers/userProgress';
 import {
+  ALL_FIVE_RECOMMENDATION_CATEGORY_ORDER,
   buildPersonalizedModuleRecommendations,
   categoryMatchesPreferredTechnique,
   isModuleAccessible,
   profileModuleFit,
   PERFORMANCE_PHASE_COMPLETION_THRESHOLD,
+  shouldRecommendOneModulePerCategoryDiversity,
 } from '../lib/recommendations/trainingModuleRecommendations';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
@@ -977,9 +979,30 @@ export default function DashboardScreen({
 
     let orderedFallback = fallbackPool;
     if (skillProfile && fallbackPool.length > 0) {
+      const onePerCategoryDiversity =
+        shouldRecommendOneModulePerCategoryDiversity(skillProfile) && selected.size > 0 && selected.size < 5;
+      const usedCatsForFallback = onePerCategoryDiversity
+        ? new Set(
+            Array.from(selected.values()).map((m) => (m.category ?? '').trim().toLowerCase())
+          )
+        : null;
+      const rankAllFiveCat = (cat: string): number => {
+        const i = (ALL_FIVE_RECOMMENDATION_CATEGORY_ORDER as readonly string[]).indexOf(cat);
+        return i === -1 ? 99 : i;
+      };
       orderedFallback = [...fallbackPool].sort((a, b) => {
         const ca = (a.category ?? '').trim().toLowerCase();
         const cb = (b.category ?? '').trim().toLowerCase();
+        if (usedCatsForFallback) {
+          const aDup = usedCatsForFallback.has(ca) ? 1 : 0;
+          const bDup = usedCatsForFallback.has(cb) ? 1 : 0;
+          if (aDup !== bDup) return aDup - bDup;
+          if (aDup === 0) {
+            const ra = rankAllFiveCat(ca);
+            const rb = rankAllFiveCat(cb);
+            if (ra !== rb) return ra - rb;
+          }
+        }
         const ma = categoryMatchesPreferredTechnique(skillProfile, ca) ? 1 : 0;
         const mb = categoryMatchesPreferredTechnique(skillProfile, cb) ? 1 : 0;
         if (ma !== mb) return mb - ma;

@@ -97,19 +97,9 @@ export async function login(data: LoginData): Promise<User> {
       martialArtsBackground: normalizeArray(userDataRaw.martialArtsBackground),
     } as User;
 
-    const prevJson = await AsyncStorage.getItem('user');
-    let prevUid: string | null = null;
-    if (prevJson) {
-      try {
-        prevUid = String((JSON.parse(prevJson) as { uid?: string }).uid ?? '');
-        if (!prevUid) prevUid = null;
-      } catch {
-        prevUid = null;
-      }
-    }
-    if (!prevUid || prevUid !== firebaseUser.uid) {
-      await clearUserEphemeralStorage();
-    }
+    // Always wipe device caches tied to the previous session so switching accounts
+    // cannot reuse dashboard / offline blobs / purchase caches from another uid.
+    await clearUserEphemeralStorage();
 
     await AsyncStorage.setItem('user', JSON.stringify(userData));
     return userData;

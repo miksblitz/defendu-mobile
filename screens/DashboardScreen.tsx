@@ -42,6 +42,12 @@ import {
   type ModulePurchaseInvoice,
 } from '../lib/controllers/modulePurchases';
 import { getCachedVideoUri, prefetchVideo } from '../utils/videoCache';
+import {
+  DASHBOARD_MODULES_CACHE_KEY,
+  DASHBOARD_CATEGORIES_CACHE_KEY,
+  DASHBOARD_SEGMENT_PROGRAM_CACHE_KEY,
+  DASHBOARD_PROGRESS_CACHE_KEY,
+} from '../lib/controllers/localUserCache';
 
 // --- Constants ---
 /** Training category hero images (assets/images/training/). */
@@ -155,12 +161,7 @@ const WEEK_BOUNDARY_POLL_MS = 30_000;
 const DAY_DOUBLE_TAP_MS = 320;
 const START_HERE_DOUBLE_TAP_MS = 350;
 
-import {
-  DASHBOARD_MODULES_CACHE_KEY,
-  DASHBOARD_CATEGORIES_CACHE_KEY,
-  DASHBOARD_SEGMENT_PROGRAM_CACHE_KEY,
-  DASHBOARD_PROGRESS_CACHE_KEY,
-} from '../lib/controllers/localUserCache';(raw: unknown): ModuleItem[] {
+function reviveCachedModules(raw: unknown): ModuleItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   return raw.map((item: Record<string, unknown>) => ({
     ...item,

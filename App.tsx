@@ -83,6 +83,8 @@ export default function App() {
   const [topUpReceipt, setTopUpReceipt] = useState<{ invoice: TopUpInvoice; newCredits: number } | null>(null);
   const [modulePurchaseReceipt, setModulePurchaseReceipt] = useState<{ invoice: ModulePurchaseInvoice; newCredits: number } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  /** Bump when auth session identity changes so dashboard/profile trees remount and drop in-memory state from the previous account. */
+  const [sessionRemountKey, setSessionRemountKey] = useState(0);
   const [resetPasswordToken, setResetPasswordToken] = useState<string | null>(null);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState<string | null>(null);
   const [viewModuleId, setViewModuleId] = useState<string | null>(null);
@@ -167,6 +169,7 @@ export default function App() {
   }, [screen]);
 
   const handleLoginSuccess = (user: User) => {
+    setSessionRemountKey((k) => k + 1);
     setCreditsBalance(typeof user.credits === 'number' ? user.credits : 0);
     if (user.role === 'admin') {
       setScreen('dashboard');
@@ -182,11 +185,21 @@ export default function App() {
 
   useEffect(() => {
     if (!loggingOut) return;
+    let cancelled = false;
     const t = setTimeout(() => {
-      setScreen('login');
-      setLoggingOut(false);
+      void (async () => {
+        await AuthController.logout().catch(() => {});
+        if (cancelled) return;
+        setCreditsBalance(0);
+        setSessionRemountKey((k) => k + 1);
+        setScreen('login');
+        setLoggingOut(false);
+      })();
     }, 800);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [loggingOut]);
 
   const handleNav = (screen: 'dashboard' | 'profile' | 'trainer' | 'messages' | 'settings') => {
@@ -475,6 +488,7 @@ export default function App() {
               }
             >
               <DashboardScreen
+                key={sessionRemountKey}
                 refreshKey={dashboardRefreshKey}
                 recommendationsReopenToken={dashboardRecommendationsReopenToken}
                 onConsumeRecommendationsReopen={handleConsumeRecommendationsReopen}
@@ -540,7 +554,7 @@ export default function App() {
               onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
             >
-              <ProfileScreen onOpenTrainerInsights={() => setScreen('trainer-insights')} />
+              <ProfileScreen key={sessionRemountKey} onOpenTrainerInsights={() => setScreen('trainer-insights')} />
             </MainLayout>
           )}
           {screen === 'trainer-insights' && (
@@ -591,7 +605,7 @@ export default function App() {
               onOpenTopUp={openTopUp}
               creditsBalance={creditsBalance}
             >
-              <SettingsScreen />
+              <SettingsScreen key={sessionRemountKey} />
             </MainLayout>
           )}
           {screen === 'messages' && (
@@ -605,6 +619,7 @@ export default function App() {
               hideCreditsBar
             >
               <MessagesScreen
+                key={sessionRemountKey}
                 openWithUserId={messagesOpenWith?.uid}
                 openWithUserName={messagesOpenWith?.name}
                 openWithUserPhoto={messagesOpenWith?.photo ?? undefined}
@@ -633,6 +648,7 @@ export default function App() {
               }
             >
               <TrainerScreen
+                key={sessionRemountKey}
                 refreshKey={trainerRefreshKey}
                 onMessageTrainer={(uid, name, photo) => { setMessagesOpenWith({ uid, name, photo }); setScreen('messages'); }}
                 initialToastMessage={trainerToastMessage}

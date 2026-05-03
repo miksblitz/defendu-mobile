@@ -246,3 +246,7 @@ Reps are detected from your **hip movement**: hips go **down** (e.g. squat) then
 
 **Pose works on emulator but not on physical device (`--device`)?**  
 Without `--device`, the app runs on the **Android emulator** (x86 build, virtual camera). With `npx expo run:android --device` it runs on a **physical phone** (arm build, real camera). Those are different builds and runtimes. If pose only works on the emulator, try: (1) On the phone, ensure **Camera** permission is allowed for the app (Settings → Apps → Defendu → Permissions). (2) Unplug the device, run `npx expo run:android` so it builds and runs on the emulator, then run `npx expo run:android --device` so it builds again for the device and installs there—this ensures a fresh device build. (3) If it still fails, connect the phone via USB, open “Try with pose” on the device, and run `adb logcat` on the PC to see the real native error (look for “MediaPipe”, “TsMediapipe”, or “camera”).
+
+
+
+TO CONVERT TO APK COMMAND: eas build -p android --profile preview

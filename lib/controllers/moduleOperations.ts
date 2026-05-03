@@ -6,6 +6,19 @@ import { SEED_TEST_MODULES } from '../seed/testModules';
 import { getCurrentUser } from './authSession';
 import { normalizeArray, normalizeWarmupExercises } from './normalize';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  getCachedModuleRaw,
+  setCachedModuleRaw,
+  getCachedReferencePose,
+  setCachedReferencePose,
+  clearCachedModule,
+  withTimeout,
+} from './moduleCache';
+
+/** Wait this long for fresh data when we already have a cached copy (offline-friendly). */
+const REMOTE_FAST_TIMEOUT_MS = 1500;
+/** Wait this long when there is no cache yet — the user needs the data to render. */
+const REMOTE_COLD_TIMEOUT_MS = 8000;
 
 export async function getModulesByIds(moduleIds: string[]): Promise<Module[]> {
   if (!moduleIds.length) return [];
@@ -20,47 +33,93 @@ export async function getModulesByIds(moduleIds: string[]): Promise<Module[]> {
   }
 }
 
-/** Fetch reference pose data from referencePoseData/{moduleId} (keeps module doc small). */
+/**
+ * Fetch reference pose data from referencePoseData/{moduleId} (keeps module doc small).
+ * Cache-aware: if we have a cached copy, return it instantly when the network is slow/offline,
+ * and update the cache in the background once Firebase responds.
+ */
 export async function getReferencePoseData(moduleId: string): Promise<{ sequences: unknown[]; focus: string } | null> {
-  try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser) return null;
+  const currentUser = await getCurrentUser().catch(() => null);
+  if (!currentUser) return null;
+
+  const fetchRemote = (): Promise<{ sequences: unknown[]; focus: string } | null> => {
     const refDataRef = ref(db, `referencePoseData/${moduleId}`);
-    const snap = await get(refDataRef);
-    if (!snap.exists()) return null;
-    const data = snap.val() as { sequences?: unknown[] | Record<string, unknown>; focus?: string };
-    const raw = data?.sequences;
-    let sequences: unknown[] = [];
-    if (Array.isArray(raw)) {
-      sequences = raw;
-    } else if (raw && typeof raw === 'object') {
-      const keys = Object.keys(raw)
-        .filter((k) => /^\d+$/.test(k))
-        .sort((a, b) => Number(a) - Number(b));
-      sequences = keys.map((k) => (raw as Record<string, unknown>)[k]);
-    }
-    if (sequences.length === 0) return null;
-    return { sequences, focus: data?.focus ?? 'full' };
-  } catch (e) {
-    console.error('getReferencePoseData:', e);
-    return null;
+    return get(refDataRef)
+      .then((snap) => {
+        if (!snap.exists()) return null;
+        const data = snap.val() as { sequences?: unknown[] | Record<string, unknown>; focus?: string };
+        const raw = data?.sequences;
+        let sequences: unknown[] = [];
+        if (Array.isArray(raw)) {
+          sequences = raw;
+        } else if (raw && typeof raw === 'object') {
+          const keys = Object.keys(raw)
+            .filter((k) => /^\d+$/.test(k))
+            .sort((a, b) => Number(a) - Number(b));
+          sequences = keys.map((k) => (raw as Record<string, unknown>)[k]);
+        }
+        if (sequences.length === 0) return null;
+        const result = { sequences, focus: data?.focus ?? 'full' };
+        void setCachedReferencePose(moduleId, result);
+        return result;
+      })
+      .catch((e) => {
+        console.error('getReferencePoseData remote:', e);
+        return null;
+      });
+  };
+
+  const cached = await getCachedReferencePose(moduleId);
+  if (cached) {
+    const remotePromise = fetchRemote();
+    const fresh = await withTimeout(remotePromise, REMOTE_FAST_TIMEOUT_MS);
+    if (fresh) return fresh;
+    void remotePromise;
+    return cached;
   }
+
+  const remote = await withTimeout(fetchRemote(), REMOTE_COLD_TIMEOUT_MS);
+  return remote ?? null;
 }
 
+/**
+ * Cache-aware module fetch. Online users get fresh data; offline users get the
+ * version they last saw (so opening + pose practice for previously-trained modules works).
+ */
 export async function getModuleByIdForUser(moduleId: string): Promise<Module | null> {
-  try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser) return null;
+  const currentUser = await getCurrentUser().catch(() => null);
+  if (!currentUser) return null;
+
+  const fetchRemote = (): Promise<Record<string, unknown> | null> => {
     const moduleRef = ref(db, `modules/${moduleId}`);
-    const snap = await get(moduleRef);
-    if (!snap.exists()) return null;
-    const raw = snap.val() as Record<string, unknown>;
-    if (raw.status !== 'approved') return null;
-    return mapModuleFromRaw(moduleId, raw);
-  } catch (e) {
-    console.error('getModuleByIdForUser:', e);
-    return null;
+    return get(moduleRef)
+      .then((snap) => {
+        if (!snap.exists()) return null;
+        const raw = snap.val() as Record<string, unknown>;
+        if (raw.status !== 'approved') {
+          void clearCachedModule(moduleId);
+          return null;
+        }
+        void setCachedModuleRaw(moduleId, raw);
+        return raw;
+      })
+      .catch((e) => {
+        console.error('getModuleByIdForUser remote:', e);
+        return null;
+      });
+  };
+
+  const cached = await getCachedModuleRaw(moduleId);
+  if (cached) {
+    const remotePromise = fetchRemote();
+    const fresh = await withTimeout(remotePromise, REMOTE_FAST_TIMEOUT_MS);
+    if (fresh) return mapModuleFromRaw(moduleId, fresh);
+    void remotePromise;
+    return mapModuleFromRaw(moduleId, cached);
   }
+
+  const remote = await withTimeout(fetchRemote(), REMOTE_COLD_TIMEOUT_MS);
+  return remote ? mapModuleFromRaw(moduleId, remote) : null;
 }
 
 function mapModuleFromRaw(moduleId: string, raw: Record<string, unknown>): Module {
@@ -310,6 +369,7 @@ export async function removeModule(moduleId: string): Promise<void> {
   if (snap.val()?.trainerId !== currentUser.uid) throw new Error('Not allowed to remove this module');
   await set(modRef, null);
   await set(ref(db, `trainerModules/${currentUser.uid}/${moduleId}`), null);
+  void clearCachedModule(moduleId);
 }
 
 /** Seed test modules (approved trainers only). Writes approved modules under current trainer. */

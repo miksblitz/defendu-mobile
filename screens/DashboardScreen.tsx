@@ -155,12 +155,12 @@ const WEEK_BOUNDARY_POLL_MS = 30_000;
 const DAY_DOUBLE_TAP_MS = 320;
 const START_HERE_DOUBLE_TAP_MS = 350;
 
-const MODULES_CACHE_KEY = 'dashboard_modules_cache';
-const CATEGORIES_CACHE_KEY = 'dashboard_categories_cache';
-const SEGMENT_PROGRAM_CACHE_KEY = 'dashboard_segment_program_cache';
-const PROGRESS_CACHE_KEY = 'dashboard_progress_cache';
-
-function reviveCachedModules(raw: unknown): ModuleItem[] {
+import {
+  DASHBOARD_MODULES_CACHE_KEY,
+  DASHBOARD_CATEGORIES_CACHE_KEY,
+  DASHBOARD_SEGMENT_PROGRAM_CACHE_KEY,
+  DASHBOARD_PROGRESS_CACHE_KEY,
+} from '../lib/controllers/localUserCache';(raw: unknown): ModuleItem[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   return raw.map((item: Record<string, unknown>) => ({
     ...item,
@@ -694,16 +694,16 @@ export default function DashboardScreen({
       // Show cached dashboard data immediately so the user sees the list while we fetch fresh data.
       // This is what makes the dashboard usable offline once the user has loaded it at least once online.
       const [cachedModulesRaw, cachedCategories, cachedSegmentProgram, cachedProgress] = await Promise.all([
-        AsyncStorage.getItem(MODULES_CACHE_KEY),
-        readJsonCache<ModuleCategoryWithMeta[]>(CATEGORIES_CACHE_KEY),
-        readJsonCache<Record<string, { warmupModuleIds?: string[]; cooldownModuleIds?: string[] }>>(SEGMENT_PROGRAM_CACHE_KEY),
+        AsyncStorage.getItem(DASHBOARD_MODULES_CACHE_KEY),
+        readJsonCache<ModuleCategoryWithMeta[]>(DASHBOARD_CATEGORIES_CACHE_KEY),
+        readJsonCache<Record<string, { warmupModuleIds?: string[]; cooldownModuleIds?: string[] }>>(DASHBOARD_SEGMENT_PROGRAM_CACHE_KEY),
         readJsonCache<{
           completedModuleIds?: string[];
           completionTimestamps?: Record<string, number>;
           moduleCompletionCounts?: Record<string, number>;
           moduleTrainingStats?: Record<string, ModuleTrainingStat>;
           weeklyReward?: WeeklyReward | null;
-        }>(PROGRESS_CACHE_KEY),
+        }>(DASHBOARD_PROGRESS_CACHE_KEY),
       ]);
 
       if (cachedModulesRaw) {
@@ -759,7 +759,7 @@ export default function DashboardScreen({
       if (Array.isArray(categoriesWithMeta) && categoriesWithMeta.length > 0) {
         setModuleCategories(categoriesWithMeta);
         setCategoryLoadError(null);
-        AsyncStorage.setItem(CATEGORIES_CACHE_KEY, JSON.stringify(categoriesWithMeta)).catch(() => {});
+        AsyncStorage.setItem(DASHBOARD_CATEGORIES_CACHE_KEY, JSON.stringify(categoriesWithMeta)).catch(() => {});
       } else if (!Array.isArray(cachedCategories) || cachedCategories.length === 0) {
         // No fresh data and no cache → fall back to hardcoded category names.
         setModuleCategories(fallbackCategories);
@@ -778,7 +778,7 @@ export default function DashboardScreen({
         setCompletedModuleIds(completedIds);
         setModuleTrainingStats(progress.moduleTrainingStats ?? {});
         AsyncStorage.setItem(
-          PROGRESS_CACHE_KEY,
+          DASHBOARD_PROGRESS_CACHE_KEY,
           JSON.stringify({
             completedModuleIds: completedIds,
             completionTimestamps: progress.completionTimestamps ?? {},
@@ -798,7 +798,7 @@ export default function DashboardScreen({
       if (typeof liveCredits === 'number') setUserCredits(liveCredits);
       if (segmentProgram && Object.keys(segmentProgram).length > 0) {
         setCategorySegmentProgram(segmentProgram);
-        AsyncStorage.setItem(SEGMENT_PROGRAM_CACHE_KEY, JSON.stringify(segmentProgram)).catch(() => {});
+        AsyncStorage.setItem(DASHBOARD_SEGMENT_PROGRAM_CACHE_KEY, JSON.stringify(segmentProgram)).catch(() => {});
       }
       const dailyTarget = currentUser?.targetModulesPerDay && currentUser.targetModulesPerDay > 0
         ? currentUser.targetModulesPerDay
@@ -813,7 +813,7 @@ export default function DashboardScreen({
       clearTimeout(timeoutId);
 
       if (list?.length) {
-        AsyncStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(list)).catch(() => {});
+        AsyncStorage.setItem(DASHBOARD_MODULES_CACHE_KEY, JSON.stringify(list)).catch(() => {});
         // Warm on-device cache for module thumbnails + intro media (images + short loops use the same helper as video).
         const mediaUrls: string[] = [];
         for (const m of list.slice(0, 36)) {

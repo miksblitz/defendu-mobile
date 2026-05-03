@@ -4,6 +4,7 @@ import { auth, db } from '../config/firebaseConfig';
 import type { FitnessCapabilities, Preferences, SkillProfile } from '../models/SkillProfile';
 import type { User } from '../models/User';
 import { getCurrentUser } from './authSession';
+import { clearUserEphemeralStorage } from './localUserCache';
 
 function getCurrentWeekKeyLocal(nowMs: number = Date.now()): string {
   const now = new Date(nowMs);
@@ -18,6 +19,7 @@ function getCurrentWeekKeyLocal(nowMs: number = Date.now()): string {
 export async function saveSkillProfile(profile: SkillProfile): Promise<void> {
   const firebaseUser = auth.currentUser;
   if (!firebaseUser) {
+    await clearUserEphemeralStorage();
     await AsyncStorage.removeItem('user');
     throw new Error('Session expired. Please log in again.');
   }

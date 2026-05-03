@@ -9,6 +9,7 @@ import { auth, db } from '../config/firebaseConfig';
 import type { User, RegisterData, LoginData } from '../models/User';
 import { formatAuthError } from './errors';
 import { normalizeArray, normalizeNumber } from './normalize';
+import { clearUserEphemeralStorage } from './localUserCache';
 
 export async function register(data: RegisterData): Promise<User> {
   try {
@@ -42,6 +43,7 @@ export async function register(data: RegisterData): Promise<User> {
       hasCompletedSkillProfile: false,
       trainerApproved: false,
     };
+    await clearUserEphemeralStorage();
     await AsyncStorage.removeItem('user');
     await signOut(auth).catch(() => {});
     return userData;
@@ -95,6 +97,20 @@ export async function login(data: LoginData): Promise<User> {
       martialArtsBackground: normalizeArray(userDataRaw.martialArtsBackground),
     } as User;
 
+    const prevJson = await AsyncStorage.getItem('user');
+    let prevUid: string | null = null;
+    if (prevJson) {
+      try {
+        prevUid = String((JSON.parse(prevJson) as { uid?: string }).uid ?? '');
+        if (!prevUid) prevUid = null;
+      } catch {
+        prevUid = null;
+      }
+    }
+    if (!prevUid || prevUid !== firebaseUser.uid) {
+      await clearUserEphemeralStorage();
+    }
+
     await AsyncStorage.setItem('user', JSON.stringify(userData));
     return userData;
   } catch (error: unknown) {
@@ -147,6 +163,7 @@ export async function getCurrentUser(): Promise<User | null> {
 export async function logout(): Promise<void> {
   try {
     await signOut(auth);
+    await clearUserEphemeralStorage();
     await AsyncStorage.removeItem('user');
   } catch (e) {
     console.error('Logout error:', e);

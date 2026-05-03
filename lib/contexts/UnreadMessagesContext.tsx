@@ -2,8 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthController from '../controllers/AuthController';
 import { MessageController } from '../controllers/MessageController';
+import { messagesLastSeenStorageKey } from '../controllers/localUserCache';
 
-const LAST_SEEN_STORAGE_KEY = 'messagesLastSeenByChat_v1';
 const MAX_BADGE = 99;
 
 type UserChatsSnapshot = Record<string, { lastMessage?: { senderId: string; createdAt: number }; unreadCount?: number }>;
@@ -50,7 +50,7 @@ export function UnreadMessagesProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(LAST_SEEN_STORAGE_KEY);
+        const raw = await AsyncStorage.getItem(messagesLastSeenStorageKey(uid));
         if (cancelled) return;
         if (raw) {
           const parsed = JSON.parse(raw) as { lastSeenByChatId?: Record<string, unknown>; unreadByChatId?: Record<string, unknown> };
@@ -81,12 +81,13 @@ export function UnreadMessagesProvider({ children }: { children: ReactNode }) {
   }, [uid]);
 
   const persistLocalUnread = useCallback(() => {
+    if (!uid) return;
     const payload = {
       lastSeenByChatId: lastSeenByChatRef.current || {},
       unreadByChatId: unreadByChatRef.current || {},
     };
-    AsyncStorage.setItem(LAST_SEEN_STORAGE_KEY, JSON.stringify(payload)).catch(() => {});
-  }, []);
+    AsyncStorage.setItem(messagesLastSeenStorageKey(uid), JSON.stringify(payload)).catch(() => {});
+  }, [uid]);
 
   useEffect(() => {
     if (!uid) {

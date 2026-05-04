@@ -182,19 +182,32 @@ export async function purchaseModulesWithCredits(input: {
   }
 
   const invoiceNo = `MOD-${String(now).slice(-7)}-${Math.floor(Math.random() * 900 + 100)}`;
+  const mid = String(input.moduleId ?? '').trim();
+  const mtitle = String(input.moduleTitle ?? '').trim();
   const invoice: ModulePurchaseInvoice = {
     invoiceNo,
     referenceNo,
     purchaseType: input.purchaseType,
-    moduleId: input.moduleId,
-    moduleTitle: input.moduleTitle,
     category: input.category,
     amountCredits: amountToCharge,
     purchasedModuleIds: remaining,
     createdAt: now,
+    ...(mid ? { moduleId: mid } : {}),
+    ...(mtitle ? { moduleTitle: mtitle } : {}),
   };
 
-  await set(ref(db, `users/${user.uid}/modulePurchaseInvoices/${invoiceNo}`), invoice);
+  // RTDB set() rejects undefined property values — omit optional fields instead.
+  await set(ref(db, `users/${user.uid}/modulePurchaseInvoices/${invoiceNo}`), {
+    invoiceNo,
+    referenceNo,
+    purchaseType: input.purchaseType,
+    category: input.category,
+    amountCredits: amountToCharge,
+    purchasedModuleIds: remaining,
+    createdAt: now,
+    ...(mid ? { moduleId: mid } : {}),
+    ...(mtitle ? { moduleTitle: mtitle } : {}),
+  });
   await updateStoredUserCredits(newCredits);
 
   const mergedIds = [...(await readCachedPurchasedIds(user.uid)), ...remaining];

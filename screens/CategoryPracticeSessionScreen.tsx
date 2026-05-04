@@ -1878,13 +1878,19 @@ export default function CategoryPracticeSessionScreen({
                 });
                 const price = remaining.length * 50;
                 if (price <= 0) return;
+                const anchorIdx = pendingLockedTrainingIndex;
+                const anchorModule = anchorIdx != null ? orderedTrainingModules[anchorIdx] : null;
                 try {
                   setPurchasing(true);
                   const result = await purchaseModulesWithCredits({
                     purchaseType: 'category',
                     category,
-                    moduleIdsToPurchase: remaining.map((m) => m.moduleId),
+                    moduleIdsToPurchase: remaining
+                      .map((m) => String(m.moduleId ?? '').trim())
+                      .filter(Boolean),
                     amountCredits: price,
+                    moduleId: anchorModule ? String(anchorModule.moduleId ?? '').trim() : undefined,
+                    moduleTitle: anchorModule?.moduleTitle,
                   });
                   setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
                   setUserCredits(result.newCredits);

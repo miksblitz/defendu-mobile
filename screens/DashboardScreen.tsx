@@ -42,6 +42,7 @@ import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuide
 import {
   getPurchasedModuleIds,
   getUserCreditsBalance,
+  persistPurchasedModuleIdsSnapshot,
   purchaseModulesWithCredits,
   type ModulePurchaseInvoice,
 } from '../lib/controllers/modulePurchases';
@@ -513,9 +514,11 @@ interface DashboardScreenProps {
     sessionVariant?: 'default' | 'recommendedSingle';
     /** When false, returning from the session does not reopen the category overlay (e.g. opened from day history). */
     returnToCategoryAfterExit?: boolean;
+    /** First free module in this category (must match session lock rules). */
+    freeModuleId?: string | null;
   }) => void;
   /** Category-style session (safety → countdown → pose) for a single pick from Recommended modal. */
-  onStartRecommendedSingleSession?: (module: ModuleItem) => void;
+  onStartRecommendedSingleSession?: (module: ModuleItem, context: { freeModuleId: string | null }) => void;
   /** Increment when returning from recommended single session so the modal reopens. */
   recommendationsReopenToken?: number;
   /** Call after opening the modal from `recommendationsReopenToken` so the token can be cleared in App (prevents reopen after category quit). */
@@ -1050,22 +1053,6 @@ export default function DashboardScreen({
     setRecDetailModalVisible(true);
   }, []);
 
-  const continueRecommendedFlow = React.useCallback(() => {
-    if (!recDetailModule) return;
-    setRecDetailModalVisible(false);
-    setRecModalVisible(false);
-    const cat = recDetailModule.category?.trim() ? recDetailModule.category : 'Punching';
-    onStartCategorySession({
-      category: cat,
-      warmups: [],
-      cooldowns: [],
-      trainingModules: [recDetailModule],
-      introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
-      mannequinGifUri: extractRemoteUrl(moduleDyn(recDetailModule).referenceGuideUrl),
-      sessionVariant: 'recommendedSingle',
-    });
-  }, [recDetailModule, onStartCategorySession]);
-
   const dayHistoryEntries = React.useMemo(
     () => getCompletedModulesForWeekdayThisWeek(dayHistoryDayIndex, completionTimestamps, moduleCompletionCounts),
     [dayHistoryDayIndex, completionTimestamps, moduleCompletionCounts, weekBoundaryTick]
@@ -1150,6 +1137,19 @@ export default function DashboardScreen({
     (moduleId: string) => !unlockedModuleIdsByCategory.has(moduleId) && !purchasedModuleIds.includes(moduleId),
     [unlockedModuleIdsByCategory, purchasedModuleIds]
   );
+  const getFreeModuleIdForCategory = React.useCallback(
+    (cat: string | null | undefined): string | null => {
+      if (!cat) return null;
+      const n = normalizeCategory(cat);
+      for (const id of unlockedModuleIdsByCategory) {
+        const m = modules.find((x) => x.moduleId === id);
+        if (m && normalizeCategory(m.category) === n) return id;
+      }
+      return null;
+    },
+    [modules, unlockedModuleIdsByCategory]
+  );
+
   const getPayableModulesForCategory = React.useCallback((category: string): ModuleItem[] => {
     const categoryModules = modules.filter(
       (m) =>
@@ -1372,6 +1372,24 @@ export default function DashboardScreen({
     }
     return null;
   }, [modules]);
+
+  const continueRecommendedFlow = React.useCallback(() => {
+    if (!recDetailModule) return;
+    setRecDetailModalVisible(false);
+    setRecModalVisible(false);
+    const cat = recDetailModule.category?.trim() ? recDetailModule.category : 'Punching';
+    onStartCategorySession({
+      category: cat,
+      warmups: [],
+      cooldowns: [],
+      trainingModules: [recDetailModule],
+      introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
+      mannequinGifUri: extractRemoteUrl(moduleDyn(recDetailModule).referenceGuideUrl),
+      sessionVariant: 'recommendedSingle',
+      freeModuleId: getFreeModuleIdForCategory(cat),
+    });
+  }, [getCategoryIntroductionVideoUrl, getFreeModuleIdForCategory, recDetailModule, onStartCategorySession]);
+
   const modulesInCategoryByLevel = groupByDifficulty(
     techniqueModulesInCategory,
     selectedCategory,
@@ -1597,6 +1615,7 @@ export default function DashboardScreen({
         : 0,
       initialCooldownIndex: hasCooldownStartSelection ? cooldownStartIdx : 0,
       initialTrainingIndex,
+      freeModuleId: getFreeModuleIdForCategory(selectedCategory ?? 'Punching'),
     });
   };
 
@@ -2287,6 +2306,7 @@ export default function DashboardScreen({
                           introductionVideoUrl: getCategoryIntroductionVideoUrl(cat),
                           mannequinGifUri: extractRemoteUrl(moduleDyn(mod).referenceGuideUrl),
                           returnToCategoryAfterExit: false,
+                          freeModuleId: getFreeModuleIdForCategory(cat),
                         });
                       }}
                     >
@@ -2363,7 +2383,17 @@ export default function DashboardScreen({
                     moduleId: purchaseTargetModule.moduleId,
                     moduleTitle: purchaseTargetModule.moduleTitle,
                   });
-                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setPurchasedModuleIds((prev) => {
+                    const merged = Array.from(
+                      new Set(
+                        [...prev, ...result.purchasedModuleIds]
+                          .map((id) => String(id ?? '').trim())
+                          .filter(Boolean)
+                      )
+                    );
+                    void persistPurchasedModuleIdsSnapshot(merged);
+                    return merged;
+                  });
                   setUserCredits(result.newCredits);
                   setPurchaseModalVisible(false);
                   onModulePurchaseComplete?.({ invoice: result.invoice, newCredits: result.newCredits });
@@ -2413,7 +2443,17 @@ export default function DashboardScreen({
                     moduleId: purchaseTargetModule.moduleId,
                     moduleTitle: purchaseTargetModule.moduleTitle,
                   });
-                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setPurchasedModuleIds((prev) => {
+                    const merged = Array.from(
+                      new Set(
+                        [...prev, ...result.purchasedModuleIds]
+                          .map((id) => String(id ?? '').trim())
+                          .filter(Boolean)
+                      )
+                    );
+                    void persistPurchasedModuleIdsSnapshot(merged);
+                    return merged;
+                  });
                   setUserCredits(result.newCredits);
                   setPurchaseModalVisible(false);
                   onModulePurchaseComplete?.({ invoice: result.invoice, newCredits: result.newCredits });

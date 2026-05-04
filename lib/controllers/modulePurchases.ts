@@ -4,7 +4,15 @@ import { db } from '../config/firebaseConfig';
 import { getCurrentUser, updateStoredUserCredits } from './authSession';
 import { withTimeout } from './moduleCache';
 
-const purchasedIdsStorageKey = (uid: string) => `purchased_module_ids:v1:${uid}`;
+/** @deprecated v1 flat array — migrated to v2 on read */
+const purchasedIdsStorageKeyV1 = (uid: string) => `purchased_module_ids:v1:${uid}`;
+const purchasedIdsStorageKeyV2 = (uid: string) => `purchased_modules_cache:v2:${uid}`;
+
+interface PurchasedModulesDiskCache {
+  ids: string[];
+  /** Set when we have successfully read `purchasedModules` from RTDB at least once (ids may be empty). */
+  syncedAt: number | null;
+}
 
 export interface ModulePurchaseInvoice {
   invoiceNo: string;
@@ -32,34 +40,75 @@ export interface PurchasedModuleMeta {
   referenceNo?: string;
 }
 
-async function readCachedPurchasedIds(uid: string): Promise<string[]> {
+async function readPurchasedModulesDiskCache(uid: string): Promise<PurchasedModulesDiskCache> {
   try {
-    const raw = await AsyncStorage.getItem(purchasedIdsStorageKey(uid));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.map((id) => String(id ?? '').trim()).filter(Boolean) : [];
+    const rawV2 = await AsyncStorage.getItem(purchasedIdsStorageKeyV2(uid));
+    if (rawV2) {
+      const parsed = JSON.parse(rawV2) as unknown;
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        Array.isArray((parsed as PurchasedModulesDiskCache).ids) &&
+        Object.prototype.hasOwnProperty.call(parsed, 'syncedAt')
+      ) {
+        const p = parsed as PurchasedModulesDiskCache;
+        const ids = p.ids.map((id) => String(id ?? '').trim()).filter(Boolean);
+        const syncedAt =
+          p.syncedAt === null
+            ? null
+            : typeof p.syncedAt === 'number' && p.syncedAt > 0
+              ? p.syncedAt
+              : null;
+        return { ids, syncedAt };
+      }
+    }
+
+    const legacy = await AsyncStorage.getItem(purchasedIdsStorageKeyV1(uid));
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as unknown;
+      if (Array.isArray(parsed)) {
+        const ids = parsed.map((id) => String(id ?? '').trim()).filter(Boolean);
+        const migrated: PurchasedModulesDiskCache = { ids, syncedAt: Date.now() };
+        await AsyncStorage.setItem(purchasedIdsStorageKeyV2(uid), JSON.stringify(migrated)).catch(() => {});
+        await AsyncStorage.removeItem(purchasedIdsStorageKeyV1(uid)).catch(() => {});
+        return migrated;
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  return { ids: [], syncedAt: null };
 }
 
-async function writeCachedPurchasedIds(uid: string, ids: string[]): Promise<void> {
+async function writePurchasedModulesDiskCache(uid: string, data: PurchasedModulesDiskCache): Promise<void> {
   try {
-    await AsyncStorage.setItem(purchasedIdsStorageKey(uid), JSON.stringify(ids));
+    await AsyncStorage.setItem(purchasedIdsStorageKeyV2(uid), JSON.stringify(data));
   } catch {
     // ignore
   }
 }
 
 /**
+ * Writes the full purchased-id list to device storage (marks as synced for offline use).
+ * Call after a successful unlock so the dashboard / sessions match after refresh or offline.
+ */
+export async function persistPurchasedModuleIdsSnapshot(ids: string[]): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+  const list = Array.from(new Set(ids.map((id) => String(id ?? '').trim()).filter(Boolean)));
+  await writePurchasedModulesDiskCache(user.uid, { ids: list, syncedAt: Date.now() });
+}
+
+/**
  * Purchased module IDs from RTDB, with AsyncStorage fallback when offline or slow.
- * When we already have cached IDs, returns them immediately and refreshes in the background.
+ * After at least one successful server read we persist `syncedAt` so offline mode still reflects
+ * which modules were unlocked the last time the account synced (including an empty purchase list).
  */
 export async function getPurchasedModuleIds(): Promise<string[]> {
   const user = await getCurrentUser();
   if (!user) return [];
   const uid = user.uid;
-  const cached = await readCachedPurchasedIds(uid);
+  const disk = await readPurchasedModulesDiskCache(uid);
 
   const fetchRemote = () =>
     get(ref(db, `users/${uid}/purchasedModules`))
@@ -69,22 +118,26 @@ export async function getPurchasedModuleIds(): Promise<string[]> {
       })
       .catch((): null => null);
 
-  const refresh = async () => {
-    const remote = await withTimeout(fetchRemote(), 4000);
-    if (remote !== null) await writeCachedPurchasedIds(uid, remote);
+  const persistFromRemote = async (ids: string[]) => {
+    await writePurchasedModulesDiskCache(uid, { ids, syncedAt: Date.now() });
   };
 
-  if (cached.length > 0) {
+  const refresh = async () => {
+    const remote = await withTimeout(fetchRemote(), 4000);
+    if (remote !== null) await persistFromRemote(remote);
+  };
+
+  if (disk.syncedAt != null) {
     void refresh();
-    return cached;
+    return disk.ids;
   }
 
   const remote = await withTimeout(fetchRemote(), 4000);
   if (remote !== null) {
-    await writeCachedPurchasedIds(uid, remote);
+    await persistFromRemote(remote);
     return remote;
   }
-  return [];
+  return disk.ids;
 }
 
 export async function getPurchasedModulesMeta(): Promise<PurchasedModuleMeta[]> {
@@ -210,8 +263,9 @@ export async function purchaseModulesWithCredits(input: {
   });
   await updateStoredUserCredits(newCredits);
 
-  const mergedIds = [...(await readCachedPurchasedIds(user.uid)), ...remaining];
-  await writeCachedPurchasedIds(user.uid, Array.from(new Set(mergedIds)));
+  const disk = await readPurchasedModulesDiskCache(user.uid);
+  const mergedIds = Array.from(new Set([...disk.ids, ...remaining]));
+  await writePurchasedModulesDiskCache(user.uid, { ids: mergedIds, syncedAt: Date.now() });
 
   return {
     success: true,

@@ -26,13 +26,19 @@ import SessionNavMenu from '../components/SessionNavMenu';
 import { getRequiredReps } from '../utils/repRange';
 import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuideAssets';
 import { TrainingGuidePreloader, TrainingPoseGuideOverlay, type TrainingGuideModuleFields } from '../lib/trainingGuideMedia';
-import { getPurchasedModuleIds, getUserCreditsBalance, purchaseModulesWithCredits } from '../lib/controllers/modulePurchases';
+import {
+  getPurchasedModuleIds,
+  getUserCreditsBalance,
+  persistPurchasedModuleIdsSnapshot,
+  purchaseModulesWithCredits,
+} from '../lib/controllers/modulePurchases';
 import { getCachedVideoUri, prefetchVideo } from '../utils/videoCache';
 
 /** After the final cooldown (and category success when shown), keep MODULE COMPLETED visible this long before the trainer rating modal. */
 const SESSION_DONE_HOLD_MS_BEFORE_TRAINER_PROMPT = 3000;
 
 type SessionStep =
+  | 'pending_session_entry'
   | 'warmup_countdown'
   | 'warmup_timer'
   | 'warmup_between_countdown'
@@ -75,6 +81,11 @@ export interface CategoryPracticeSessionScreenProps {
    * Quit (top-left) stays available so users can leave the session.
    */
   sessionVariant?: 'default' | 'recommendedSingle';
+  /**
+   * The one module per category that is free without purchase (same id the dashboard uses for lock overlays).
+   * Required for correct lock checks when the training list is a slice or a single recommended module.
+   */
+  freeModuleId?: string | null;
   onGoToTrainerPage?: () => void;
   onExit: () => void;
 }
@@ -208,12 +219,14 @@ export default function CategoryPracticeSessionScreen({
   initialCooldownIndex = 0,
   initialTrainingIndex = 0,
   sessionVariant = 'default',
+  freeModuleId = null,
   onGoToTrainerPage,
   onExit,
 }: CategoryPracticeSessionScreenProps) {
   const hideSessionNav = sessionVariant === 'recommendedSingle';
-  const [step, setStep] = useState<SessionStep>('warmup_countdown');
-  const stepRef = useRef<SessionStep>('warmup_countdown');
+  /** Avoid running warmup/training effects before purchase state is hydrated (otherwise we jump into Warmup 1 while waiting). */
+  const [step, setStep] = useState<SessionStep>('pending_session_entry');
+  const stepRef = useRef<SessionStep>('pending_session_entry');
   useEffect(() => {
     stepRef.current = step;
   }, [step]);
@@ -390,19 +403,18 @@ export default function CategoryPracticeSessionScreen({
         .filter(Boolean)
     );
   }, [purchasedModuleIds]);
+  const freeModuleIdNorm = String(freeModuleId ?? '').trim();
   const isTrainingModuleLocked = useCallback(
     (index: number) => {
-      // Avoid false lock popups before purchase state is hydrated.
-      if (!hasLoadedPurchases) return false;
-      // first module in category stays free
-      if (index === 0) return false;
       const mod = orderedTrainingModules[index];
       if (!mod) return false;
       const moduleId = String(mod.moduleId ?? '').trim();
       if (!moduleId) return false;
-      return !purchasedModuleIdSet.has(moduleId);
+      if (freeModuleIdNorm && moduleId === freeModuleIdNorm) return false;
+      if (purchasedModuleIdSet.has(moduleId)) return false;
+      return true;
     },
-    [hasLoadedPurchases, orderedTrainingModules, purchasedModuleIdSet]
+    [freeModuleIdNorm, orderedTrainingModules, purchasedModuleIdSet]
   );
 
   const trainersInSession = useMemo(() => {
@@ -1360,6 +1372,8 @@ export default function CategoryPracticeSessionScreen({
   // Initialize session entry step.
   useEffect(() => {
     if (hasInitializedSessionRef.current) return;
+    // Avoid starting training (or showing a bogus paywall) before purchased-module ids are hydrated from disk/network.
+    if (orderedTrainingModules.length > 0 && !hasLoadedPurchases) return;
     hasInitializedSessionRef.current = true;
 
     if ((startPhase === 'introduction' || startPhase === 'training') && orderedTrainingModules.length > 0) {
@@ -1403,6 +1417,7 @@ export default function CategoryPracticeSessionScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     cooldownNames,
+    hasLoadedPurchases,
     initialCooldownIndex,
     initialTrainingIndex,
     initialWarmupIndex,
@@ -1853,7 +1868,17 @@ export default function CategoryPracticeSessionScreen({
                     moduleId: target.moduleId,
                     moduleTitle: target.moduleTitle,
                   });
-                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setPurchasedModuleIds((prev) => {
+                    const merged = Array.from(
+                      new Set(
+                        [...prev, ...result.purchasedModuleIds]
+                          .map((id) => String(id ?? '').trim())
+                          .filter(Boolean)
+                      )
+                    );
+                    void persistPurchasedModuleIdsSnapshot(merged);
+                    return merged;
+                  });
                   setUserCredits(result.newCredits);
                   setPurchaseModalVisible(false);
                   setTrainingIndex(idx);
@@ -1892,7 +1917,17 @@ export default function CategoryPracticeSessionScreen({
                     moduleId: anchorModule ? String(anchorModule.moduleId ?? '').trim() : undefined,
                     moduleTitle: anchorModule?.moduleTitle,
                   });
-                  setPurchasedModuleIds((prev) => Array.from(new Set([...prev, ...result.purchasedModuleIds])));
+                  setPurchasedModuleIds((prev) => {
+                    const merged = Array.from(
+                      new Set(
+                        [...prev, ...result.purchasedModuleIds]
+                          .map((id) => String(id ?? '').trim())
+                          .filter(Boolean)
+                      )
+                    );
+                    void persistPurchasedModuleIdsSnapshot(merged);
+                    return merged;
+                  });
                   setUserCredits(result.newCredits);
                   const idx = pendingLockedTrainingIndex;
                   setPurchaseModalVisible(false);
@@ -2017,6 +2052,20 @@ export default function CategoryPracticeSessionScreen({
       </View>
     </Modal>
   );
+
+  if (step === 'pending_session_entry') {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.topLeftOverlay}>{sessionNav}</View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+          <ActivityIndicator size="large" color="#07bbc0" />
+          <Text style={{ color: 'rgba(255,255,255,0.75)', marginTop: 16, fontSize: 15, textAlign: 'center' }}>
+            Preparing session…
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (step === 'session_done') {
     return (

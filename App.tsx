@@ -102,6 +102,7 @@ export default function App() {
     initialTrainingIndex?: number;
     sessionVariant?: 'default' | 'recommendedSingle';
     returnToCategoryAfterExit?: boolean;
+    freeModuleId?: string | null;
   } | null>(null);
   const [dashboardRecommendationsReopenToken, setDashboardRecommendationsReopenToken] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -509,7 +510,7 @@ export default function App() {
                   setCategoryPracticeSession(payload);
                   setScreen('category-practice-session');
                 }}
-                onStartRecommendedSingleSession={(mod) => {
+                onStartRecommendedSingleSession={(mod, ctx) => {
                   const cat = mod.category?.trim() ? mod.category : 'Punching';
                   setCategoryPracticeSession({
                     category: cat,
@@ -517,6 +518,7 @@ export default function App() {
                     cooldowns: [],
                     trainingModules: [mod],
                     sessionVariant: 'recommendedSingle',
+                    freeModuleId: ctx?.freeModuleId ?? null,
                   });
                   setScreen('category-practice-session');
                 }}
@@ -700,6 +702,7 @@ export default function App() {
                 initialCooldownIndex={categoryPracticeSession.initialCooldownIndex ?? 0}
                 initialTrainingIndex={categoryPracticeSession.initialTrainingIndex ?? 0}
                 sessionVariant={categoryPracticeSession.sessionVariant ?? 'default'}
+                freeModuleId={categoryPracticeSession.freeModuleId ?? null}
                 {...({ introductionVideoUrl: categoryPracticeSession.introductionVideoUrl ?? null } as any)}
                 onGoToTrainerPage={() => {
                   setCategoryPracticeSession(null);

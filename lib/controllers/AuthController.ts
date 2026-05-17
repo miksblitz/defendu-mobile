@@ -41,6 +41,8 @@ export {
   getUserProgress,
   recordModuleCompletion,
   recordModuleTrainingFailure,
+  getCategoryWorkoutBestMs,
+  recordCategoryWorkoutBest,
   claimWeeklyGoalReward,
   resetUserProgress,
 } from './userProgress';
@@ -111,6 +113,8 @@ import {
   getUserProgress,
   recordModuleCompletion,
   recordModuleTrainingFailure,
+  getCategoryWorkoutBestMs,
+  recordCategoryWorkoutBest,
   claimWeeklyGoalReward,
   resetUserProgress,
 } from './userProgress';
@@ -181,6 +185,8 @@ export const AuthController = {
   getUserProgress,
   recordModuleCompletion,
   recordModuleTrainingFailure,
+  getCategoryWorkoutBestMs,
+  recordCategoryWorkoutBest,
   claimWeeklyGoalReward,
   getModulesByIds,
   getReferencePoseData,

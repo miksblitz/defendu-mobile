@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -28,6 +29,8 @@ import { getCooldownGuideSource, getWarmupGuideSource } from '../lib/warmupGuide
 import { TrainingGuidePreloader, TrainingPoseGuideOverlay, type TrainingGuideModuleFields } from '../lib/trainingGuideMedia';
 import { getPurchasedModuleIds, getUserCreditsBalance, purchaseModulesWithCredits } from '../lib/controllers/modulePurchases';
 import { getCachedVideoUri, prefetchVideo } from '../utils/videoCache';
+import WorkoutSessionAnalyticsView from '../components/WorkoutSessionAnalyticsView';
+import type { ModuleSessionStat, WorkoutSessionSummary } from '../lib/session/workoutSessionTypes';
 
 /** After the final cooldown (and category success when shown), keep MODULE COMPLETED visible this long before the trainer rating modal. */
 const SESSION_DONE_HOLD_MS_BEFORE_TRAINER_PROMPT = 3000;
@@ -49,7 +52,9 @@ type SessionStep =
   | 'cooldown_countdown'
   | 'cooldown_timer'
   | 'cooldown_between_countdown'
-  | 'session_done';
+  | 'session_done'
+  | 'session_analytics'
+  | 'session_trainer_review';
 
 type CountdownText = '3' | '2' | '1' | 'READY YOUR STANCE' | 'ARE YOU READY?' | 'GO!!';
 const SESSION_LOOP_TRACK = require('../assets/audio/training-loop.mp3');
@@ -83,6 +88,19 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function pickTrainerFromRecord(rec: Record<string, unknown>): { uid: string; name: string } | null {
+  const uid = String(
+    rec.trainerId ?? rec.trainerUid ?? rec.trainerUID ?? rec.ownerId ?? rec.userId ?? ''
+  ).trim();
+  if (!uid) return null;
+  const name = String(rec.trainerName ?? rec.trainerDisplayName ?? rec.authorName ?? '').trim();
+  return { uid, name: name || 'Trainer' };
+}
+
+function categoriesMatch(a: string, b: string): boolean {
+  return String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 }
 
 function frameToArray(frame: unknown): PoseFrame | null {
@@ -256,6 +274,13 @@ export default function CategoryPracticeSessionScreen({
   /** When true, warmup/cooldown 30s interval does not decrement (pause). */
   const segmentTimerPauseRef = useRef(false);
   const hasInitializedSessionRef = useRef(false);
+  const sessionStartedAtRef = useRef(Date.now());
+  const moduleStatsRef = useRef<ModuleSessionStat[]>([]);
+  const currentModuleTrackingRef = useRef<{ moduleId: string; title: string; startedAt: number } | null>(null);
+  const poseBadRepsRef = useRef(0);
+  const sessionTrainersRef = useRef<Map<string, string>>(new Map());
+  const [sessionAnalyticsSummary, setSessionAnalyticsSummary] = useState<WorkoutSessionSummary | null>(null);
+  const [analyticsContinueLoading, setAnalyticsContinueLoading] = useState(false);
 
   const hasRecordedCompletionRef = useRef(false);
   /** Synchronous guard: training timer expiry vs rep effect must not skip GOOD JOB + completion write. */
@@ -371,6 +396,7 @@ export default function CategoryPracticeSessionScreen({
 
   useEffect(() => {
     queuedCategoryReviewPromptRef.current = false;
+    sessionTrainersRef.current = new Map();
   }, [category]);
 
   const requiredReps = module ? getRequiredReps(module.repRange) : 0;
@@ -408,72 +434,77 @@ export default function CategoryPracticeSessionScreen({
   const trainersInSession = useMemo(() => {
     const byId = new Map<string, string>();
     for (const mod of orderedTrainingModules as unknown as Array<Record<string, unknown>>) {
-      const uid = String(
-        mod.trainerId ?? mod.trainerUid ?? mod.trainerUID ?? mod.ownerId ?? mod.userId ?? ''
-      ).trim();
-      const name = String(mod.trainerName ?? mod.trainerDisplayName ?? mod.authorName ?? '').trim();
-      if (!uid) continue;
-      if (!byId.has(uid)) byId.set(uid, name || 'Trainer');
+      const picked = pickTrainerFromRecord(mod);
+      if (!picked) continue;
+      if (!byId.has(picked.uid)) byId.set(picked.uid, picked.name);
     }
     return Array.from(byId.entries()).map(([uid, name]) => ({ uid, name }));
   }, [orderedTrainingModules]);
 
-  const resolveTrainersFromModuleDocs = useCallback(async (): Promise<Array<{ uid: string; name: string }>> => {
-    const ids = Array.from(new Set(orderedTrainingModules.map((m) => m.moduleId).filter(Boolean)));
-    if (!ids.length) return [];
+  const resolveSessionTrainers = useCallback(async (): Promise<Array<{ uid: string; name: string }>> => {
     const byId = new Map<string, string>();
-    await Promise.all(
-      ids.map(async (moduleId) => {
-        const full = await AuthController.getModuleByIdForUser(moduleId);
-        if (!full) return;
-        const uid = String((full as unknown as { trainerId?: string }).trainerId ?? '').trim();
-        const name = String((full as unknown as { trainerName?: string }).trainerName ?? '').trim();
-        if (!uid) return;
-        if (!byId.has(uid)) byId.set(uid, name || 'Trainer');
-      })
-    );
+    const addTrainer = (uid: string, name: string) => {
+      const id = String(uid ?? '').trim();
+      if (!id) return;
+      if (!byId.has(id)) byId.set(id, String(name ?? '').trim() || 'Trainer');
+    };
+
+    for (const [uid, name] of sessionTrainersRef.current.entries()) addTrainer(uid, name);
+    for (const t of trainersInSession) addTrainer(t.uid, t.name);
+    for (const mod of orderedTrainingModules as unknown as Array<Record<string, unknown>>) {
+      const picked = pickTrainerFromRecord(mod);
+      if (picked) addTrainer(picked.uid, picked.name);
+    }
+
+    const moduleIds = new Set<string>();
+    for (const m of orderedTrainingModules) {
+      const id = String(m.moduleId ?? '').trim();
+      if (id) moduleIds.add(id);
+    }
+    for (const stat of moduleStatsRef.current) {
+      const id = String(stat.moduleId ?? '').trim();
+      if (id) moduleIds.add(id);
+    }
+
+    if (moduleIds.size > 0) {
+      const fullModules = await AuthController.getModulesByIds([...moduleIds]);
+      for (const full of fullModules) {
+        const picked = pickTrainerFromRecord(full as unknown as Record<string, unknown>);
+        if (picked) addTrainer(picked.uid, picked.name);
+      }
+    }
+
+    if (byId.size === 0) {
+      try {
+        const approved = await AuthController.getApprovedModules();
+        for (const m of approved) {
+          if (!categoriesMatch(m.category ?? '', category)) continue;
+          const picked = pickTrainerFromRecord(m as unknown as Record<string, unknown>);
+          if (picked) addTrainer(picked.uid, picked.name);
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
     return Array.from(byId.entries()).map(([uid, name]) => ({ uid, name }));
-  }, [trainingModules]);
+  }, [category, orderedTrainingModules, trainersInSession]);
 
   const maybeQueueCategoryReviewPrompt = useCallback(async (): Promise<boolean> => {
     if (queuedCategoryReviewPromptRef.current) return false;
-    let trainers = trainersInSession;
-    if (trainers.length === 0) {
-      trainers = await resolveTrainersFromModuleDocs();
-    }
-    if (trainers.length === 0) return false;
-    const existing = await AuthController.getMyCategoryReview(category);
-    if (existing) return false;
-    await AuthController.queueCategoryReviewPrompt({ category, trainers });
-    queuedCategoryReviewPromptRef.current = true;
-    return true;
-  }, [category, trainersInSession, resolveTrainersFromModuleDocs]);
-
-  const promptForCategoryReviewIfNeeded = useCallback(async (): Promise<boolean> => {
-    if (categoryReviewPrompt) return true;
-    let trainers = trainersInSession;
-    if (trainers.length === 0) trainers = await resolveTrainersFromModuleDocs();
+    const trainers = await resolveSessionTrainers();
     if (trainers.length === 0) return false;
     const existing = await AuthController.getMyCategoryReview(category);
     const existingRatings = existing?.trainerRatings ?? {};
-    const unratedTrainers = trainers.filter((t) => {
+    const unratedForQueue = trainers.filter((t) => {
       const v = Number(existingRatings[t.uid]);
       return !(Number.isFinite(v) && v >= 1 && v <= 5);
     });
-    if (unratedTrainers.length === 0) return false;
-    const approvedTrainers = await AuthController.getApprovedTrainers().catch(() => []);
-    const photoMap: Record<string, string> = {};
-    for (const t of approvedTrainers) {
-      const url = String(t.profilePicture ?? '').trim();
-      if (url.startsWith('http://') || url.startsWith('https://')) photoMap[t.uid] = url;
-    }
-    setTrainerPhotoByUid(photoMap);
-    const initial: Record<string, number> = {};
-    for (const t of unratedTrainers) initial[t.uid] = 0;
-    setTrainerRatings(initial);
-    setCategoryReviewPrompt({ category, trainers: unratedTrainers });
+    if (unratedForQueue.length === 0) return false;
+    await AuthController.queueCategoryReviewPrompt({ category, trainers: unratedForQueue });
+    queuedCategoryReviewPromptRef.current = true;
     return true;
-  }, [category, categoryReviewPrompt, trainersInSession, resolveTrainersFromModuleDocs]);
+  }, [category, resolveSessionTrainers]);
 
   useEffect(() => {
     maybeQueueCategoryReviewPromptRef.current = () => maybeQueueCategoryReviewPrompt();
@@ -509,6 +540,51 @@ export default function CategoryPracticeSessionScreen({
     if (!m?.moduleId || trainingFailureLoggedRef.current) return;
     trainingFailureLoggedRef.current = true;
     AuthController.recordModuleTrainingFailure(m.moduleId).catch(() => {});
+  }, []);
+
+  const flushCurrentModuleStat = useCallback((completed: boolean) => {
+    const mod = moduleRef.current;
+    const cur = currentModuleTrackingRef.current;
+    if (!mod?.moduleId || !cur || cur.moduleId !== mod.moduleId) return;
+    const stat: ModuleSessionStat = {
+      moduleId: mod.moduleId,
+      title: mod.moduleTitle?.trim() || cur.title || 'Training module',
+      correctReps: poseCorrectRepsRef.current,
+      badReps: poseBadRepsRef.current,
+      durationMs: Math.max(0, Date.now() - cur.startedAt),
+      completed,
+    };
+    const idx = moduleStatsRef.current.findIndex((m) => m.moduleId === stat.moduleId);
+    if (idx >= 0) moduleStatsRef.current[idx] = stat;
+    else moduleStatsRef.current.push(stat);
+    currentModuleTrackingRef.current = null;
+  }, []);
+
+  const beginModuleTracking = useCallback((item: ModuleItem | null) => {
+    if (!item?.moduleId) return;
+    const moduleId = String(item.moduleId).trim();
+    if (!moduleId) return;
+    currentModuleTrackingRef.current = {
+      moduleId,
+      title: item.moduleTitle?.trim() || 'Training module',
+      startedAt: Date.now(),
+    };
+    poseBadRepsRef.current = 0;
+  }, []);
+
+  const isTrainingPhaseStep = useCallback((s: SessionStep): boolean => {
+    return (
+      s === 'training_introduction' ||
+      s === 'training_safety' ||
+      s === 'training_countdown' ||
+      s === 'training_stance' ||
+      s === 'training_pose_loading' ||
+      s === 'training_pose' ||
+      s === 'training_success' ||
+      s === 'training_category_success' ||
+      s === 'training_between_countdown' ||
+      s === 'training_between_stance'
+    );
   }, []);
 
   const clearCountdown = () => {
@@ -782,33 +858,112 @@ export default function CategoryPracticeSessionScreen({
           new Promise<void>((r) => setTimeout(r, EXIT_PENDING_COMPLETIONS_MS)),
         ]);
       }
-      const s = stepRef.current;
-      const inTraining =
-        s === 'training_introduction' ||
-        s === 'training_safety' ||
-        s === 'training_countdown' ||
-        s === 'training_stance' ||
-        s === 'training_pose_loading' ||
-        s === 'training_pose' ||
-        s === 'training_success' ||
-        s === 'training_category_success' ||
-        s === 'training_between_countdown' ||
-        s === 'training_between_stance';
-      if (inTraining) {
-        try {
-          await Promise.race([
-            maybeQueueCategoryReviewPromptRef.current(),
-            new Promise<boolean>((r) => setTimeout(() => r(false), EXIT_QUEUE_CATEGORY_REVIEW_MS)),
-          ]);
-        } catch {
-          // non-fatal
-        }
-      }
       onExit();
     } catch {
       exitRequestedRef.current = false;
     }
   }, [onExit]);
+
+  const openSessionAnalytics = useCallback(
+    async (outcome: 'completed' | 'quit') => {
+      flushCurrentModuleStat(hasRecordedCompletionRef.current);
+      const modules = [...moduleStatsRef.current];
+      const durationMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
+      const totalCorrectReps = modules.reduce((sum, m) => sum + m.correctReps, 0);
+      const totalBadReps = modules.reduce((sum, m) => sum + m.badReps, 0);
+
+      let personalBestMs: number | null = null;
+      let isNewPersonalBest = false;
+      try {
+        personalBestMs = await AuthController.getCategoryWorkoutBestMs(category);
+      } catch {
+        personalBestMs = null;
+      }
+
+      if (outcome === 'completed') {
+        if (personalBestMs == null || durationMs < personalBestMs) {
+          try {
+            const saved = await AuthController.recordCategoryWorkoutBest(category, durationMs);
+            if (saved) {
+              isNewPersonalBest = true;
+              personalBestMs = durationMs;
+            }
+          } catch {
+            // non-fatal
+          }
+        }
+      }
+
+      setSessionAnalyticsSummary({
+        category,
+        outcome,
+        durationMs,
+        modules,
+        totalCorrectReps,
+        totalBadReps,
+        personalBestMs,
+        isNewPersonalBest,
+      });
+      void maybeQueueCategoryReviewPromptRef.current().catch(() => {});
+      setStep('session_analytics');
+    },
+    [category, flushCurrentModuleStat]
+  );
+
+  const prepareCategoryTrainerReview = useCallback(async (): Promise<boolean> => {
+    if (categoryReviewPrompt) {
+      setStep('session_trainer_review');
+      return true;
+    }
+
+    let trainers = await resolveSessionTrainers();
+    const pending = await AuthController.popCategoryReviewPrompt().catch(() => null);
+    if (pending?.trainers?.length) {
+      if (categoriesMatch(pending.category, category)) {
+        const byId = new Map(trainers.map((t) => [t.uid, t.name]));
+        for (const t of pending.trainers) {
+          const uid = String(t.uid ?? '').trim();
+          if (!uid) continue;
+          if (!byId.has(uid)) byId.set(uid, String(t.name ?? '').trim() || 'Trainer');
+        }
+        trainers = Array.from(byId.entries()).map(([uid, name]) => ({ uid, name }));
+      } else {
+        await AuthController.queueCategoryReviewPrompt(pending).catch(() => {});
+      }
+    }
+    if (trainers.length === 0) return false;
+
+    const existing = await AuthController.getMyCategoryReview(category).catch(() => null);
+    const existingRatings = existing?.trainerRatings ?? {};
+
+    const approvedTrainers = await AuthController.getApprovedTrainers().catch(() => []);
+    const photoMap: Record<string, string> = {};
+    for (const t of approvedTrainers) {
+      const url = String(t.profilePicture ?? '').trim();
+      if (url.startsWith('http://') || url.startsWith('https://')) photoMap[t.uid] = url;
+    }
+    setTrainerPhotoByUid(photoMap);
+    const initial: Record<string, number> = {};
+    for (const t of trainers) {
+      const v = Number(existingRatings[t.uid]);
+      initial[t.uid] = Number.isFinite(v) && v >= 1 && v <= 5 ? v : 0;
+    }
+    setTrainerRatings(initial);
+    setCategoryReviewPrompt({ category, trainers });
+    setStep('session_trainer_review');
+    return true;
+  }, [category, categoryReviewPrompt, resolveSessionTrainers]);
+
+  const proceedFromSessionAnalytics = useCallback(async () => {
+    if (analyticsContinueLoading) return;
+    setAnalyticsContinueLoading(true);
+    try {
+      const prompted = await prepareCategoryTrainerReview();
+      if (!prompted) await exitSession();
+    } finally {
+      setAnalyticsContinueLoading(false);
+    }
+  }, [analyticsContinueLoading, exitSession, prepareCategoryTrainerReview]);
 
   const exitTrainingToCooldownOrDone = useCallback(() => {
     if (cooldownNames.length > 0) {
@@ -816,11 +971,11 @@ export default function CategoryPracticeSessionScreen({
       setActiveExerciseName(cooldownNames[0] ?? '');
       setStep('cooldown_countdown');
     } else if (hideSessionNav) {
-      void exitSession();
+      void openSessionAnalytics('completed');
     } else {
       setStep('session_done');
     }
-  }, [cooldownNames, hideSessionNav, exitSession]);
+  }, [cooldownNames, hideSessionNav, openSessionAnalytics]);
 
   const startTrainingCountdown = useCallback(
     (index: number, options?: { skipIntroSafety?: boolean }) => {
@@ -831,6 +986,7 @@ export default function CategoryPracticeSessionScreen({
         return;
       }
       setTrainingIndex(index);
+      beginModuleTracking(orderedTrainingModules[index] ?? null);
       // Show the category introduction video once before safety.
       if (!skipIntroSafety && index === 0 && !hasShownTrainingIntroduction && introVideoUrl) {
         setStep('training_introduction');
@@ -840,7 +996,7 @@ export default function CategoryPracticeSessionScreen({
       if (!skipIntroSafety && index === 0 && !hasShownTrainingSafety) setStep('training_safety');
       else setStep('training_countdown');
     },
-    [hasShownTrainingIntroduction, hasShownTrainingSafety, introVideoUrl, isTrainingModuleLocked]
+    [beginModuleTracking, hasShownTrainingIntroduction, hasShownTrainingSafety, introVideoUrl, isTrainingModuleLocked, orderedTrainingModules]
   );
 
   useEffect(() => {
@@ -891,6 +1047,8 @@ export default function CategoryPracticeSessionScreen({
       if (trainingPrepRequestRef.current !== requestId) return;
       if (!full) throw new Error('Module not found');
       setModule(full);
+      const loadedTrainer = pickTrainerFromRecord(full as unknown as Record<string, unknown>);
+      if (loadedTrainer) sessionTrainersRef.current.set(loadedTrainer.uid, loadedTrainer.name);
       const refLoaded = await loadReferenceSequence(full);
       if (trainingPrepRequestRef.current !== requestId) return;
       setReferencePoseSequence(refLoaded.referencePoseSequence);
@@ -922,6 +1080,7 @@ export default function CategoryPracticeSessionScreen({
   }, [category, currentTrainingItem, exitTrainingToCooldownOrDone]);
 
   const proceedAfterTraining = useCallback(() => {
+    flushCurrentModuleStat(hasRecordedCompletionRef.current);
     trainingSuccessLatchRef.current = false;
     setHasRecordedCompletion(false);
     setShowTrainingFailed(false);
@@ -946,13 +1105,14 @@ export default function CategoryPracticeSessionScreen({
         setStep('training_category_success');
       }
     }
-  }, [cooldownNames, orderedTrainingModules.length, startTrainingCountdown, clearTimer, trainingIndex, stopFailureSound]);
+  }, [cooldownNames, flushCurrentModuleStat, orderedTrainingModules.length, startTrainingCountdown, clearTimer, trainingIndex, stopFailureSound]);
 
   const commitTrainingSuccess = useCallback(() => {
     const mod = moduleRef.current;
     const mid = mod?.moduleId ? String(mod.moduleId).trim() : '';
     if (!mid) return;
     if (trainingSuccessLatchRef.current) return;
+    flushCurrentModuleStat(true);
     trainingSuccessLatchRef.current = true;
     hasRecordedCompletionRef.current = true;
     setHasRecordedCompletion(true);
@@ -964,7 +1124,7 @@ export default function CategoryPracticeSessionScreen({
     successTimeoutRef.current = setTimeout(() => {
       proceedAfterTraining();
     }, 3000);
-  }, [playModuleSuccessSound, recordCompletionInBackground, proceedAfterTraining, stopLoopMusic]);
+  }, [flushCurrentModuleStat, playModuleSuccessSound, recordCompletionInBackground, proceedAfterTraining, stopLoopMusic]);
 
   const handleTrainingTimerExpired = useCallback(() => {
     if (trainingSuccessLatchRef.current) return;
@@ -1049,6 +1209,14 @@ export default function CategoryPracticeSessionScreen({
             logTrainingFailureOnce();
           }
         }
+        flushCurrentModuleStat(false);
+      } else if (
+        step === 'training_pose' ||
+        step === 'training_category_success' ||
+        step === 'training_between_countdown' ||
+        step === 'training_between_stance'
+      ) {
+        flushCurrentModuleStat(true);
       }
       trainingPrepRequestRef.current += 1;
       trainingSuccessLatchRef.current = false;
@@ -1072,7 +1240,7 @@ export default function CategoryPracticeSessionScreen({
         // Skip should trigger a single countdown only once.
         setStep('cooldown_countdown');
       } else if (hideSessionNav) {
-        void exitSession();
+        void openSessionAnalytics('completed');
       } else {
         setStep('session_done');
       }
@@ -1081,11 +1249,12 @@ export default function CategoryPracticeSessionScreen({
     cooldownIndex,
     cooldownNames,
     exitTrainingToCooldownOrDone,
+    flushCurrentModuleStat,
     hasShownTrainingIntroduction,
     hasShownTrainingSafety,
     hideSessionNav,
     logTrainingFailureOnce,
-    exitSession,
+    openSessionAnalytics,
     step,
     startTrainingCountdown,
     trainingIndex,
@@ -1106,6 +1275,8 @@ export default function CategoryPracticeSessionScreen({
     clearCategorySuccessTimeout();
     setPoseCorrectReps(0);
     setPoseCurrentRepCorrect(null);
+    poseBadRepsRef.current = 0;
+    beginModuleTracking(orderedTrainingModules[trainingIndex] ?? null);
     trainingTimerEpochRef.current = -1;
     setTrainingTimerEndTimeMs(null);
     setTrainingPaused(false);
@@ -1117,7 +1288,7 @@ export default function CategoryPracticeSessionScreen({
     setPoseSessionKey((k) => k + 1);
     // Go back to module's pose phase without changing trainingIndex.
     setStep('training_pose_loading');
-  }, [resetLoopMusic, stopFailureSound]);
+  }, [beginModuleTracking, orderedTrainingModules, resetLoopMusic, stopFailureSound, trainingIndex]);
 
   const toggleTrainingPosePause = useCallback(() => {
     if (!trainingPaused) {
@@ -1317,8 +1488,20 @@ export default function CategoryPracticeSessionScreen({
     setShowQuitConfirm(false);
     setTrainingDefeatLocked(false);
     stopFailureSound().catch(() => {});
-    void exitSession();
-  }, [exitSession, stopFailureSound]);
+    void (async () => {
+      if (isTrainingPhaseStep(stepRef.current)) {
+        try {
+          await Promise.race([
+            maybeQueueCategoryReviewPromptRef.current(),
+            new Promise<boolean>((r) => setTimeout(() => r(false), EXIT_QUEUE_CATEGORY_REVIEW_MS)),
+          ]);
+        } catch {
+          // non-fatal
+        }
+      }
+      await openSessionAnalytics('quit');
+    })();
+  }, [isTrainingPhaseStep, openSessionAnalytics, stopFailureSound]);
 
   const confirmQuit = useCallback(() => {
     setShowQuitConfirm(true);
@@ -1349,13 +1532,10 @@ export default function CategoryPracticeSessionScreen({
     clearSessionDoneTimeout();
     playCategoryCompleteSound().catch(() => {});
     sessionDoneTimeoutRef.current = setTimeout(() => {
-      void (async () => {
-        const prompted = await promptForCategoryReviewIfNeeded();
-        if (!prompted) await exitSession();
-      })();
+      void openSessionAnalytics('completed');
     }, SESSION_DONE_HOLD_MS_BEFORE_TRAINER_PROMPT);
     return () => clearSessionDoneTimeout();
-  }, [step, exitSession, promptForCategoryReviewIfNeeded, playCategoryCompleteSound]);
+  }, [step, openSessionAnalytics, playCategoryCompleteSound]);
 
   // Initialize session entry step.
   useEffect(() => {
@@ -1491,13 +1671,13 @@ export default function CategoryPracticeSessionScreen({
     categorySuccessTimeoutRef.current = setTimeout(() => {
       pendingCategoryCompletionRef.current = false;
       if (hideSessionNav) {
-        void exitSession();
+        void openSessionAnalytics('completed');
       } else {
         setStep('session_done');
       }
     }, 5000);
     return () => clearCategorySuccessTimeout();
-  }, [step, exitSession, hideSessionNav, playCategoryCompleteSound]);
+  }, [step, hideSessionNav, openSessionAnalytics, playCategoryCompleteSound]);
 
   // Cooldown: countdown then 30s timer.
   useEffect(() => {
@@ -1519,7 +1699,7 @@ export default function CategoryPracticeSessionScreen({
           pendingCategoryCompletionRef.current = true;
           setStep('training_category_success');
         } else if (hideSessionNav) {
-          void exitSession();
+          void openSessionAnalytics('completed');
         } else {
           setStep('session_done');
         }
@@ -1527,7 +1707,7 @@ export default function CategoryPracticeSessionScreen({
     });
     return () => clearCountdown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, cooldownIndex, cooldownNames.length, hideSessionNav, exitSession, orderedTrainingModules.length, trainingIndex]);
+  }, [step, cooldownIndex, cooldownNames.length, hideSessionNav, openSessionAnalytics, orderedTrainingModules.length, trainingIndex]);
 
   // Between cooldowns: countdown then next cooldown.
   useEffect(() => {
@@ -1916,7 +2096,7 @@ export default function CategoryPracticeSessionScreen({
               onPress={() => {
                 if (purchasing) return;
                 setPurchaseModalVisible(false);
-                void exitSession();
+                void openSessionAnalytics('quit');
               }}
             >
               <Text style={styles.paywallCloseText}>Not now</Text>
@@ -1927,96 +2107,112 @@ export default function CategoryPracticeSessionScreen({
     </Modal>
   );
 
-  const categoryReviewModal = (
-    <Modal transparent visible={!!categoryReviewPrompt} animationType="fade" onRequestClose={() => setCategoryReviewPrompt(null)}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Rate This Category</Text>
-          <Text style={styles.modalMessage}>
-            Rate these Trainers in {categoryReviewPrompt?.category}. Visit them in the Trainer Page and message them — get in touch with them!
-          </Text>
-          {categoryReviewPrompt?.trainers?.length ? (
-            <View style={styles.reviewTrainerList}>
-              {categoryReviewPrompt.trainers.map((t) => (
-                <View key={t.uid} style={styles.reviewTrainerRow}>
-                  {trainerPhotoByUid[t.uid] ? (
-                    <Image source={{ uri: trainerPhotoByUid[t.uid] }} style={styles.reviewTrainerAvatar} />
-                  ) : (
-                    <View style={styles.reviewTrainerAvatarPlaceholder}>
-                      <Text style={styles.reviewTrainerAvatarLetter}>{(t.name?.trim()?.charAt(0) || 'T').toUpperCase()}</Text>
-                    </View>
-                  )}
-                  <View style={styles.reviewTrainerBody}>
-                    <Text style={styles.reviewTrainerName}>{t.name}</Text>
-                    <View style={styles.reviewStarRow}>
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <TouchableOpacity
-                          key={`${t.uid}-${s}`}
-                          onPress={() => setTrainerRatings((prev) => ({ ...prev, [t.uid]: s }))}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.reviewStarSmall, s <= (trainerRatings[t.uid] ?? 0) && styles.reviewStarActive]}>★</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
+  const categoryReviewPanel = categoryReviewPrompt ? (
+    <View style={styles.modalCard}>
+      <Text style={styles.modalTitle}>Rate This Category</Text>
+      <Text style={styles.modalMessage}>
+        Rate these Trainers in {categoryReviewPrompt.category}. Visit them in the Trainer Page and message them — get in touch with them!
+      </Text>
+      {categoryReviewPrompt.trainers.length > 0 ? (
+        <View style={styles.reviewTrainerList}>
+          {categoryReviewPrompt.trainers.map((t) => (
+            <View key={t.uid} style={styles.reviewTrainerRow}>
+              {trainerPhotoByUid[t.uid] ? (
+                <Image source={{ uri: trainerPhotoByUid[t.uid] }} style={styles.reviewTrainerAvatar} />
+              ) : (
+                <View style={styles.reviewTrainerAvatarPlaceholder}>
+                  <Text style={styles.reviewTrainerAvatarLetter}>{(t.name?.trim()?.charAt(0) || 'T').toUpperCase()}</Text>
                 </View>
-              ))}
+              )}
+              <View style={styles.reviewTrainerBody}>
+                <Text style={styles.reviewTrainerName}>{t.name}</Text>
+                <View style={styles.reviewStarRow}>
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <TouchableOpacity
+                      key={`${t.uid}-${s}`}
+                      onPress={() => setTrainerRatings((prev) => ({ ...prev, [t.uid]: s }))}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.reviewStarSmall, s <= (trainerRatings[t.uid] ?? 0) && styles.reviewStarActive]}>★</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
             </View>
-          ) : null}
-          <View style={styles.modalActions}>
-            <Pressable
-              style={styles.modalNoButton}
-              onPress={() => {
-                setCategoryReviewPrompt(null);
-                void exitSession();
-              }}
-            >
-              <Text style={styles.modalNoText}>Not now</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.modalYesButton, (submittingCategoryReview || !canSubmitCategoryTrainerRatings) && styles.modalDisabled]}
-              disabled={submittingCategoryReview || !canSubmitCategoryTrainerRatings}
-              onPress={async () => {
-                if (!categoryReviewPrompt) return;
-                try {
-                  setSubmittingCategoryReview(true);
-                  const nextRatings: Record<string, number> = {};
-                  for (const t of categoryReviewPrompt.trainers) {
-                    const v = trainerRatings[t.uid] ?? 0;
-                    if (v >= 1 && v <= 5) nextRatings[t.uid] = v;
-                  }
-                  await AuthController.submitCategoryReview(
-                    categoryReviewPrompt.category,
-                    null,
-                    undefined,
-                    categoryReviewPrompt.trainers.map((t) => t.uid),
-                    categoryReviewPrompt.trainers.map((t) => t.name),
-                    nextRatings
-                  );
-                  setCategoryReviewPrompt(null);
-                  await exitSession();
-                } finally {
-                  setSubmittingCategoryReview(false);
-                }
-              }}
-            >
-              <Text style={styles.modalYesText}>{submittingCategoryReview ? 'Submitting...' : 'Submit'}</Text>
-            </Pressable>
-          </View>
-          <Pressable
-            style={styles.modalTrainerPageButton}
-            onPress={() => {
-              setCategoryReviewPrompt(null);
-              onGoToTrainerPage?.();
-            }}
-          >
-            <Text style={styles.modalTrainerPageButtonText}>Go to Trainer Page</Text>
-          </Pressable>
+          ))}
         </View>
+      ) : null}
+      <View style={styles.modalActions}>
+        <Pressable
+          style={styles.modalNoButton}
+          onPress={() => {
+            setCategoryReviewPrompt(null);
+            void exitSession();
+          }}
+        >
+          <Text style={styles.modalNoText}>Not now</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.modalYesButton, (submittingCategoryReview || !canSubmitCategoryTrainerRatings) && styles.modalDisabled]}
+          disabled={submittingCategoryReview || !canSubmitCategoryTrainerRatings}
+          onPress={async () => {
+            if (!categoryReviewPrompt) return;
+            try {
+              setSubmittingCategoryReview(true);
+              const nextRatings: Record<string, number> = {};
+              for (const t of categoryReviewPrompt.trainers) {
+                const v = trainerRatings[t.uid] ?? 0;
+                if (v >= 1 && v <= 5) nextRatings[t.uid] = v;
+              }
+              await AuthController.submitCategoryReview(
+                categoryReviewPrompt.category,
+                null,
+                undefined,
+                categoryReviewPrompt.trainers.map((t) => t.uid),
+                categoryReviewPrompt.trainers.map((t) => t.name),
+                nextRatings
+              );
+              setCategoryReviewPrompt(null);
+              await exitSession();
+            } finally {
+              setSubmittingCategoryReview(false);
+            }
+          }}
+        >
+          <Text style={styles.modalYesText}>{submittingCategoryReview ? 'Submitting...' : 'Submit'}</Text>
+        </Pressable>
       </View>
-    </Modal>
-  );
+      <Pressable
+        style={styles.modalTrainerPageButton}
+        onPress={() => {
+          setCategoryReviewPrompt(null);
+          onGoToTrainerPage?.();
+        }}
+      >
+        <Text style={styles.modalTrainerPageButtonText}>Go to Trainer Page</Text>
+      </Pressable>
+    </View>
+  ) : null;
+
+  if (step === 'session_analytics' && sessionAnalyticsSummary) {
+    return (
+      <WorkoutSessionAnalyticsView
+        summary={sessionAnalyticsSummary}
+        continueLoading={analyticsContinueLoading}
+        onContinue={() => void proceedFromSessionAnalytics()}
+      />
+    );
+  }
+
+  if (step === 'session_trainer_review' && categoryReviewPanel) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ScrollView contentContainerStyle={styles.trainerReviewScroll} keyboardShouldPersistTaps="handled">
+          {categoryReviewPanel}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   if (step === 'session_done') {
     return (
@@ -2034,7 +2230,6 @@ export default function CategoryPracticeSessionScreen({
         {skipConfirmModal}
         {previousConfirmModal}
         {quitConfirmModal}
-        {categoryReviewModal}
       </SafeAreaView>
     );
   }
@@ -2151,6 +2346,7 @@ export default function CategoryPracticeSessionScreen({
             paused={trainingPaused || trainingDefeatLocked}
             onCorrectRepsUpdate={(count, lastCorrect) => {
               if (trainingDefeatLocked) return;
+              if (lastCorrect === false) poseBadRepsRef.current += 1;
               setPoseCorrectReps(count);
               setPoseCurrentRepCorrect(lastCorrect);
             }}
@@ -2586,6 +2782,12 @@ const styles = StyleSheet.create({
   },
   primaryButton: { backgroundColor: '#07bbc0', paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 },
   primaryButtonText: { color: '#041527', fontSize: 16, fontWeight: '700' },
+  trainerReviewScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

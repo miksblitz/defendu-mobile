@@ -9,8 +9,11 @@
 import { ref, get, set, update } from 'firebase/database';
 import { db } from '../config/firebaseConfig';
 import { getCurrentUser, updateStoredUserCredits } from './authSession';
+import { normalizeCategoryKey } from '../session/workoutSessionTypes';
 
 export type ModuleTrainingStat = { failCount: number; lastFailedAt?: number };
+
+export type CategoryWorkoutBest = { durationMs: number; achievedAt: number };
 
 export type WeeklyReward = {
   weekKey: string;
@@ -77,22 +80,53 @@ function parseModuleTrainingStats(raw: unknown): Record<string, ModuleTrainingSt
   return out;
 }
 
+function parseCategoryWorkoutBests(raw: unknown): Record<string, CategoryWorkoutBest> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, CategoryWorkoutBest> = {};
+  for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key || !v || typeof v !== 'object') continue;
+    const durationMs = (v as { durationMs?: unknown }).durationMs;
+    const achievedAt = (v as { achievedAt?: unknown }).achievedAt;
+    if (typeof durationMs === 'number' && durationMs > 0 && typeof achievedAt === 'number' && achievedAt > 0) {
+      out[key] = { durationMs: Math.floor(durationMs), achievedAt: Math.floor(achievedAt) };
+    }
+  }
+  return out;
+}
+
 export async function getUserProgress(): Promise<{
   completedModuleIds: string[];
   completedCount: number;
   completionTimestamps: Record<string, number>;
   moduleCompletionCounts: Record<string, number>;
   moduleTrainingStats: Record<string, ModuleTrainingStat>;
+  categoryWorkoutBests: Record<string, CategoryWorkoutBest>;
   weeklyReward: WeeklyReward | null;
 }> {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
-      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleCompletionCounts: {}, moduleTrainingStats: {}, weeklyReward: null };
+      return {
+        completedModuleIds: [],
+        completedCount: 0,
+        completionTimestamps: {},
+        moduleCompletionCounts: {},
+        moduleTrainingStats: {},
+        categoryWorkoutBests: {},
+        weeklyReward: null,
+      };
     }
     const snap = await get(ref(db, `userProgress/${currentUser.uid}`));
     if (!snap.exists()) {
-      return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleCompletionCounts: {}, moduleTrainingStats: {}, weeklyReward: null };
+      return {
+        completedModuleIds: [],
+        completedCount: 0,
+        completionTimestamps: {},
+        moduleCompletionCounts: {},
+        moduleTrainingStats: {},
+        categoryWorkoutBests: {},
+        weeklyReward: null,
+      };
     }
     const data = snap.val();
     const completedModuleIds = Array.isArray(data?.completedModuleIds) ? data.completedModuleIds : [];
@@ -116,6 +150,7 @@ export async function getUserProgress(): Promise<{
       }
     }
     const moduleTrainingStats = parseModuleTrainingStats(data?.moduleTrainingStats);
+    const categoryWorkoutBests = parseCategoryWorkoutBests(data?.categoryWorkoutBests);
     const rawWeekly = data?.weeklyReward;
     const weeklyReward: WeeklyReward | null =
       rawWeekly
@@ -133,11 +168,66 @@ export async function getUserProgress(): Promise<{
                 : undefined,
           }
         : null;
-    return { completedModuleIds, completedCount, completionTimestamps, moduleCompletionCounts, moduleTrainingStats, weeklyReward };
+    return {
+      completedModuleIds,
+      completedCount,
+      completionTimestamps,
+      moduleCompletionCounts,
+      moduleTrainingStats,
+      categoryWorkoutBests,
+      weeklyReward,
+    };
   } catch (e) {
     console.error('getUserProgress:', e);
-    return { completedModuleIds: [], completedCount: 0, completionTimestamps: {}, moduleCompletionCounts: {}, moduleTrainingStats: {}, weeklyReward: null };
+    return {
+      completedModuleIds: [],
+      completedCount: 0,
+      completionTimestamps: {},
+      moduleCompletionCounts: {},
+      moduleTrainingStats: {},
+      categoryWorkoutBests: {},
+      weeklyReward: null,
+    };
   }
+}
+
+/** Fastest full category workout completion (ms), or null if none saved. */
+export async function getCategoryWorkoutBestMs(category: string): Promise<number | null> {
+  const key = normalizeCategoryKey(category);
+  if (!key) return null;
+  const progress = await getUserProgress();
+  const best = progress.categoryWorkoutBests[key];
+  return best?.durationMs ?? null;
+}
+
+/** Save a faster full-category workout time when the user beats their record. */
+export async function recordCategoryWorkoutBest(category: string, durationMs: number): Promise<boolean> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) return false;
+  const key = normalizeCategoryKey(category);
+  const ms = Math.floor(durationMs);
+  if (!key || !Number.isFinite(ms) || ms <= 0) return false;
+
+  const existing = await readProgressForWrite();
+  const prev = existing.categoryWorkoutBests[key]?.durationMs;
+  if (typeof prev === 'number' && prev > 0 && ms >= prev) return false;
+
+  const categoryWorkoutBests = {
+    ...existing.categoryWorkoutBests,
+    [key]: { durationMs: ms, achievedAt: Date.now() },
+  };
+
+  await set(ref(db, `userProgress/${currentUser.uid}`), {
+    completedModuleIds: existing.completedModuleIds,
+    completedCount: existing.completedCount,
+    completionTimestamps: existing.completionTimestamps,
+    moduleCompletionCounts: existing.moduleCompletionCounts,
+    moduleTrainingStats: existing.moduleTrainingStats,
+    categoryWorkoutBests,
+    weeklyReward: existing.weeklyReward ?? null,
+    updatedAt: Date.now(),
+  });
+  return true;
 }
 
 export async function recordModuleCompletion(moduleId: string): Promise<number> {
@@ -185,6 +275,7 @@ export async function recordModuleCompletion(moduleId: string): Promise<number> 
     completionTimestamps,
     moduleCompletionCounts,
     moduleTrainingStats,
+    categoryWorkoutBests: existing.categoryWorkoutBests,
     weeklyReward,
     updatedAt: Date.now(),
   });
@@ -208,6 +299,7 @@ export async function recordModuleTrainingFailure(moduleId: string): Promise<voi
     completionTimestamps: existing.completionTimestamps,
     moduleCompletionCounts: existing.moduleCompletionCounts,
     moduleTrainingStats,
+    categoryWorkoutBests: existing.categoryWorkoutBests,
     weeklyReward: existing.weeklyReward ?? null,
     updatedAt: Date.now(),
   });
@@ -258,6 +350,7 @@ async function readProgressForWrite(): Promise<{
   completionTimestamps: Record<string, number>;
   moduleCompletionCounts: Record<string, number>;
   moduleTrainingStats: Record<string, ModuleTrainingStat>;
+  categoryWorkoutBests: Record<string, CategoryWorkoutBest>;
   weeklyReward: WeeklyReward | null;
 }> {
   const p = await getUserProgress();
@@ -267,6 +360,7 @@ async function readProgressForWrite(): Promise<{
     completionTimestamps: p.completionTimestamps,
     moduleCompletionCounts: p.moduleCompletionCounts,
     moduleTrainingStats: p.moduleTrainingStats,
+    categoryWorkoutBests: p.categoryWorkoutBests,
     weeklyReward: p.weeklyReward,
   };
 }
@@ -281,6 +375,7 @@ export async function resetUserProgress(): Promise<void> {
     completionTimestamps: {},
     moduleCompletionCounts: {},
     moduleTrainingStats: {},
+    categoryWorkoutBests: {},
     weeklyReward: null,
     updatedAt: Date.now(),
   });
